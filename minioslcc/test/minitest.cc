@@ -6,6 +6,8 @@
 #include <iostream>
 #include <bitset>
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
 
 #define TEST_CHECK_EQUAL(a,b) TEST_CHECK((a) == (b))
 #define TEST_ASSERT_EQUAL(a,b) TEST_ASSERT((a) == (b))
@@ -245,7 +247,7 @@ void test_square() {
 }
 
 bool max_of_two(PieceStand l, PieceStand r, PieceStand m) {
-  for (auto ptype: PieceStand::order) {
+  for (auto ptype: piece_stand_order) {
     if (std::max(l.get(ptype), r.get(ptype)) != m.get(ptype))
       return false;
   }
@@ -396,7 +398,7 @@ void test_piece_stand() {
   }
   {
     PieceStand src;
-    for (auto ptype: PieceStand::order) {
+    for (auto ptype: piece_stand_order) {
         src.add(ptype, random() % 3);
     }
     std::stringstream ss;
@@ -585,6 +587,30 @@ void test_move() {
     TEST_CHECK_EQUAL(Move::PASS(BLACK).rotate180(), Move::PASS(WHITE));
   }
 }
+
+void test_csa() {
+  {
+    EffectState state;
+    Move move = csa::to_move("+7776FU", state);
+    TEST_CHECK(move.isNormal());
+    TEST_CHECK(! move.isInvalid());
+    TEST_CHECK(! move.isPass());
+    TEST_CHECK(move.from() == Square(7,7));
+    TEST_CHECK(move.to() == Square(7,6));
+    TEST_CHECK(move.ptype() == PAWN);
+    TEST_CHECK(! move.isCapture());
+    TEST_CHECK(! move.ignoreUnpromote());
+    TEST_CHECK(! move.hasIgnoredUnpromote());
+
+    try {
+      move = csa::to_move("+7775FU", state);
+      TEST_CHECK(! move.isNormal());
+    }
+    catch (std::runtime_error& e) {
+    }
+  }
+}
+
 
 void test_offset()
 {
@@ -830,7 +856,7 @@ void test_king8()
 
 void test_state() {
   {
-    SimpleState state;
+    BaseState state;
     TEST_ASSERT(state.isConsistent());
   }
   {
@@ -1192,7 +1218,7 @@ void test_effect_state() {
                                    "P-00AL\n"
                                    "+\n");
     TEST_CHECK(state.isConsistent());
-    testEffectedState(state,Move::INVALID());
+    testEffectedState(state,Move::Resign());
     { // simple move
       EffectState state1=state;
       TEST_CHECK(state1.isConsistent());
@@ -1849,7 +1875,7 @@ void test_usi() {
 
     EffectState state2;
     usi::parse_board(hirate, state2);
-    TEST_CHECK_EQUAL(static_cast<const SimpleState&>(state), state2);
+    TEST_CHECK_EQUAL(static_cast<const BaseState&>(state), state2);
   }
   {
     EffectState state;
@@ -1876,7 +1902,7 @@ void test_usi() {
 
       EffectState state2;
       usi::parse(s763426, state2);
-      TEST_CHECK_EQUAL(static_cast<const SimpleState&>(state), state2);
+      TEST_CHECK_EQUAL(static_cast<const BaseState&>(state), state2);
     }
     {
       EffectState state(csa::read_board(
@@ -1897,12 +1923,12 @@ void test_usi() {
 
       EffectState state2;
       usi::parse(stest, state2);
-      TEST_CHECK_EQUAL(static_cast<const SimpleState&>(state), state2);
+      TEST_CHECK_EQUAL(static_cast<const BaseState&>(state), state2);
 
       const std::string stest3 = "sfen lnsgkgsnl/1r7/3pppppp/9/9/9/PPPPPPP2/1B5R1/LN1GKGSNL w S2Pb3p";
       EffectState state3;
       usi::parse(stest3, state3);
-      TEST_CHECK_EQUAL(static_cast<const SimpleState&>(state), state3);
+      TEST_CHECK_EQUAL(static_cast<const BaseState&>(state), state3);
     }
   }
   {
@@ -1970,7 +1996,7 @@ void test_usi() {
       TEST_CHECK_EQUAL(str, to_usi(state));
       EffectState test;
       usi::parse(str, test);
-      TEST_CHECK_EQUAL(static_cast<const SimpleState&>(state), test);
+      TEST_CHECK_EQUAL(static_cast<const BaseState&>(state), test);
     }
     {
       std::string str = "sfen lnsg4l/2k2R+P2/pppp1s2p/9/4p1P2/2P2p+n2/PP1P4P/2KSG1p2/LN1G4L w BG2Prbsnp 1";
@@ -1990,22 +2016,20 @@ void test_usi() {
       TEST_CHECK_EQUAL(str, to_usi(state));
       EffectState test;
       usi::parse(str, test);
-      TEST_CHECK_EQUAL(static_cast<const SimpleState&>(state), test);
+      TEST_CHECK_EQUAL(static_cast<const BaseState&>(state), test);
     }
   }
   {
     {
       const std::string sfen = "position sfen lnsgkgsnl/9/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL w - 1 moves 5a6b 2g2f 6b7b 2f2e 7b8b 2e2d 2c2d 2h2d";
-      EffectState state;
-      std::vector<Move> moves;
-      TEST_CHECK((usi::parse(sfen, state, moves), true)); // no throw
-
-      for (Ptype ptype: PieceStand::order) {
+      auto record = usi::read_record(sfen);
+      auto state = record.initial_state;
+      for (Ptype ptype: piece_stand_order) {
         TEST_CHECK_EQUAL(0, state.countPiecesOnStand(BLACK, ptype));
         TEST_CHECK_EQUAL(0, state.countPiecesOnStand(WHITE, ptype));
       }
 
-      for (Move move: moves) {
+      for (Move move: record.moves) {
         MoveVector all;
         state.generateLegal(all);
         TEST_CHECK(is_member(all, move));
@@ -4361,7 +4385,280 @@ void test_addeffect()
   }
 }
 
+std::pair<int,int> find2(const auto& array) {
+  int a=0, b=0;
+  while (array[a] == 0) ++a;
+  b=a+1;
+  while (array[b] == 0) ++b;
+  return std::make_pair(a,b);
+}
 
+void test_combination_id() {
+  using osl::bitpack::detail::combination_id;
+  
+  TEST_CHECK(combination_id(0,1) == 0);
+  TEST_CHECK(combination_id(0,2) == 1);
+  TEST_CHECK(combination_id(1,2) == 2);
+
+  TEST_CHECK(combination_id(7,8) == 36-1); // 9C2
+  TEST_CHECK(combination_id(36,37) == 38*37/2-1); // 38C2
+
+  for (int a: std::views::iota(0,37))
+    for (int b: std::views::iota(a+1,38)) {
+      auto [c, d] = bitpack::detail::unpack2(combination_id(a,b));
+      TEST_ASSERT(a == c && b == d);
+    }
+
+  TEST_CHECK(combination_id(0,1,2) == 0);
+  TEST_CHECK(combination_id(0,1,3) == 1);
+  TEST_CHECK(combination_id(0,2,3) == 2);
+  TEST_CHECK(combination_id(1,2,3) == 3);
+
+  TEST_CHECK(combination_id(7,8,9) == 10*9*8/6-1); // 10C3
+
+  TEST_CHECK(combination_id(0,1,2,3) == 0);
+  TEST_CHECK(combination_id(0,1,2,4) == 1);
+  TEST_CHECK(combination_id(0,1,3,4) == 2);
+  TEST_CHECK(combination_id(0,2,3,4) == 3);
+  TEST_CHECK(combination_id(1,2,3,4) == 4);
+
+  TEST_CHECK(combination_id(6,7,8,9) == 10*9*8*7/24-1); // 10C4
+  TEST_CHECK(combination_id(30,31,32,33) == 34*33*32*31/24-1); // 34C4
+
+  for (int a: std::views::iota(0,34))
+    for (int b: std::views::iota(a+1,34)) 
+      for (int c: std::views::iota(b+1,34)) 
+        for (int d: std::views::iota(c+1,34)) {
+          auto [p, q, r, s] = bitpack::detail::unpack4(combination_id(a,b,c,d));
+          TEST_ASSERT(a == p && b == q && c == r && d == s);
+        }
+}
+
+void test_pack_position() {
+  {
+    PackedState ps;
+    auto bs = ps.to_bitset();
+    PackedState ps2;
+    ps2.restore(bs);
+    TEST_CHECK(to_usi(ps.state) == to_usi(ps2.state));
+  }
+  {
+    auto sfen = "sfen l2g3nl/5k3/2npppsgp/p2s2p2/5P1pP/PrPPS1R2/4P1P2/2G1K1G2/LNS4NL b B3Pbp 1";
+    EffectState state = usi::to_state(sfen);
+    
+    PackedState ps = {state};
+    auto bs = ps.to_bitset();
+    PackedState ps2;
+    ps2.restore(bs);
+
+    TEST_CHECK(sfen == to_usi(ps2.state));
+  }
+}
+
+void test_win_if_declare()
+{
+  {
+    const EffectState state;
+    TEST_CHECK( !win_if_declare(state) );
+  }
+  {
+    auto state=csa::read_board("P1 *  * +RY *  * +KI * -KE * \n"
+                               "P2+OU+TO+UM+UM+TO * -KI-OU * \n"
+                               "P3-FU+FU+FU+FU+FU-GI-GI *  * \n"
+                               "P4 *  *  *  * -FU-FU-FU-FU * \n"
+                               "P5 *  * -RY-NY-GI *  *  *  * \n"
+                               "P6 *  *  *  *  * +FU+FU+FU * \n"
+                               "P7 *  *  *  *  * +KI+KE * -NY\n"
+                               "P8 *  *  *  *  * +KI+GI *  * \n"
+                               "P9 *  *  *  * -NY *  *  *  * \n"
+                               "P+00FU00FU00FU00FU00KY00KE00KE\n"
+                               "+\n");
+    TEST_CHECK( win_if_declare(state) );
+  }
+  {
+    auto state=csa::read_board("P1 *  *  *  * +NY *  *  *  * \n"
+                               "P2 *  *  *  *  * -KI-GI *  * \n"
+                               "P3 *  *  *  *  * -KI-KE * +NY\n"
+                               "P4 *  *  *  *  * -FU-FU-FU * \n"
+                               "P5 *  * +RY+NY+GI *  *  *  * \n"
+                               "P6 *  *  *  * +FU+FU+FU+FU * \n"
+                               "P7+FU-FU-FU-FU-FU+GI+GI *  * \n"
+                               "P8-OU-TO-UM-UM-TO * +KI+OU * \n"
+                               "P9 *  * -RY *  * -KI * +KE * \n"
+                               "P-00FU00FU00FU00FU00KY00KE00KE\n"
+                               "-\n");
+    TEST_CHECK( win_if_declare(state) );
+  }
+  {
+    auto state=csa::read_board("P1 *  * +RY *  * +KI * -KE * \n"
+                               "P2+OU+TO+UM+UM+TO * -KI-OU * \n"
+                               "P3-FU+FU+FU+FU * -GI-GI *  * \n"
+                               "P4 *  *  *  * -FU-FU-FU-FU * \n"
+                               "P5 *  * -RY-NY-GI *  *  *  * \n"
+                               "P6 *  *  *  *  * +FU+FU+FU * \n"
+                               "P7 *  *  *  *  * +KI+KE * -NY\n"
+                               "P8 *  *  *  *  * +KI+GI *  * \n"
+                               "P9 *  *  *  * -NY *  *  *  * \n"
+                               "P+00FU00FU00FU00FU00KY00KE00KE\n"
+                               "P-00FU\n"
+                               "+\n");
+    TEST_CHECK( !win_if_declare(state) );
+  }
+  {
+    auto state=csa::read_board("P1 *  *  *  * +NY *  *  *  * \n"
+                               "P2 *  *  *  *  * -KI-GI *  * \n"
+                               "P3 *  *  *  *  * -KI-KE * +NY\n"
+                               "P4 *  *  *  *  * -FU-FU-FU * \n"
+                               "P5 *  * +RY+NY+GI *  *  *  * \n"
+                               "P6 *  *  *  * +FU+FU+FU+FU * \n"
+                               "P7+FU-FU-FU-FU * +GI+GI *  * \n"
+                               "P8-OU-TO-UM-UM-TO * +KI+OU * \n"
+                               "P9 *  * -RY *  * -KI * +KE * \n"
+                               "P+00FU\n"
+                               "P-00FU00FU00FU00FU00KY00KE00KE\n"
+                               "-\n");
+    TEST_CHECK( !win_if_declare(state) );
+  }
+  {
+    auto state=csa::read_board("P1 *  * +RY *  * +KI * -KE * \n"
+                               "P2+OU+TO+UM+TO+TO * -KI-OU * \n"
+                               "P3-FU+FU+FU+FU+FU-GI-GI *  * \n"
+                               "P4 *  *  *  * -FU-FU-FU-FU * \n"
+                               "P5 *  * -RY-NY-GI *  *  *  * \n"
+                               "P6 *  *  *  *  * +FU+FU+FU * \n"
+                               "P7+UM *  *  *  * +KI+KE * -NY\n"
+                               "P8 *  *  *  *  * +KI+GI *  * \n"
+                               "P9 *  *  *  * -NY *  *  *  * \n"
+                               "P+00FU00FU00FU00KY00KE00KE\n"
+                               "+\n");
+    TEST_CHECK( !win_if_declare(state) );
+  }
+  {
+    auto state=csa::read_board("P1 *  *  *  * +NY *  *  *  * \n"
+                               "P2 *  *  *  *  * -KI-GI *  * \n"
+                               "P3-UM *  *  *  * -KI-KE * +NY\n"
+                               "P4 *  *  *  *  * -FU-FU-FU * \n"
+                               "P5 *  * +RY+NY+GI *  *  *  * \n"
+                               "P6 *  *  *  * +FU+FU+FU+FU * \n"
+                               "P7+FU-FU-FU-FU-FU+GI+GI *  * \n"
+                               "P8-OU-TO-UM-TO-TO * +KI+OU * \n"
+                               "P9 *  * -RY *  * -KI * +KE * \n"
+                               "P-00FU00FU00FU00KY00KE00KE\n"
+                               "-\n");
+    TEST_CHECK( !win_if_declare(state) );
+  }
+  {
+    auto state=csa::read_board("P1 *  * +RY *  * +KI * -KE * \n"
+                               "P2+OU+TO+UM+UM+TO * -KI-OU * \n"
+                               "P3-FU+FU+FU+FU+FU-GI-GI *  * \n"
+                               "P4 *  *  *  * -FU-FU-FU-FU * \n"
+                               "P5 *  * -RY-NY-GI *  *  *  * \n"
+                               "P6 *  *  *  *  * +FU+FU+FU * \n"
+                               "P7 *  *  *  *  * +KI+KE * -NY\n"
+                               "P8 *  *  *  *  * +KI+GI *  * \n"
+                               "P9 *  *  *  * -NY *  *  *  * \n"
+                               "P+00FU00FU00FU00FU00KY00KE00KE\n"
+                               "+\n");
+    bool kachi = win_if_declare(state);
+    TEST_CHECK(kachi);
+  }
+  {
+    auto state=csa::read_board("P1 *  *  *  * +NY *  *  *  * \n"
+                               "P2 *  *  *  *  * -KI-GI *  * \n"
+                               "P3 *  *  *  *  * -KI-KE * +NY\n"
+                               "P4 *  *  *  *  * -FU-FU-FU * \n"
+                               "P5 *  * +RY+NY+GI *  *  *  * \n"
+                               "P6 *  *  *  * +FU+FU+FU+FU * \n"
+                               "P7+FU-FU-FU-FU-FU+GI+GI *  * \n"
+                               "P8-OU-TO-UM-UM-TO * +KI+OU * \n"
+                               "P9 *  * -RY *  * -KI * +KE * \n"
+                               "P-00FU00FU00FU00FU00KY00KE00KE\n"
+                               "-\n");
+    bool kachi = win_if_declare(state);
+    TEST_CHECK(kachi);
+  }
+  {
+    auto state=csa::read_board("P1 *  * +RY *  * +KI * -KE * \n"
+                               "P2+OU+TO+UM+UM+TO * -KI-OU * \n"
+                               "P3-FU+FU+FU+FU * -GI-GI *  * \n"
+                               "P4 *  *  *  * -FU-FU-FU-FU * \n"
+                               "P5 *  * -RY-NY-GI *  *  *  * \n"
+                               "P6 *  *  *  *  * +FU+FU+FU * \n"
+                               "P7 *  *  *  *  * +KI+KE * -NY\n"
+                               "P8 *  *  *  *  * +KI+GI *  * \n"
+                               "P9 *  *  *  * -NY *  *  *  * \n"
+                               "P+00FU00FU00FU00FU00KY00KE00KE\n"
+                               "P-00FU\n"
+                               "+\n");
+    bool kachi = win_if_declare(state);
+    TEST_CHECK(!kachi);
+    // TEST_CHECK(drops == 1);
+  }
+  {
+    auto state=csa::read_board("P1 *  *  *  * +NY *  *  *  * \n"
+                               "P2 *  *  *  *  * -KI-GI *  * \n"
+                               "P3 *  *  *  *  * -KI-KE * +NY\n"
+                               "P4 *  *  *  *  * -FU-FU-FU * \n"
+                               "P5 *  * +RY+NY+GI *  *  *  * \n"
+                               "P6 *  *  *  * +FU+FU+FU+FU * \n"
+                               "P7+FU-FU-FU-FU * +GI+GI *  * \n"
+                               "P8-OU-TO-UM-UM-TO * +KI+OU * \n"
+                               "P9 *  * -RY *  * -KI * +KE * \n"
+                               "P+00FU\n"
+                               "P-00FU00FU00FU00FU00KY00KE00KE\n"
+                               "-\n");
+    bool kachi = win_if_declare(state);
+    TEST_CHECK(!kachi);
+    // TEST_CHECK(drops == 1);
+  }
+  {
+    auto state=csa::read_board("P1 *  * +RY *  * +KI * -KE * \n"
+                               "P2+OU+TO+UM+TO+TO * -KI-OU * \n"
+                               "P3-FU+FU+FU+FU+FU-GI-GI *  * \n"
+                               "P4 *  *  *  * -FU-FU-FU-FU * \n"
+                               "P5 *  * -RY-NY-GI *  *  *  * \n"
+                               "P6 *  *  *  *  * +FU+FU+FU * \n"
+                               "P7+UM *  *  *  * +KI+KE * -NY\n"
+                               "P8 *  *  *  *  * +KI+GI *  * \n"
+                               "P9 *  *  *  * -NY *  *  *  * \n"
+                               "P+00FU00FU00FU00KY00KE00KE\n"
+                               "+\n");
+    bool kachi = win_if_declare(state);
+    TEST_CHECK(!kachi);
+    // TEST_CHECK(drops == 41);
+  }
+  {
+    auto state=csa::read_board("P1 *  *  *  * +NY *  *  *  * \n"
+                               "P2 *  *  *  *  * -KI-GI *  * \n"
+                               "P3-UM *  *  *  * -KI-KE * +NY\n"
+                               "P4 *  *  *  *  * -FU-FU-FU * \n"
+                               "P5 *  * +RY+NY+GI *  *  *  * \n"
+                               "P6 *  *  *  * +FU+FU+FU+FU * \n"
+                               "P7+FU-FU-FU-FU-FU+GI+GI *  * \n"
+                               "P8-OU-TO-UM-TO-TO * +KI+OU * \n"
+                               "P9 *  * -RY *  * -KI * +KE * \n"
+                               "P-00FU00FU00FU00KY00KE00KE\n"
+                               "-\n");
+    bool kachi = win_if_declare(state);
+    TEST_CHECK(!kachi);
+    // TEST_CHECK(drops == 41);
+  }
+}
+
+void test_compress_record()
+{
+  std::string sfen = "startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f 9c9d 3h4g 7c7d 1g1f 7d7e 2e2d 2c2d 2h2d 8e8f 8g8f P*2c 2d7d 8b8f 5i5h 7b7c 7d7e 2c2d P*8g 8f8b 7e3e 3b2c 3e3f 2d2e 7g7f 5b4b 1f1e 3c3d 4i3h 7c6d 8h2b+ 3a2b 4f4e 2b3c 4g5f 8a7c 6g6f P*8f 8g8f 8b8f P*8g 8f8a 3f4f 6a6b 7i6h 5c5d 6h6g 4b3b 3g3f 5d5e 5f4g 6d5c 2i3g 6c6d 7f7e 8a8d 5h4h B*2d 3f3e 2d3e 4f3f P*8h 7h8h 1c1d 1e1d 1a1d 1i1d 2c1d P*2b 3c2b 4e4d 4c4d 8h7h 6d6e P*1b 1d2d L*7d P*7b 1b1a+ 2b1a 8i7g 4d4e 7d7c+ 7b7c 7g6e L*4f 6e5c 4f4g 4h5h 3e1g+ 3g4e 2d3e P*4d 8d4d P*3c 2a3c B*2a 3b2a 4e3c+ S*3b S*2d 4g4h+ 5h6h 4h5h 6g5h P*6g 7h6g B*1e 2d1e 3b3c 3f3g 1g1f L*1g N*4f 1g1f 4f5h+ 6h5h 6b5c B*6b 4d4c N*2d S*2c P*4d 5c4d B*5b 1a2b 5b4c+ 4d4c R*4a B*3a 4a4c+ 3c2d 1e2d N*4f 5h4g 3e3f 3g3f N*3e 2d3e L*1d S*3b 2a1a G*2a 1a1b 4c2c 2b2c N*2d 1b1c 3b2c+ 1c2c 3e3d 2c2d G*2c";
+  auto record = usi::read_record(sfen);
+  // record.moves.resize(2);
+  std::vector<uint64_t> code_seq;
+  int count = bitpack::append_binary_record(record, code_seq);
+  TEST_ASSERT(count > 0);
+  MiniRecord r2;
+  const uint64_t *ptr = &*code_seq.begin();
+  int read_count = bitpack::read_binary_record(ptr, r2);
+  TEST_ASSERT(count == read_count);
+  TEST_ASSERT(record == r2);
+}
 
 TEST_LIST = {
   { "player", test_player },
@@ -4370,6 +4667,7 @@ TEST_LIST = {
   { "square", test_square },
   { "piece_stand", test_piece_stand },
   { "move", test_move },
+  { "csa", test_csa },
   { "offset", test_offset },
   { "king8", test_king8 },
   { "state", test_state },
@@ -4381,5 +4679,9 @@ TEST_LIST = {
   { "checkmate", test_checkmate },
   { "addeffect", test_addeffect },
   { "movegen", test_movegen },
+  { "combination_id", test_combination_id },
+  { "pack_position", test_pack_position },
+  { "win_if_declare", test_win_if_declare },
+  { "compress_record", test_compress_record },
   { nullptr, nullptr }
 };

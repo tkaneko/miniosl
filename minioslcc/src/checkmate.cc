@@ -930,6 +930,43 @@ namespace osl
   template void move_generator::AddEffect::generate<WHITE>(const EffectState&,Square,MoveStore&,bool&);
 } // namespace osl
 
+bool osl::win_if_declare(const EffectState& state) {
+  const auto Turn = state.turn();
+
+  //手番, 持時間は省略
+  assert(Turn == state.turn());
+  const Square my_king_sq = state.kingSquare(Turn);
+
+  if (my_king_sq.isPieceStand() || state.hasEffectAt(alt(Turn), my_king_sq))
+    return false;
+
+  if (! promote_area_y(Turn, my_king_sq.y()))
+    return false;
+  
+  // 敵陣に自分の駒が10枚以上 (自玉を除いて) あるか
+  // 駒の点数を勘定する.  (対象: 敵陣の駒 + 持駒)
+  // 大駒を5点として, 先手は28点, 後手なら27点必要
+  int pieces_in_area = 0;
+  int score_in_area = -1; // 自玉の分を予め引いておく
+
+  for (int n: state.piecesOnBoard(Turn).toRange()) {
+    auto p = state.pieceOf(n);
+    if (p.square().isPromoteArea(Turn)) {
+      ++pieces_in_area;
+      score_in_area += 1 + 4 * is_major(p.ptype());
+    }
+  }
+  if (pieces_in_area < 11)
+    return false;
+
+  int score_stand = 5 * state.countPiecesOnStand(Turn, ROOK) + 5 * state.countPiecesOnStand(Turn, BISHOP)
+    + state.countPiecesOnStand(Turn, GOLD)   + state.countPiecesOnStand(Turn, SILVER)
+    + state.countPiecesOnStand(Turn, KNIGHT) + state.countPiecesOnStand(Turn, LANCE)
+    + state.countPiecesOnStand(Turn, PAWN);
+
+  return score_in_area + score_stand >= 27 + (Turn==BLACK);
+}
+
 // ;;; Local Variables:
 // ;;; mode:c++
 // ;;; c-basic-offset:2

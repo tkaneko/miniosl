@@ -168,17 +168,17 @@ class CMakeBuild(build_ext):
 
 
 # follow https://packaging.python.org/en/latest/guides/making-a-pypi-friendly-readme/        
-this_directory = Path(__file__).parent        
+this_directory = Path(__file__).parent
 
 # The information here can also be placed in setup.cfg - better separation of
 # logic and declaration, and simpler if you include description/version in a file.
 setup(
     name="miniosl",
-    version="0.0.2",
+    version="0.0.3a1",
     author="Tomoyuki Kaneko",
     author_email="kaneko@graco.c.u-tokyo.ac.jp",
     description="A python interface to miniosl (shogi library)",
-    long_description = (this_directory / "README.md").read_text(),
+    long_description=(this_directory / "README.md").read_text(),
     long_description_content_type='text/markdown',
     packages=[
         'miniosl',
@@ -188,6 +188,9 @@ setup(
         name="minioslcc",
         sourcedir="minioslcc"
     )],
+    project_urls={
+        'Source': 'https://github.com/tkaneko/miniosl',
+    },
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
     python_requires=">=3.10",

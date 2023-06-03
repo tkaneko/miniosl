@@ -9,61 +9,6 @@
 
 /* ------------------------------------------------------------------------- */
 
-osl::Player osl::csa::to_player(char c) {
-  if(c=='+') 
-    return BLACK;
-  if(c=='-') 
-    return WHITE;
-  throw ParseError("not a csa PlayerCharacter "+std::string(1,c));
-}
-
-osl::Square osl::csa::to_square(const std::string& s) {
-  int x=s.at(0)-'0';
-  int y=s.at(1)-'0';
-  if(x==0 && y==0) 
-    return Square::STAND();
-  return Square(x,y);
-}
-
-osl::Ptype osl::csa::to_ptype(const std::string& s) {
-  auto p = std::ranges::find(ptype_csa_names, s);
-  if (p == ptype_csa_names.end())
-    throw ParseError("unknown std::string in csa::to_ptype "+s);
-  return Ptype(p-ptype_csa_names.begin());    
-}
-
-osl::Move osl::csa::to_move(const std::string& s,const SimpleState& state) {
-  if (s == "%KACHI")
-    return Move::DeclareWin();
-  if (s == "%TORYO")
-    return Move::INVALID();
-  if (s == "%PASS")		// FIXME: not in CSA protocol
-    return Move::PASS(state.turn());
-
-  Player pl=csa::to_player(s.at(0));
-  Square fromPos=csa::to_square(s.substr(1,2));
-  Square toPos=csa::to_square(s.substr(3,2));
-  Ptype ptype=csa::to_ptype(s.substr(5,2));
-  if(fromPos==Square::STAND()){
-    if (is_promoted(ptype))
-      throw ParseError("drop with promote ?! in csa::to_move "+s);
-    return Move(toPos,ptype,pl);
-  }
-  else{
-    Piece p0=state.pieceAt(fromPos);
-    Piece p1=state.pieceAt(toPos);
-    Ptype capturePtype=p1.ptype();
-    bool isPromote=(p0.ptype()!=ptype);
-    if (! ((p0.ptype()==ptype)||(p0.ptype()==unpromote(ptype))))
-      throw ParseError("illegal promotion in csa::to_move "+s);
-    return Move(fromPos,toPos,ptype, capturePtype,isPromote,pl);
-  }
-}
-
-/* ------------------------------------------------------------------------- */
-
-
-
 namespace osl 
 {
   namespace move_generator

@@ -417,6 +417,35 @@ void test_check()
   }
 }
 
+void test_pack_position()
+{
+  auto csa = make_path();
+  int count = 0;
+  
+  for (auto& file: std::filesystem::directory_iterator{csa}) {
+    if (! file.is_regular_file() || file.path().extension() != ".csa")
+      continue;
+    if (++count > limit/2)
+      break;
+
+    auto record=csa::read_record(file);
+    auto state(record.initial_state);
+    PackedState ps2;
+    int cnt = 0;
+    for (auto move:record.moves) {      
+      PackedState ps{state, move, record.result};
+      auto bs = ps.to_bitset();
+      ps2.restore(bs);
+      
+      TEST_ASSERT(to_usi(ps.state) == to_usi(ps2.state));
+      TEST_ASSERT(move == ps2.next);
+      TEST_MSG("%s v.s. %s", to_usi(move).c_str(), to_usi(ps2.next).c_str());
+      TEST_ASSERT(ps2.result == record.result);
+      state.makeMove(move);
+    }
+  }
+}
+
 
 TEST_LIST = {
   { "path", test_path },
@@ -425,5 +454,6 @@ TEST_LIST = {
   { "copy", test_copy },
   { "piece_stand", test_piece_stand },
   { "changed_effect", test_changed_effect },
+  { "pack_position", test_pack_position },
   { nullptr, nullptr }
 };

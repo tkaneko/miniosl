@@ -33,8 +33,6 @@ namespace osl
   class PieceStand
   {
   public:
-    /** 持駒の表示で良く使われる順番. KINGや成駒は -1 */
-    static const CArray<Ptype,7> order;
     static constexpr uint32_t carryMask = 0x48822224;
   private:
     static const CArray<unsigned char,Ptype_MAX+1> shift;
@@ -44,7 +42,7 @@ namespace osl
     explicit PieceStand(unsigned int value=0) : flags(value)
     {
     }
-    explicit PieceStand(Player, const SimpleState&);
+    explicit PieceStand(Player, const BaseState&);
     PieceStand(int pawnCount, int lanceCount, 
 	       int knightCount, int silverCount,
 	       int goldCount, int bishopCount,

@@ -167,5 +167,10 @@ namespace osl
   }
 }
 
+namespace osl
+{
+  bool win_if_declare(const EffectState& state);
+}
+
 #endif
 /* CHECKMATE_H */

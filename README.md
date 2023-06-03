@@ -4,7 +4,7 @@ Python interface to [OSL (open shogi library)](https://gps.tanaka.ecc.u-tokyo.ac
 
 WIP.
 
-## demo
+## demo@colab
 
 https://colab.research.google.com/drive/1orT32kOR58owC0SfhPdC0yodFdn8h2nX?usp=share_link
 

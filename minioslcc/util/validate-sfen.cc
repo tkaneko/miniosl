@@ -1,3 +1,4 @@
+// validate-sfen.cc
 #include "record.h"
 #include <filesystem>
 #include <fstream>
@@ -31,6 +32,7 @@ void check_consistency(const osl::MiniRecord& record) {
   bool made_check = false, made_checkmate = false;
   osl::MoveVector all, check;
   int cnt = 0;
+  osl::PackedState ps2;
   for (auto move: record.moves) {
     if (made_checkmate)
       throw std::logic_error("checkmate inconsistent");
@@ -54,10 +56,18 @@ void check_consistency(const osl::MiniRecord& record) {
       }
     }
     test_checkmate1ply(state);
+
+    osl::PackedState ps{state, move};
+    auto bs = ps.to_bitset();
+    ps2.restore(bs);
+      
+    if (ps.state != ps2.state || move != ps2.next)
+      throw std::runtime_error("pack position consistency"+to_usi(state)+" "+to_usi(move)+" "+to_usi(ps2.next)
+                               +" "+std::to_string(cnt));
     
     state.makeMove(move);
     if (!state.isConsistent())
-      throw std::runtime_error("internal consistency"+to_usi(move)+" "+std::to_string(cnt));
+      throw std::runtime_error("internal consistency "+to_usi(move)+" "+std::to_string(cnt));
     made_checkmate = state.inCheckmate();
     
     ++cnt;

@@ -1,0 +1,2 @@
+include README.md CMakeLists.txt
+recursive-include minioslcc *.cc *.h CMakeLists.txt LICENSE* MANIFEST* README* setup.* *.yaml *.cmake *.in *.py

@@ -63,6 +63,9 @@ namespace osl {
   constexpr Ptype basic_ptype[] = { 
     KING, GOLD, PAWN, LANCE, KNIGHT, SILVER, BISHOP, ROOK,
   };
+  /** 持駒の表示で良く使われる順番 */
+  constexpr std::array<Ptype,7> piece_stand_order = { ROOK, BISHOP, GOLD, SILVER, KNIGHT, LANCE, PAWN, };
+
   constexpr int Int(Ptype ptype) { return static_cast<int>(ptype); }
   constexpr int Ptype_MIN=0, Ptype_Basic_MIN=Int(KING),
     Ptype_Piece_MIN=2, Ptype_MAX=15, Ptype_SIZE=16;
@@ -177,7 +180,11 @@ namespace osl {
   constexpr bool is_promoted(PtypeO ptypeO) { return is_promoted(ptype(ptypeO)); }
   
   std::ostream& operator<<(std::ostream& os,const PtypeO ptypeO);
-  
+
+  /** Direction.
+   * steps achievable by a legal move only, i.e., no DDL or DDR.
+   * still, subtraction (sq - to_offset(UUL)) yields inverse step.
+   */
   enum class Direction{
     UL=0, U=1, UR=2,
     L=3, R=4,
@@ -291,6 +298,11 @@ namespace osl
       {0, 18}, {26, 30}, {18, 22}, {22, 26}, {36, 38}, {38, 40}, 
       {30, 32}, {26, 30}, {0, 18}, {32, 36}, {18, 22}, {22, 26}, {36, 38}, {38, 40}, 
     }};
+  constexpr int ptype_piece_count(Ptype ptype) {
+    auto r = ptype_piece_id[idx(ptype)];
+    return r.second-r.first;
+  }
+  
   template <Direction d>
   constexpr int ptype_set() {
     auto good = std::views::iota(Ptype_Piece_MIN, Ptype_MAX+1) // all_piece_ptype()
@@ -735,7 +747,6 @@ namespace osl
 
 namespace osl
 {
-  class SimpleState;
   /**
    * 圧縮していない moveの表現 .
    * - invalid: isNormal 以外の演算はできない
@@ -762,8 +773,8 @@ namespace osl
     explicit Move(int value) : move(value) {
     }
     enum { 
-      INVALID_VALUE = (1<<8), DECLARE_WIN = (2<<8),
-      BLACK_PASS = 0, WHITE_PASS = (-1)<<28, 
+      Resign_VALUE = (1<<8), Declare_WIN = (2<<8),
+      Black_PASS = 0, White_PASS = (-1)<<28, 
     };
   public:
     int intValue() const { return move; }
@@ -783,19 +794,19 @@ namespace osl
 	       + (Int(player)<<28));
     }
   public:
-    Move() : move(INVALID_VALUE)
+    Move() : move(Resign_VALUE)
     {
     }
-    /** INVALID でも PASS でもない. isValid()かどうかは分からない．*/
+    /** Resign でも PASS でもない. isValid()かどうかは分からない．*/
     bool isNormal() const { 
-      // PASS や INVALID は to() が 00
+      // PASS や Resign は to() が 00
       return move & 0x00ff; 
     }
     bool isPass() const { return (move & 0xffff) == 0; }
     static const Move makeDirect(int value) { return Move(value); }
     static const Move PASS(Player P) { return Move(Int(P)<<28); }
-    static const Move INVALID() { return Move(INVALID_VALUE); }
-    static const Move DeclareWin() { return Move(DECLARE_WIN); }
+    static const Move Resign() { return Move(Resign_VALUE); }
+    static const Move DeclareWin() { return Move(Declare_WIN); }
     /**
      * 移動
      */
@@ -880,7 +891,7 @@ namespace osl
     bool isValid() const;
     /** state に apply 可能でない場合にtrue */
     bool isInvalid() const { 
-      return static_cast<unsigned int>(move-1) < DECLARE_WIN; 
+      return static_cast<unsigned int>(move-1) < Declare_WIN; 
     }
     bool isValidOrPass() const { return isPass() || isValid(); }
     /** おおむね合法手 */
@@ -1328,21 +1339,21 @@ namespace osl
     //    KYOUOCHI,
     //    KAKUOCHI,
   };
-  class SimpleState;
-  std::ostream& operator<<(std::ostream& os,const SimpleState& state);
+  class BaseState;
+  std::ostream& operator<<(std::ostream& os,const BaseState& state);
   /**
    * 盤上の駒のみを比較する（持ち駒は見ない）.
    * なお、駒番に非依存な局面比較をしたい場合は、osl::record::CompactBoardや
    * osl::hash::HashKeyを用いる.
    */
-  bool operator==(const SimpleState& st1,const SimpleState& st2);
+  bool operator==(const BaseState& st1,const BaseState& st2);
   
-  class alignas(32) SimpleState
+  class alignas(32) BaseState
   {
   private:
-    friend std::ostream& operator<<(std::ostream& os,const SimpleState& state);
-    friend bool operator==(const SimpleState& st1,const SimpleState& st2);
-    typedef SimpleState state_t;
+    friend std::ostream& operator<<(std::ostream& os,const BaseState& state);
+    friend bool operator==(const BaseState& st1,const BaseState& st2);
+    typedef BaseState state_t;
   public:
     static const bool hasPawnMask=true;
   protected:
@@ -1360,16 +1371,15 @@ namespace osl
     PieceMask used_mask;
   public:
     // 生成に関するもの
-    explicit SimpleState();
-    explicit SimpleState(Handicap h);
+    explicit BaseState();
+    explicit BaseState(Handicap h);
     // public継承させるので，virtual destructorを定義する．
-    virtual ~SimpleState();
-    /** 盤面が空の状態に初期化 */
-    void init();
-    /** ハンディに応じた初期状態に初期化 */
+    virtual ~BaseState();
+    /** set predefined initial state */
     void init(Handicap h);
-    // private:
-    void initPawnMask();
+    /** make empty board ready for manual initialization via setPiece() */
+    void initEmpty();
+    void initFinalize();
   public:
     const Piece pieceOf(int num) const { return pieces[num]; }
     inline auto all_pieces() const {
@@ -1460,7 +1470,7 @@ namespace osl
       return sq==to;
       
     }
-    const SimpleState rotate180() const;
+    const BaseState rotate180() const;
   };  
 
 } // namespace osl
@@ -1749,7 +1759,7 @@ namespace osl
        * @param num - 駒番号
        */
       template<Player P,EffectOp OP>
-        void doEffect(const SimpleState& state,PtypeO ptypeo,Square pos,int num);
+        void doEffect(const BaseState& state,PtypeO ptypeo,Square pos,int num);
 
       /**
        * ある駒が持つ利きを更新する.
@@ -1758,7 +1768,7 @@ namespace osl
        * @param p - 駒
        */
       template<EffectOp OP>
-        void doEffect(const SimpleState& state,Piece p) {
+        void doEffect(const BaseState& state,Piece p) {
         if (p.owner() == BLACK)
           doEffect<BLACK,OP>(state,p.ptypeO(),p.square(),p.id());
         else
@@ -1768,11 +1778,11 @@ namespace osl
        * 盤面のデータを元に初期化する.
        * @param state - 盤面
        */
-      void init(const SimpleState& state);
+      void init(const BaseState& state);
       /**
        * コンストラクタ.
        */
-      EffectSummary(const SimpleState& state) { init(state); }
+      EffectSummary(const BaseState& state) { init(state); }
       /**
        * ある位置の利きデータを取り出す.
        * @param pos - 位置
@@ -1785,7 +1795,7 @@ namespace osl
        * @param pos - 変化する位置
        */
       template<EffectOp OP>
-        void doBlockAt(const SimpleState& state,Square pos,int piece_num);
+        void doBlockAt(const BaseState& state,Square pos,int piece_num);
       friend bool operator==(const EffectSummary& et1,const EffectSummary& et2);
       /*
        *
@@ -1813,7 +1823,7 @@ namespace osl
        * @param num - 駒番号
        */
       template<Player P,Ptype T,Direction Dir,EffectOp OP>
-        void doEffectShort(const SimpleState& state,Square pos,int num);
+        void doEffectShort(const BaseState& state,Square pos,int num);
       /**
        * ある位置からある方向に長い利きがある時に，その方向の利きを更新する.
        * @param P(template) - ある位置にある駒の所有者
@@ -1825,7 +1835,7 @@ namespace osl
        * @param num - 駒番号
        */
       template<Player P,Ptype T,Direction Dir,EffectOp OP>
-        void doEffectLong(const SimpleState& state,Square pos,int num);
+        void doEffectLong(const BaseState& state,Square pos,int num);
       /**
        * ある種類の駒が持つ利きを更新する.
        * @param P(template) - ある位置にある駒の所有者
@@ -1836,7 +1846,7 @@ namespace osl
        * @param num - 駒番号
        */ 
      template<Player P,Ptype T,EffectOp OP>
-        void doEffectBy(const SimpleState& state,Square pos,int num);      
+        void doEffectBy(const BaseState& state,Square pos,int num);      
     };
 
     inline bool operator!=(const EffectSummary& et1,const EffectSummary& et2)
@@ -1875,7 +1885,7 @@ namespace osl
    * - effects (EffectSummary) 利き
    * - pieces_onboard (PieceMask) 盤上にある駒
    */
-  class EffectState : public SimpleState
+  class EffectState : public BaseState
   {
     EffectSummary effects;
     CArray<PieceMask,2> pieces_onboard;
@@ -1891,7 +1901,7 @@ namespace osl
     // ----------------------------------------------------------------------
     // 0. 将棋以外の操作
     // ----------------------------------------------------------------------
-    explicit EffectState(const SimpleState& st=SimpleState(HIRATE));
+    explicit EffectState(const BaseState& st=BaseState(HIRATE));
     ~EffectState();
     /** 主要部分を高速にコピーする. 盤の外はコピーされない*/
     void copyFrom(const EffectState& src);

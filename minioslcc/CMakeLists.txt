@@ -4,7 +4,7 @@ project(minioslcc LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-#option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
+option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 #set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 add_library(minioslcc20 src/state.cc src/more.cc src/checkmate.cc src/record.cc)
@@ -22,6 +22,10 @@ if(BUILD_UTILS)
   add_executable(validate-sfen util/validate-sfen.cc)  
   target_include_directories(validate-sfen PRIVATE src)
   target_link_libraries(validate-sfen PRIVATE minioslcc20)
+
+  add_executable(compress-sfen util/compress-sfen.cc)  
+  target_include_directories(compress-sfen PRIVATE src)
+  target_link_libraries(compress-sfen PRIVATE minioslcc20)
 endif()
 
 option(BUILD_TEST "build test executable" OFF)

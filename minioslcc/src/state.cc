@@ -98,14 +98,14 @@ bool osl::Move::isConsistent() const {
   const Ptype ptype=this->ptype();
   const Player turn = player();
     
-  if (from.isPieceStand()) {  // 打つ手
-    // 動けない場所ではないか?
-    return legal_drop_at(turn,ptype,to);
-  }
-  
   if (is_basic(ptype) && isPromotion())
     return false;
 
+  if (from.isPieceStand()) {  // 打つ手
+    // 動けない場所ではないか?
+    return is_basic(ptype) && legal_drop_at(turn,ptype,to) && !isCapture();
+  }
+  
   const PtypeO old_ptypeo = oldPtypeO();
   const auto effect = ptype_effect(old_ptypeo, to_offset32(to,from));
   if (!is_definite(effect)) { // その offsetの動きがptypeに関してvalidか?
@@ -138,11 +138,11 @@ const osl::Move osl::Move::rotate180() const
 std::ostream& osl::operator<<(std::ostream& os,const Move move)
 {
   if (move == Move::DeclareWin())
-    return os << "MOVE_DECLARE_WIN";
+    return os << "Move_Declare_WIN";
   if (move.isInvalid())
-    return os << "MOVE_INVALID";
+    return os << "Move_Resign";
   if (move.isPass())
-    return os << "MOVE_PASS";
+    return os << "Move_Pass";
   const Player turn = move.player();
   if (move.isValid()) {
     if (move.from().isPieceStand())  {
@@ -180,9 +180,6 @@ namespace osl
 {
   static_assert(sizeof(unsigned int)*/*CHARBITS*/8>=32, "PieceStand");
 
-  const CArray<Ptype,7> PieceStand::order
-  = {{ ROOK, BISHOP, GOLD, SILVER, KNIGHT, LANCE, PAWN, }};
-
   const CArray<unsigned char,Ptype_MAX+1> PieceStand::shift
   = {{ 0,0,0,0,0,0,0,0, 28, 24, 18, 14, 10, 6, 3, 0, }};
   const CArray<unsigned char,Ptype_MAX+1> PieceStand::mask
@@ -190,10 +187,10 @@ namespace osl
 }
 
 osl::PieceStand::
-PieceStand(Player pl, const SimpleState& state)
+PieceStand(Player pl, const BaseState& state)
   : flags(0)
 {
-  for (Ptype ptype: PieceStand::order)
+  for (Ptype ptype: piece_stand_order)
     add(ptype, state.countPiecesOnStand(pl, ptype));
 }
 
@@ -238,7 +235,7 @@ carryUnchangedAfterSub(const PieceStand& original, const PieceStand& other) cons
 std::ostream& osl::operator<<(std::ostream& os, osl::PieceStand stand)
 {
   os << "(stand";
-  for (Ptype ptype: PieceStand::order)
+  for (Ptype ptype: piece_stand_order)
   {
     os << ' ' << stand.get(ptype);
   }
@@ -249,7 +246,7 @@ std::ostream& osl::operator<<(std::ostream& os, osl::PieceStand stand)
 std::ostream& osl::
 PieceStandIO::writeNumbers(std::ostream& os, const PieceStand& stand)
 {
-  for (Ptype ptype: PieceStand::order) {
+  for (Ptype ptype: piece_stand_order) {
     os << stand.get(ptype) << " ";
   }
   return os;
@@ -258,7 +255,7 @@ std::istream& osl::
 PieceStandIO::readNumbers(std::istream& is, PieceStand& stand)
 {
   stand  = PieceStand();
-  for (Ptype ptype: PieceStand::order) {
+  for (Ptype ptype: piece_stand_order) {
     int val;
     if (is >> val) 
       stand.add(ptype, val);
@@ -270,16 +267,16 @@ PieceStandIO::readNumbers(std::istream& is, PieceStand& stand)
 
 // 
 
-osl::SimpleState::SimpleState() {
-  init();
+osl::BaseState::BaseState() {
+  initEmpty();
 }
 
-osl::SimpleState::SimpleState(Handicap h) {
+osl::BaseState::BaseState(Handicap h) {
   init(h);
 }
 
-void osl::SimpleState::initPawnMask(){
-  for (Ptype ptype: PieceStand::order) {
+void osl::BaseState::initFinalize(){
+  for (Ptype ptype: piece_stand_order) {
     stand_count[BLACK][basic_idx(ptype)] = countPiecesOnStandBit(BLACK, ptype);
     stand_count[WHITE][basic_idx(ptype)] = countPiecesOnStandBit(WHITE, ptype);
   }
@@ -300,7 +297,7 @@ void osl::SimpleState::initPawnMask(){
   assert(isConsistent());
 }
 
-void osl::SimpleState::init() {
+void osl::BaseState::initEmpty() {
   player_to_move=BLACK;
   for (int ipos=0;ipos<Square::SIZE;ipos++) {
     setBoard(Square::nth(ipos),Piece::EDGE());
@@ -323,8 +320,8 @@ void osl::SimpleState::init() {
 }
   
 
-void osl::SimpleState::init(Handicap h) {
-  init();
+void osl::BaseState::init(Handicap h) {
+  initEmpty();
   if (h != HIRATE) {
     std::cerr << "unsupported handicap\n";
     throw std::runtime_error("unsupported handicap");
@@ -364,13 +361,13 @@ void osl::SimpleState::init(Handicap h) {
   setPiece(BLACK,Square(2,8),ROOK);
   setPiece(WHITE,Square(8,2),ROOK);
 
-  initPawnMask();
+  initFinalize();
 }
   
 
-osl::SimpleState::~SimpleState() {}
+osl::BaseState::~BaseState() {}
 
-void osl::SimpleState::setPiece(Player player,Square pos,Ptype ptype) {
+void osl::BaseState::setPiece(Player player,Square pos,Ptype ptype) {
   for (int num: all_piece_id()) {
     if (!used_mask.test(num) && piece_id_ptype[num]==unpromote(ptype)
 	&& (ptype!=KING || 
@@ -388,12 +385,12 @@ void osl::SimpleState::setPiece(Player player,Square pos,Ptype ptype) {
       return;
     }
   }
-  std::cerr << "osl::SimpleState::setPiece! maybe too many pieces " 
+  std::cerr << "osl::BaseState::setPiece! maybe too many pieces " 
 	    << ptype << " " << pos << " " << player << "\n";
   abort();
 }
 
-void osl::SimpleState::setPieceAll(Player player) {
+void osl::BaseState::setPieceAll(Player player) {
   for (int num: all_piece_id()) {
     if (!used_mask.test(num)) {
       used_mask.set(num);
@@ -407,7 +404,7 @@ void osl::SimpleState::setPieceAll(Player player) {
   }
 }
   
-bool osl::SimpleState::isConsistent() const {
+bool osl::BaseState::isConsistent() const {
   // board上の要素のconsistency
   for (int y: board_y_range()) {
     for (int x: board_x_range()) {
@@ -454,7 +451,7 @@ bool osl::SimpleState::isConsistent() const {
     }
   }
   // mask
-  for (Ptype ptype: PieceStand::order) {
+  for (Ptype ptype: piece_stand_order) {
     if (countPiecesOnStand(BLACK, ptype) != countPiecesOnStandBit(BLACK, ptype)
         || countPiecesOnStand(WHITE, ptype) != countPiecesOnStandBit(WHITE, ptype))
       return false;
@@ -493,20 +490,20 @@ bool osl::SimpleState::isConsistent() const {
   return true;
 }
 
-const osl::SimpleState osl::SimpleState::rotate180() const
+const osl::BaseState osl::BaseState::rotate180() const
 {
-  SimpleState ret;
+  BaseState ret;
   for (int i: all_piece_id()) {
     if(!usedMask().test(i)) continue;
     const Piece p = pieceOf(i);
     ret.setPiece(alt(p.owner()), p.square().rotate180(), p.ptype());
   }
   ret.setTurn(alt(turn()));
-  ret.initPawnMask();
+  ret.initFinalize();
   return ret;
 }
 
-bool osl::operator==(const SimpleState& st1,const SimpleState& st2)
+bool osl::operator==(const BaseState& st1,const BaseState& st2)
 {
   assert(st1.isConsistent());
   assert(st2.isConsistent());
@@ -533,7 +530,7 @@ namespace osl
 	return;
       
       os << "P" << to_csa(player);
-      for (Ptype ptype: PieceStand::order) {
+      for (Ptype ptype: piece_stand_order) {
 	for (unsigned int j=0; j<stand.get(ptype); ++j) {
 	  os << "00" << to_csa(ptype);
 	}
@@ -543,7 +540,7 @@ namespace osl
   } // anonymous namespace
 } // namespace osl
 
-std::ostream& osl::operator<<(std::ostream& os,const SimpleState& state)
+std::ostream& osl::operator<<(std::ostream& os,const BaseState& state)
 {
   for (int y: board_y_range()) {
     os << 'P' << y;  
@@ -689,7 +686,7 @@ osl::checkmate::to_king8info(EffectState const& state, Square king, PieceMask pi
 // numSimpleEffect.tcc
 template<osl::Player P, osl::EffectOp OP>
 void  osl::effect::
-EffectSummary::doEffect(const SimpleState& state,PtypeO ptypeo,Square pos,int num)
+EffectSummary::doEffect(const BaseState& state,PtypeO ptypeo,Square pos,int num)
 {
   assert(P == owner(ptypeo));
   switch((int)ptypeo){
@@ -714,7 +711,7 @@ EffectSummary::doEffect(const SimpleState& state,PtypeO ptypeo,Square pos,int nu
 
 template<osl::Player P, osl::Ptype T, osl::EffectOp OP>
 void  osl::effect::
-EffectSummary::doEffectBy(const SimpleState& state,Square pos,int num)
+EffectSummary::doEffectBy(const BaseState& state,Square pos,int num)
 {
   if constexpr (T==LANCE || T==BISHOP || T==PBISHOP || T==ROOK || T==PROOK)
     setSourceChange(EffectPieceMask::makeLong<P>(num));
@@ -743,7 +740,7 @@ EffectSummary::doEffectBy(const SimpleState& state,Square pos,int num)
 
 template<osl::Player P, osl::Ptype T, osl::Direction Dir, osl::EffectOp OP>
 void  osl::effect::EffectSummary::
-doEffectShort(const SimpleState& state,Square pos,int num) {
+doEffectShort(const BaseState& state,Square pos,int num) {
   if constexpr (! bittest(ptype_move_direction[idx(T)], Dir))
     return;
         
@@ -764,7 +761,7 @@ doEffectShort(const SimpleState& state,Square pos,int num) {
 }
 template<osl::Player P, osl::Ptype T, osl::Direction Dir, osl::EffectOp OP>
 void  osl::effect::EffectSummary::
-doEffectLong(const SimpleState& state,Square pos,int num) {
+doEffectLong(const BaseState& state,Square pos,int num) {
   if constexpr (! bittest(ptype_move_direction[idx(T)], change_view(P,Dir)))
     return;
 
@@ -823,7 +820,7 @@ doEffectLong(const SimpleState& state,Square pos,int num) {
 }
 template<osl::EffectOp OP>
 void osl::effect::
-EffectSummary::doBlockAt(const SimpleState& state,Square pos,int piece_num) {
+EffectSummary::doBlockAt(const BaseState& state,Square pos,int piece_num) {
   setSourceChange(e_squares[pos]);
 
   for (int src_id: long_to_piece_id_range(e_squares[pos].selectLong())) {
@@ -876,7 +873,7 @@ EffectSummary::doBlockAt(const SimpleState& state,Square pos,int piece_num) {
 
 // numSimpleEffect.cc
 void osl::effect::
-EffectSummary::init(const SimpleState& state)
+EffectSummary::init(const BaseState& state)
 {
   std::fill(e_squares.begin(), e_squares.end(),EffectPieceMask());
   pp_long_state.clear();
@@ -979,8 +976,8 @@ bool osl::operator==(const EffectState& st1, const EffectState& st2)
     return false;
   if (!(st1.king8infos == st2.king8infos)) 
     return false;
-  return (static_cast<const SimpleState&>(st1)
-	  == static_cast<const SimpleState&>(st2));
+  return (static_cast<const BaseState&>(st1)
+	  == static_cast<const BaseState&>(st2));
 }
 
 template<osl::Player P>
@@ -993,8 +990,8 @@ void osl::EffectState::makeKing8Info()
 }
 
 osl::
-EffectState::EffectState(const SimpleState& st) 
-  : SimpleState(st),effects(st)
+EffectState::EffectState(const BaseState& st) 
+  : BaseState(st),effects(st)
 {
   pieces_onboard[0].resetAll();
   pieces_onboard[1].resetAll();
@@ -1265,7 +1262,7 @@ doDropMove(Square to, Ptype ptype)
 }
 
 bool osl::EffectState::isConsistent() const {
-  if (!SimpleState::isConsistent()) 
+  if (!BaseState::isConsistent()) 
     return false;
   EffectSummary effects1(*this);
   if (!(effects1==effects)) 
@@ -1334,6 +1331,9 @@ bool osl::EffectState::isConsistent() const {
 }
 
 bool osl::EffectState::isLegalLight(Move move) const {
+  if (move == Move::DeclareWin())
+    return win_if_declare(*this);
+
   assert(this->turn() == move.player());
   assert(move.isConsistent());
 
@@ -1495,7 +1495,8 @@ void osl::EffectState::generateWithFullUnpromotions(MoveVector& moves) const {
 
 osl::Move osl::EffectState::tryCheckmate1ply() const {
   auto best_move=Move::PASS(turn());
-  ImmediateCheckmate::hasCheckmateMove(turn(),*this,best_move);
+  if (! inCheck())
+    ImmediateCheckmate::hasCheckmateMove(turn(),*this,best_move);
   return best_move;
 }
 
