@@ -430,10 +430,10 @@ void test_pack_position()
 
     auto record=csa::read_record(file);
     auto state(record.initial_state);
-    PackedState ps2;
+    StateLabelTuple ps2;
     int cnt = 0;
     for (auto move:record.moves) {      
-      PackedState ps{state, move, record.result};
+      StateLabelTuple ps{state, move, record.result};
       auto bs = ps.to_bitset();
       ps2.restore(bs);
       

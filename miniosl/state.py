@@ -32,7 +32,10 @@ class State(minioslcc.CCState):
     prefer_png = False
 
     def __init__(self, init='', *, prefer_png=False, prefer_svg=False):
-        super().__init__()
+        if isinstance(init, minioslcc.BaseState):
+            super().__init__(init)
+        else:
+            super().__init__()
         self.history = []
         self.last_move_ja = None
         self.id = random.randrange(2**20)
@@ -69,7 +72,7 @@ class State(minioslcc.CCState):
         return self.to_csa() if self.default_format == 'csa' else self.to_usi()
 
     def to_svg(self, *, decorate=False) -> drawsvg.drawing.Drawing:
-        return miniosl.drawing.csaboard_to_svg(self, self.id, decorate=decorate)
+        return miniosl.drawing.state_to_svg(self, self.id, decorate=decorate)
 
     def to_png(self, *, decorate=False) -> drawsvg.raster.Raster:
         return self.to_svg(decorate=decorate).rasterize()
@@ -114,7 +117,7 @@ class State(minioslcc.CCState):
         move = self.last_move()
         return move.dst() if move else None
 
-    def clone(self) -> State:
+    def copy(self) -> State:
         return State(self.to_usi())
 
     def to_np(self) -> np.array:

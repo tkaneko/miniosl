@@ -843,9 +843,6 @@ namespace osl
     bool isPromotion() const { assert(isNormal()); return (move & (1<<BitOffsetPromote))!=0; }
     bool isCapture() const { assert(isNormal()); return capturePtype() != Ptype_EMPTY; }
     bool isDrop() const { assert(isNormal()); return from().isPieceStand(); }
-    bool isPawnDrop() const {
-      return isDrop() && ptype() == PAWN;
-    }
       
     Ptype ptype() const {
       assert(! isInvalid());

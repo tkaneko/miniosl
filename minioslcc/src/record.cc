@@ -69,7 +69,7 @@ osl::Move osl::csa::to_move(const std::string& s,const EffectState& state) {
 }
 
 
-std::string osl::to_csa(const EffectState& state) {
+std::string osl::to_csa(const BaseState& state) {
   std::ostringstream ss;
   ss << state;
   return ss.str();
@@ -175,6 +175,20 @@ std::string osl::to_csa(const Move *first, const Move *last) {
 }
 
 /* ------------------------------------------------------------------------- */
+std::vector<std::array<uint64_t,4>> osl::MiniRecord::export_all() const {
+  std::vector<std::array<uint64_t,4>> ret;
+  EffectState state(initial_state);
+  StateLabelTuple ps;
+  for (auto move: moves) {
+    ps.state = state;
+    ps.next = move;
+    ps.result = result;
+    ret.push_back(ps.to_bitset());
+    state.makeMove(move);
+  }
+  return ret;
+}
+
 void osl::MiniRecord::guess_result(const EffectState& state) {
   if (state.inCheckmate())
     result = loss_result(state.turn());
@@ -218,7 +232,7 @@ osl::MiniRecord osl::csa::read_record(std::istream& is) {
     if ((! line.empty()) && (line[line.size()-1] == 13))
       line.erase(line.size()-1);    
     record.result = detail::parse_move_line(latest, record, line);
-    if (record.result != Interim)
+    if (record.result != InGame)
       break;
 #if 0
     // todo --- handle comma
@@ -230,14 +244,14 @@ osl::MiniRecord osl::csa::read_record(std::istream& is) {
     }
 #endif
   }
-  if (record.result == Interim)
+  if (record.result == InGame)
     record.guess_result(latest);
   return record;
 }
 
 osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord& record, std::string s) {
   if (s.length()==0) 
-    return Interim;
+    return InGame;
   switch (s.at(0)) {      
   case '+':
   case '-':{
@@ -266,7 +280,7 @@ osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord
   default: 
     std::cerr << "ignored " << s << '\n';
   }
-  return Interim;
+  return InGame;
 }
 
 bool osl::csa::detail::parse_state_line(BaseState& state, MiniRecord& record, std::string s,
@@ -701,7 +715,7 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
       record.moves.pop_back();
     }
   }
-  if (record.result == Interim)
+  if (record.result == InGame)
     record.guess_result(uptodate);
   return record;
 } 
@@ -883,7 +897,7 @@ namespace osl
     auto lance  = add4(ptype_id[basic_idx(LANCE)]);
   
     if (std::popcount(done) != 40-18)
-      std::runtime_error("PackedState encode");
+      std::runtime_error("StateLabelTuple encode");
     return {king, rook, bishop, gold, silver, knight, lance };
   }
   struct B256Extended {
@@ -942,9 +956,9 @@ namespace osl
 
 uint32_t osl::bitpack::encode12(const BaseState& state, Move move) {
   if (move == Move::Resign())      
-    return move12_resign; // 0 --- no conflict --- to (1,1) by moving UL .. outside from the board
+    return move12_resign; // 0 --- inconsistent as a normal move to (1,1) by moving UL .. outside from the board
   if (move == Move::DeclareWin())
-    return move12_win_declare;  // 127 --- no conflict --- outside booard
+    return move12_win_declare;  // 127 --- is consistent as a normal move due to outside booard
   
   auto to = move.to().blackView(state.turn());
   auto code_to = (to.x()-1)+(to.y()-1)*9; // 7bit
@@ -1048,7 +1062,7 @@ std::tuple<int,int,int,int> osl::bitpack::detail::unpack4(uint64_t code) {
 }
 
 
-osl::bitpack::B256 osl::bitpack::PackedState::to_bitset() const {
+osl::bitpack::B256 osl::bitpack::StateLabelTuple::to_bitset() const {
   B256Extended code;
   std::vector<Piece> board_pieces; board_pieces.reserve(40);
   for (int x: board_y_range()) // 1..9
@@ -1102,7 +1116,7 @@ osl::bitpack::B256 osl::bitpack::PackedState::to_bitset() const {
   for (auto ptype: basic_ptype) {
     if (ptype == PAWN) continue;
     if (ptype_count[basic_idx(ptype)] != ptype_piece_count(ptype))
-      throw std::runtime_error("PackedState::to_bitset unexpected piece number");
+      throw std::runtime_error("StateLabelTuple::to_bitset unexpected piece number");
   }
   auto [king_code, rook_code, bishop_code, gold_code, silver_code, knight_code, lance_code] = encode(ptype_bid);
   code.order_hi= (king_code * comb2(38) + rook_code) * comb2(36) + bishop_code;
@@ -1114,8 +1128,8 @@ osl::bitpack::B256 osl::bitpack::PackedState::to_bitset() const {
   code.move = encode12(state, this->next);
   return pack(code);
 }
-void osl::bitpack::PackedState::restore(B256 packed) {
-  B256Extended code = unpack(packed.binary);
+void osl::bitpack::StateLabelTuple::restore(B256 packed) {
+  B256Extended code = unpack(packed);
   state.initEmpty();
 
   std::vector<Square> on_board;  
@@ -1151,7 +1165,7 @@ void osl::bitpack::PackedState::restore(B256 packed) {
   
   typedef std::pair<Ptype,int> pair_t;
   uint64_t code_lo = code.order_lo;
-  for (auto [ptype, n]: std::array<pair_t,4>{{{LANCE,22}, {KNIGHT,26}, {SILVER,30}, {GOLD,34}}}) {
+  for (auto [ptype, n]: {std::make_pair(LANCE,22), {KNIGHT,26}, {SILVER,30}, {GOLD,34}}) {
     auto data = ptype_bid[basic_idx(ptype)];
     auto c = code_lo % comb4(n);
     std::tie(data[0], data[1], data[2], data[3]) = detail::unpack4(c);

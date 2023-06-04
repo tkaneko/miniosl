@@ -4436,9 +4436,9 @@ void test_combination_id() {
 
 void test_pack_position() {
   {
-    PackedState ps;
+    StateLabelTuple ps;
     auto bs = ps.to_bitset();
-    PackedState ps2;
+    StateLabelTuple ps2;
     ps2.restore(bs);
     TEST_CHECK(to_usi(ps.state) == to_usi(ps2.state));
   }
@@ -4446,9 +4446,9 @@ void test_pack_position() {
     auto sfen = "sfen l2g3nl/5k3/2npppsgp/p2s2p2/5P1pP/PrPPS1R2/4P1P2/2G1K1G2/LNS4NL b B3Pbp 1";
     EffectState state = usi::to_state(sfen);
     
-    PackedState ps = {state};
+    StateLabelTuple ps = {state};
     auto bs = ps.to_bitset();
-    PackedState ps2;
+    StateLabelTuple ps2;
     ps2.restore(bs);
 
     TEST_CHECK(sfen == to_usi(ps2.state));
@@ -4658,6 +4658,19 @@ void test_compress_record()
   int read_count = bitpack::read_binary_record(ptr, r2);
   TEST_ASSERT(count == read_count);
   TEST_ASSERT(record == r2);
+
+  // separate each position for training data
+  auto all_data = record.export_all();
+  TEST_ASSERT(all_data.size() == record.moves.size());
+  StateLabelTuple ps;
+  EffectState replay;
+  for (auto data: all_data) {
+    B256 b256{data};
+    ps.restore(b256);
+    TEST_ASSERT(ps.state == replay);
+    TEST_ASSERT(replay.isLegal(ps.next));
+    replay.makeMove(ps.next);
+  }
 }
 
 TEST_LIST = {

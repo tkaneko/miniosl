@@ -8,7 +8,7 @@
 // csa.h
 namespace osl
 {
-  enum GameResult { BlackWin, WhiteWin, Draw, Interim };
+  enum GameResult { BlackWin, WhiteWin, Draw, InGame };
   constexpr GameResult win_result(Player P) { return P == BLACK ? BlackWin : WhiteWin; }
   constexpr GameResult loss_result(Player P) { return P == BLACK ? WhiteWin : BlackWin; }
   constexpr bool has_winner(GameResult r) { return r == BlackWin || r == WhiteWin; }
@@ -17,9 +17,10 @@ namespace osl
     std::vector<Move> moves;
     /** to distinguish resign or DeclareWin if game has the winner */
     Move final_move;
-    GameResult result = Interim;
+    GameResult result = InGame;
 
     bool has_winner() const { return osl::has_winner(result); }
+    std::vector<std::array<uint64_t,4>> export_all() const;
     
     void guess_result(const EffectState& final);
     
@@ -27,7 +28,7 @@ namespace osl
     friend inline bool operator!=(const MiniRecord&, const MiniRecord&) = default;
   };
 
-  std::string to_csa(const EffectState&);
+  std::string to_csa(const BaseState&);
   std::string to_csa(Move);
   std::string to_csa_extended(Move);
   std::string to_csa(Square);
@@ -133,26 +134,23 @@ namespace osl
   typedef __uint128_t uint128_t;
   namespace bitpack
   {
-    /** packed position for ML */
-    struct B256 {
-#if 1
-      std::array<uint64_t,4> binary;
-#else  
-      uint128_t board: 81;
-      uint32_t order_hi: 30;
-      uint64_t order_lo: 57;
-      uint64_t color: 38;
-      uint64_t promote: 34;
-      uint32_t turn: 1;
-      uint32_t move: 12;
-      uint32_t game_result: 2;
-      uint32_t reserved: 1;
-#endif    
-    };
-    struct PackedState {
+    /** packed position for ML
+     * - uint128_t board: 81;
+     * - uint32_t order_hi: 30;
+     * - uint64_t order_lo: 57;
+     * - uint64_t color: 38;
+     * - uint64_t promote: 34;
+     * - uint32_t turn: 1;
+     * - uint32_t move: 12;
+     * - uint32_t game_result: 2;
+     * - uint32_t reserved: 1;
+     */
+    typedef std::array<uint64_t,4> B256;    
+    /** an instance of training data for prediction of the next move or game reselt given state */
+    struct StateLabelTuple {
       BaseState state = BaseState(HIRATE);
       Move next;
-      GameResult result = Interim;
+      GameResult result = InGame;
 
       B256 to_bitset() const;
       void restore(B256 binary);
@@ -180,7 +178,7 @@ namespace osl
     }
   } // bitpack
   using bitpack::B256;
-  using bitpack::PackedState;  
+  using bitpack::StateLabelTuple;  
 } // osl
 
 

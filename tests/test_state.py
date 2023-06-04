@@ -3,27 +3,47 @@ import minioslcc
 import numpy as np
 import pytest
 
+sfen = 'sfen lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL b - 1'
+
 
 def test_state():
+    base = minioslcc.CCState()
+    assert isinstance(base, miniosl.CCState)
+    assert isinstance(base, miniosl.BaseState)
+    assert base.count_hand(miniosl.black, miniosl.pawn) == 0
+    assert base.count_hand(miniosl.white, miniosl.pawn) == 0
+    assert base.turn() == miniosl.black
+
     board = miniosl.State()
-    svg = board.to_svg()
-    assert svg
-    png = board.to_png()
-    assert png
-    b2 = miniosl.State('sfen lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL b - 1')
+    assert isinstance(board, miniosl.State)
+    assert isinstance(board, minioslcc.CCState)
+    assert isinstance(board, minioslcc.BaseState)
+    assert base.count_hand(miniosl.black, miniosl.pawn) == 0
+    assert base.count_hand(miniosl.white, miniosl.pawn) == 0
+    assert base.turn() == miniosl.black
+    b2 = miniosl.State(sfen)
     assert b2
 
 
 def test_make_move():
     board = miniosl.State()
     board.make_move('7g7f')
+    copied = miniosl.State(board)
+    copied2 = board.copy()
+    assert board.turn() == miniosl.white
+    assert board.to_usi() == copied.to_usi()
+    assert board.to_usi() == copied2.to_usi()
+    assert board.to_csa() == copied.to_csa()
     assert board.last_to().to_xy() == (7, 6)
-    svg = board.to_svg()
     board.make_move('-3334FU')
+    assert board.turn() == miniosl.black
     assert board.last_to().to_xy() == (3, 4)
-    svg = board.to_svg()
-    svg = board.to_svg(decorate=True)
-    assert svg
+    assert board.to_usi() != copied.to_usi()
+    assert board.to_usi() != copied2.to_usi()
+    board.make_move('+8822UM')
+    assert board.turn() == miniosl.white
+    assert board.count_hand(miniosl.black, miniosl.pawn) == 0
+    assert board.count_hand(miniosl.black, miniosl.bishop) == 1
 
 
 def test_genmove():
@@ -32,7 +52,7 @@ def test_genmove():
     assert '7g7f' in [m.to_usi() for m in moves]
     assert '+7776FU' in [m.to_csa() for m in moves]
     assert len(moves) == 30
-    copy = board.clone()
+    copy = board.copy()
     board.make_move('+7776FU')
     moves = board.genmove()
     assert '+7776FU' not in [m.to_csa() for m in moves]

@@ -174,7 +174,7 @@ this_directory = Path(__file__).parent
 # logic and declaration, and simpler if you include description/version in a file.
 setup(
     name="miniosl",
-    version="0.0.3a1",
+    version="0.0.3",
     author="Tomoyuki Kaneko",
     author_email="kaneko@graco.c.u-tokyo.ac.jp",
     description="A python interface to miniosl (shogi library)",
