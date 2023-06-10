@@ -13,6 +13,8 @@ def test_ptype():
     assert miniosl.king != miniosl.pawn
     assert miniosl.to_csa(miniosl.king) == 'OU'
     assert miniosl.to_csa(miniosl.pawn) == 'FU'
+    assert int(miniosl.empty) == 0
+    assert int(miniosl.edge) == 1
 
 
 def test_square():

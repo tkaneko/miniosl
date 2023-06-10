@@ -4,7 +4,7 @@ import numpy as np
 import os.path
 
 
-parser = argparse.ArgumentParser("read sfen files and generate training data as npz")
+parser = argparse.ArgumentParser("sfen-to-training-npz.py")
 parser.add_argument("--npz", help="npz filename", default="positions")
 group = parser.add_mutually_exclusive_group()
 group.add_argument('--sfen', nargs="+", help="filenames of sfen lines")

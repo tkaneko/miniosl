@@ -2,6 +2,7 @@
 #include "state.h"
 #include "more.h"
 #include "record.h"
+#include "bitpack.h"
 #include <iostream>
 #include <fstream>
 #include <filesystem>
@@ -194,15 +195,15 @@ void test_copy()
     auto state(record.initial_state);
     EffectState state2 = state;
 
-    TEST_CHECK(state.isConsistent());
-    TEST_CHECK(state2.isConsistent());
+    TEST_CHECK(state.check_internal_consistency());
+    TEST_CHECK(state2.check_internal_consistency());
     for (Move move: record.moves) {
       state.makeMove(move);
       TEST_CHECK(consistent_transition(state, state2, move));
       state2.copyFrom(state);
 
-      TEST_CHECK(state.isConsistent());
-      TEST_ASSERT(state2.isConsistent());
+      TEST_CHECK(state.check_internal_consistency());
+      TEST_ASSERT(state2.check_internal_consistency());
       TEST_CHECK_EQUAL(state, state2);
       TEST_CHECK_EQUAL(state.changedEffects(BLACK), state2.changedEffects(BLACK));
       TEST_CHECK_EQUAL(state.changedEffects(WHITE), state2.changedEffects(WHITE));
@@ -411,7 +412,7 @@ void test_check()
         TEST_ASSERT(check_in_all == check_generated);
         ++cnt;
       }
-      // TEST_CHECK(state.isConsistent());
+      // TEST_CHECK(state.check_internal_consistency());
       state.makeMove(move);
     }
   }

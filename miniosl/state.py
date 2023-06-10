@@ -1,8 +1,10 @@
 from __future__ import annotations
 import minioslcc
 import miniosl.drawing
-import random
 import numpy as np
+import random
+import drawsvg
+import apng
 
 
 def is_in_notebook() -> bool:
@@ -74,8 +76,10 @@ class State(minioslcc.CCState):
     def to_svg(self, *, decorate=False) -> drawsvg.drawing.Drawing:
         return miniosl.drawing.state_to_svg(self, self.id, decorate=decorate)
 
-    def to_png(self, *, decorate=False) -> drawsvg.raster.Raster:
-        return self.to_svg(decorate=decorate).rasterize()
+    def to_png(self, *, decorate=False, filename: str = ''
+               ) -> drawsvg.raster.Raster | None:
+        png = self.to_svg(decorate=decorate).rasterize()
+        return png if not filename else miniosl.drawing.save_png(png, filename)
 
     def hint(self):
         if State.prefer_png:

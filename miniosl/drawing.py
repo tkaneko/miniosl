@@ -1,9 +1,10 @@
 from __future__ import annotations
 import miniosl
-import logging
-import drawsvg as dw
-import random
 import numpy as np
+import drawsvg as dw
+import logging
+import random
+import base64
 
 css = ".piece { font-family: Noto Serif CJK JP; }"  # prevent tofu in png
 
@@ -214,3 +215,10 @@ def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
     svg.show_hand()
 
     return svg.d
+
+
+def save_png(png: dw.raster.Raster, filename: str) -> None:
+    b64png = png.as_data_uri()
+    bytes = b64png[len('data:image/png;base64,'):]
+    with open(filename, "wb") as f:
+        f.write(base64.b64decode(bytes.encode('utf-8')))

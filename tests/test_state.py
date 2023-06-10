@@ -76,6 +76,14 @@ def test_to_np_hand():
     assert isinstance(feature, np.ndarray)
     assert feature.shape == (2, 7)
 
+    board = miniosl.State("sfen l5SSl/3g5/3sp+P+Np1/p5g1p/1n1pB1k2/P2PP3P/B+r2gGN2/9/L3K2RL b 5Psn3p 1")
+    assert board.count_hand(miniosl.black, miniosl.pawn) == 5
+    assert board.count_hand(miniosl.white, miniosl.pawn) == 3
+    # ROOK, BISHOP, GOLD, SILVER, KNIGHT, LANCE, PAWN
+    assert np.array_equal(board.to_np_hand(),
+                          np.array([[0, 0, 0, 0, 0, 0, 5],
+                                    [0, 0, 0, 1, 1, 0, 3]]))
+
 
 def test_to_np_cover():
     board = miniosl.State()

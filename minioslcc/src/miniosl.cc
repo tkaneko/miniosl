@@ -1,98 +1,24 @@
-#include <pybind11/pybind11.h>
+#include "miniosl.h"
 #include <pybind11/stl.h>
-#include <pybind11/numpy.h>
 #include <pybind11/operators.h>
+
 #include "state.h"
 #include "record.h"
+#include "bitpack.h"
 #include "more.h"
 #include <sstream>
 #include <iostream>
 #include <fstream>
 
-namespace py = pybind11;
-
-namespace mini {
-  using namespace osl;
-  Move to_move(const EffectState& state, std::string move);
-  py::array_t<int8_t> to_np(const BaseState& state);
-  py::array_t<int8_t> to_np_hand(const EffectState& state);
-  py::array_t<int8_t> to_np_cover(const EffectState& state);
-  py::array_t<uint64_t> to_np_pack(const BaseState& state);
-  std::pair<MiniRecord, int> unpack_record(py::array_t<uint64_t> code_seq);
-}
-
-
 PYBIND11_MODULE(minioslcc, m) {
   m.doc() = "shogi utilities derived from osl";
-  // define the base class prior to the main state class
-  typedef osl::BaseState base_t;
-  py::class_<base_t>(m, "BaseState", py::dynamic_attr())
-    .def("turn", &base_t::turn, "player to move")
-    .def("piece_at", &base_t::pieceAt, py::arg("square"), "a piece at given square")
-    .def("piece", &base_t::pieceOf, py::arg("id"))
-    .def("count_hand", &base_t::countPiecesOnStand)
-    .def("king_square", [](const base_t& s, osl::Player P) { return s.kingSquare(P); })
-    .def("to_usi", [](const base_t &s) { return osl::to_usi(s); })
-    .def("to_csa", [](const base_t &s) { return osl::to_csa(s); })
-    .def("to_np", &mini::to_np, "pieces on board as numpy array")
-    .def("to_np_pack", &mini::to_np_pack, "pack into 256bits")
-    .def("__repr__", [](const base_t &s) {
-      return "<BaseState '" + osl::to_usi(s) + "'>";
-    })
-    .def("__str__", [](const base_t &s) { return osl::to_csa(s); })
-    ;
+  pyosl::init_basic(m);
+  pyosl::init_state_np(m);  
+}
+
+void pyosl::init_basic(py::module_& m) {
+  m.doc() = "shogi utilities derived from osl";
   // classes
-  typedef osl::EffectState state_t;
-  py::class_<state_t, base_t>(m, "CCState", py::dynamic_attr(),
-                      "shogi state = board position + pieces in hand (mochigoma)")
-    .def(py::init())
-    .def(py::init<const state_t&>())
-    .def(py::init<const osl::BaseState&>())
-    .def("reset", &state_t::copyFrom)
-    .def("genmove", [](const state_t &s) {
-      osl::MoveVector moves;
-      s.generateLegal(moves);
-      return moves;
-    }, "genmove suitable for most cases (some moves are excluded)")
-    .def("genmove_full", [](const state_t &s) {
-      osl::MoveVector moves;
-      s.generateWithFullUnpromotions(moves);
-      return moves;
-    }, "genenerate full moves")
-    .def("genmove_check", [](const state_t &s) {
-      osl::MoveVector moves;
-      s.generateCheck(moves);
-      return moves;
-    }, "generate check moves only")
-    .def("make_move", [](state_t &s, std::string input) {
-      auto move = mini::to_move(s, input);
-      if (! move.isNormal() || ! s.isLegal(move))
-        throw std::runtime_error("move error "+input);
-      s.makeMove(move);
-    })
-    .def("make_move", &state_t::makeMove)
-    .def("__repr__", [](const state_t &s) {
-      return "<CCState '" + osl::to_usi(s) + "'>";
-    })
-    .def("__str__", [](const state_t &s) { return osl::to_csa(s); })
-    .def("count_cover", py::overload_cast<osl::Player,osl::Square>(&state_t::countEffect, py::const_),
-         "the number of pieces reachable to given square")
-    .def("pieces_cover", [](const state_t& s, osl::Player P, osl::Square target) {
-      return (s.piecesOnBoard(P)&s.effectAt(target)).to_ullong();
-    }, "the bitset of piece-ids reachable to given square")
-    .def("in_check", py::overload_cast<>(&state_t::inCheck, py::const_))
-    .def("in_checkmate", py::overload_cast<>(&state_t::inCheckmate, py::const_))
-    .def("to_move", &mini::to_move, "parse and return move")
-    .def("is_legal", &state_t::isLegal)
-    .def("to_np", &mini::to_np, "pieces on board as numpy array")
-    .def("to_np_hand", &mini::to_np_hand, "pieces on board as numpy array")
-    .def("to_np_cover", &mini::to_np_cover, "pieces on board as numpy array")
-    .def("to_np_pack", &mini::to_np_pack, "pack into 256bits")
-    .def("encode_move", [](const state_t& s, osl::Move m) { return osl::bitpack::encode12(s, m); },
-         "compress move into 12bits uint")
-    .def("decode_move", [](const state_t& s, uint32_t c) { return osl::bitpack::decode_move12(s, c); },
-         "uncompress move from 12bits uint")
-  ;
   py::class_<osl::Square>(m, "Square", py::dynamic_attr())
     .def(py::init<int,int>())
     .def("x", &osl::Square::x)
@@ -102,6 +28,7 @@ PYBIND11_MODULE(minioslcc, m) {
     .def("to_csa", [](osl::Square sq) { return osl::to_csa(sq); })
     .def("is_onboard", &osl::Square::isOnBoard)
     .def("is_piece_stand", &osl::Square::isPieceStand)
+    .def("index81", py::overload_cast<>(&osl::Square::index81, py::const_))
     .def("__repr__", [](osl::Square sq) { return "<Square '"+osl::to_psn(sq) + "'>"; })
     .def("__str__", [](osl::Square sq) { return osl::to_csa(sq); })
     .def(py::self == py::self)
@@ -151,22 +78,26 @@ PYBIND11_MODULE(minioslcc, m) {
       std::vector<uint64_t> code; osl::bitpack::append_binary_record(r, code);
       return code;
     }, "encode in uint64 array")
-    .def("export_all", &osl::MiniRecord::export_all)
+    .def("export_all", &osl::MiniRecord::export_all, py::arg("flip_if_white_to_move")=true)
     .def("__len__", [](const osl::MiniRecord& r) { return r.moves.size(); })
     .def("__repr__", [](const osl::MiniRecord& r) {
       return "<MiniRecord '"+osl::to_usi(r.initial_state)
         + " " + std::to_string(r.moves.size()) + " moves'>"; })
+    .def(py::self == py::self)
+    .def(py::self != py::self)
     ;
   // minor classes 
   py::class_<osl::StateLabelTuple>(m, "StateLabelTuple", py::dynamic_attr())
     .def_readonly("state", &osl::StateLabelTuple::state)
     .def_readonly("move", &osl::StateLabelTuple::next)
     .def_readonly("result", &osl::StateLabelTuple::result)
+    .def_readonly("flipped", &osl::StateLabelTuple::flipped)
     .def("to_bitset", &osl::StateLabelTuple::to_bitset)
     .def("restore", &osl::StateLabelTuple::restore)
     ;  
   
   // functions
+  typedef osl::EffectState state_t;
   m.def("alt", [](osl::Player p){ return osl::alt(p); }, "alternative player color");
   m.def("csa_board", [](std::string input){
     try { return osl::csa::read_board(input); }
@@ -185,7 +116,6 @@ PYBIND11_MODULE(minioslcc, m) {
     for (int i=0; i<id; ++i) getline(is, line);
     getline(is, line);
     return osl::usi::read_record(line); }, py::arg("arg"), py::arg("id")=0, "load a game record");
-  m.def("unpack_record", &mini::unpack_record, "read record from np.array encoded by MiniRecord.pack_record");
   m.def("to_csa", py::overload_cast<osl::Ptype>(&osl::to_csa));
   m.def("to_csa", py::overload_cast<osl::Player>(&osl::to_csa));
   m.def("to_ja", py::overload_cast<osl::Square>(&osl::to_ki2));
@@ -236,67 +166,3 @@ PYBIND11_MODULE(minioslcc, m) {
 
 }
 
-osl::Move mini::to_move(const EffectState& state, std::string move) {
-  try {
-    return usi::to_move(move, state);
-  }
-  catch (std::exception& e) {
-  }
-  try {
-    return csa::to_move(move, state);
-  }
-  catch (std::exception& e) {
-  }
-  return Move::PASS(state.turn());
-}
-
-py::array_t<int8_t> mini::to_np(const BaseState& state) {
-  auto feature = py::array_t<int8_t>(9*9);
-  auto buffer = feature.request();
-  auto ptr = static_cast<int8_t*>(buffer.ptr);
-  for (int y: board_y_range())
-    for (int x: board_x_range())
-      ptr[(y-1)*9+(x-1)] = state.pieceAt(Square(x,y)).ptypeO();
-  return feature;
-}
-
-py::array_t<int8_t> mini::to_np_hand(const EffectState& state) {
-  const int N = piece_stand_order.size();
-  auto feature = py::array_t<int8_t>(N*2);
-  auto buffer = feature.request();
-  auto ptr = static_cast<int8_t*>(buffer.ptr);
-  for (auto pl: players)
-    for (auto n: std::views::iota(0,N))
-      ptr[n + 5*idx(pl)] = state.countPiecesOnStand(pl, piece_stand_order[n]);
-  return feature;
-}
-
-py::array_t<int8_t> mini::to_np_cover(const EffectState& state) {
-  auto feature = py::array_t<int8_t>(9*9*2);
-  auto buffer = feature.request();
-  auto ptr = static_cast<int8_t*>(buffer.ptr);
-  for (auto pl: players)
-    for (int y: board_y_range())
-      for (int x: board_x_range())
-        ptr[(y-1)*9+(x-1)+81*idx(pl)] = state.countEffect(pl, Square(x,y));
-  return feature;
-}
-
-py::array_t<uint64_t> mini::to_np_pack(const BaseState& state) {
-  auto packed = py::array_t<uint64_t>(4);
-  auto buffer = packed.request();
-  auto ptr = static_cast<uint64_t*>(buffer.ptr);
-  osl::StateLabelTuple instance {state};
-  auto bs = instance.to_bitset();
-  for (int i: std::views::iota(0,4))
-    ptr[i] = bs[i];
-  return packed;
-}
-
-std::pair<osl::MiniRecord, int> mini::unpack_record(py::array_t<uint64_t> code_seq) {
-  auto buf = code_seq.request();
-  auto ptr = static_cast<const uint64_t*>(buf.ptr);
-  MiniRecord record;
-  auto n = bitpack::read_binary_record(ptr, record);
-  return std::make_pair(record, n);
-}

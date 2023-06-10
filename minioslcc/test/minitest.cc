@@ -3,6 +3,7 @@
 #include "more.h"
 #include "record.h"
 #include "checkmate.h"
+#include "bitpack.h"
 #include <iostream>
 #include <bitset>
 #include <algorithm>
@@ -857,11 +858,11 @@ void test_king8()
 void test_state() {
   {
     BaseState state;
-    TEST_ASSERT(state.isConsistent());
+    TEST_ASSERT(state.check_internal_consistency());
   }
   {
     EffectState state;
-    TEST_ASSERT(state.isConsistent());
+    TEST_ASSERT(state.check_internal_consistency());
   }
 }
 
@@ -923,7 +924,7 @@ void test_effect_state() {
                                    "P+00KI00GI00KY00FU\n"
                                    "P-00KE00KE00FU00FU00FU00FU\n"
                                    "+\n"));
-    TEST_CHECK(state.isConsistent());
+    TEST_CHECK(state.check_internal_consistency());
     TEST_CHECK(state.hasEffectIf(newPtypeO(BLACK,PBISHOP),
                                  Square(8,2),
                                  Square(3,7)));
@@ -943,7 +944,7 @@ void test_effect_state() {
                                    "P-00KI00KY00FU00FU\n"
                                    "P-00AL\n"
                                    "+\n"));
-    TEST_CHECK(state.isConsistent());
+    TEST_CHECK(state.check_internal_consistency());
     // (8,3)の竜
     TEST_CHECK(state.hasEffectIf(newPtypeO(BLACK,PROOK),Square(8,3),Square(8,9)));
     TEST_CHECK(!state.hasEffectIf(newPtypeO(BLACK,PROOK),Square(8,3),Square(3,3)));
@@ -972,10 +973,10 @@ void test_effect_state() {
                                                "P-00HI\n"
                                                "+\n"
                                                ));
-  TEST_CHECK(test_position.isConsistent());
+  TEST_CHECK(test_position.check_internal_consistency());
   {
     EffectState state0 = test_position;
-    TEST_CHECK(state0.isConsistent());
+    TEST_CHECK(state0.check_internal_consistency());
     {
       // (7,9)の馬
       Piece p=state0.pieceAt(Square(7,9));
@@ -1195,7 +1196,7 @@ void test_effect_state() {
                                    "P8 * +KA *  *  *  *  * +HI * \n"
                                    "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY\n"
                                    "+\n"));
-    TEST_CHECK(state.isConsistent());
+    TEST_CHECK(state.check_internal_consistency());
     TEST_CHECK(state.longEffectAt<LANCE>(Square(9,2)) != 0);
     TEST_MSG("Lance %s", std::bitset<64>(state.longEffectAt<LANCE>(Square(9,2))).to_string().c_str());
     TEST_CHECK(state.longEffectAt<ROOK>(Square(9,2)) != 0);
@@ -1217,14 +1218,14 @@ void test_effect_state() {
                                    "P-00KI00KY00FU00FU\n"
                                    "P-00AL\n"
                                    "+\n");
-    TEST_CHECK(state.isConsistent());
+    TEST_CHECK(state.check_internal_consistency());
     testEffectedState(state,Move::Resign());
     { // simple move
       EffectState state1=state;
-      TEST_CHECK(state1.isConsistent());
+      TEST_CHECK(state1.check_internal_consistency());
       Move move(Square(8,3),Square(8,2),PROOK,Ptype_EMPTY,false,BLACK);
       state1.makeMove(move);
-      TEST_ASSERT(state1.isConsistent());
+      TEST_ASSERT(state1.check_internal_consistency());
       testEffectedState(state1,move);
     }
     { // drop move
@@ -1666,7 +1667,7 @@ void test_effect_state() {
 void test_effect_state2()
 {
   auto pieceNumConsistentBeforeCapture = [](EffectState& state) {
-    TEST_CHECK(state.isConsistent());
+    TEST_CHECK(state.check_internal_consistency());
     for (int i: all_piece_id()) {
         TEST_CHECK(state.isOnBoard(i));
 
@@ -1720,14 +1721,14 @@ void test_effect_state2()
                                "+\n"));
     s.makeMove(Move(Square(7,7),Square(7,6),PAWN,Ptype_EMPTY,false,BLACK));
     s.makeMove(Move(Square(3,3),Square(3,4),PAWN,Ptype_EMPTY,false,WHITE));
-    TEST_CHECK(s.isConsistent());
+    TEST_CHECK(s.check_internal_consistency());
 
     const Square from = Square(8,8);
     const Square to = Square(2,2);
     const Move move = Move(from,to,PBISHOP,BISHOP,true,BLACK);
     TEST_CHECK(s.isLegal(move));
     s.makeMove(move);
-    TEST_CHECK(s.isConsistent());
+    TEST_CHECK(s.check_internal_consistency());
     const Piece expected = s.pieceAt(move.to());
     for (int i=0; i<Piece::SIZE; ++i) {
       if(s.isOnBoard(i)){
@@ -4443,6 +4444,12 @@ void test_pack_position() {
     TEST_CHECK(to_usi(ps.state) == to_usi(ps2.state));
   }
   {
+    StateLabelTuple ps;
+    TEST_ASSERT_EQUAL(ps.flipped, false);
+    ps.flip();
+    TEST_ASSERT_EQUAL(ps.flipped, true);
+  }
+  {
     auto sfen = "sfen l2g3nl/5k3/2npppsgp/p2s2p2/5P1pP/PrPPS1R2/4P1P2/2G1K1G2/LNS4NL b B3Pbp 1";
     EffectState state = usi::to_state(sfen);
     
@@ -4660,7 +4667,7 @@ void test_compress_record()
   TEST_ASSERT(record == r2);
 
   // separate each position for training data
-  auto all_data = record.export_all();
+  auto all_data = record.export_all(false); // no flip
   TEST_ASSERT(all_data.size() == record.moves.size());
   StateLabelTuple ps;
   EffectState replay;
@@ -4670,6 +4677,27 @@ void test_compress_record()
     TEST_ASSERT(ps.state == replay);
     TEST_ASSERT(replay.isLegal(ps.next));
     replay.makeMove(ps.next);
+  }
+
+  {
+    auto record = usi::read_record("startpos moves 7g7f 3c3d");
+    auto all_data = record.export_all(true);
+    EffectState replay;
+    StateLabelTuple tuple;
+    tuple.restore(all_data[0]);
+    TEST_ASSERT(tuple.state == replay);
+    TEST_ASSERT(! tuple.flipped);
+    Move m7776(Square(7,7), Square(7,6), PAWN, Ptype_EMPTY, false, BLACK);
+    TEST_ASSERT(tuple.next == m7776);
+    replay.makeMove(m7776);
+
+    tuple.restore(all_data[1]); // rotated
+    TEST_ASSERT(tuple.state != replay);
+    TEST_ASSERT(tuple.state == replay.rotate180());
+    Move m3334(Square(3,3), Square(3,4), PAWN, Ptype_EMPTY, false, WHITE);
+    TEST_ASSERT(tuple.next != m3334);
+    TEST_ASSERT(tuple.next == m3334.rotate180());    
+    TEST_ASSERT(tuple.flipped);
   }
 }
 

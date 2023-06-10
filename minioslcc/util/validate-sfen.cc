@@ -1,5 +1,6 @@
 // validate-sfen.cc
 #include "record.h"
+#include "bitpack.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -66,7 +67,7 @@ void check_consistency(const osl::MiniRecord& record) {
                                +" "+std::to_string(cnt));
     
     state.makeMove(move);
-    if (!state.isConsistent())
+    if (!state.check_internal_consistency())
       throw std::runtime_error("internal consistency "+to_usi(move)+" "+std::to_string(cnt));
     made_checkmate = state.inCheckmate();
     
