@@ -1,4 +1,4 @@
-#include "more.h"
+#include "impl/more.h"
 #include "record.h"
 #include <iostream>
 #include <sstream>
@@ -6,6 +6,125 @@
 #include <cassert>
 #include <string>
 #include <array>
+#include <bitset>
+
+// king8Info.cc
+#ifndef MINIMAL
+std::ostream& osl::operator<<(std::ostream& os, King8Info info)
+{
+  typedef std::bitset<8> bs_t;
+  os << bs_t(moveCandidate2(info)) << " " 
+     << bs_t(libertyCandidate(info)) << " " 
+     << bs_t(liberty(info)) << " " 
+     << bs_t(dropCandidate(info));
+  return os;
+}
+#endif
+
+namespace osl
+{
+  namespace
+  {
+/**
+ * Pの玉やpinされている駒以外からの利きがある.
+ * @param state - 盤面(alt(P)の手番とは限らない)
+ * @param target - Pの玉の位置
+ * @param pos - 盤面上の(Pの玉から長い利きの位置にあるとは限らない)
+ * @param pinned - pinされているPの駒のmask
+ * @param on_baord_defense - alt(P)の盤面上の駒のうちkingを除いたもの
+ * @param dir - dir方向へのattack
+ */
+template<Player Defense> inline
+bool hasEnoughGuard(EffectState const& state,Square target,Square pos, PieceMask pinned,
+		     PieceMask on_board_defense, Direction dir) {
+  assert(state.kingSquare(Defense)==target);
+  assert(pos.isOnBoard());
+  PieceMask guards = state.effectAt(pos) & on_board_defense;
+  if (guards.none()) return false;
+  if ((guards&~pinned).any()) return true;
+  guards&=pinned;
+  for (int num: guards.toRange()) { // 最初のifは無駄ではある
+    Piece p=state.pieceOf(num);
+    assert(p.isOnBoardByOwner(Defense));
+    Square pos1=p.square();
+    assert(basic_step(to_offset32(pos,target)) == pos-target);
+    if (base8_dir<Defense>(target,pos1) == dir) return true;
+  } 
+  return false;
+}
+  }
+}
+
+template<osl::Player Attack, osl::Direction Dir>
+uint64_t osl::
+make_king8info(EffectState const& state,Square king, PieceMask pinned, PieceMask on_board_defense) {
+  const Player Defense = alt(Attack);
+  Square pos=king-to_offset(Attack, Dir);
+  assert(pos.index() < Square::SIZE);
+  Piece p=state.pieceAt(pos);
+  if(p.isEdge())
+    return 0ull;
+  if (!state.hasEffectAt(Attack, pos)){
+    if (p.canMoveOn<Defense>()){ // 攻撃側の駒か空白
+      if(p.isEmpty())
+	return 0x1000000000000ull+(0x100010100ull<<Int(Dir));
+      else
+	return 0x1000000000000ull+(0x10100ull<<Int(Dir));
+    }
+    else // 玉側の駒
+      return 0ull;
+  }
+  const bool has_enough_guard = hasEnoughGuard<Defense>(state,king,pos,pinned,on_board_defense,Dir);
+  if(has_enough_guard){
+    if(p.canMoveOn<Defense>()){
+      if(p.isEmpty())
+	return 0x10100010000ull<<Int(Dir);
+      else
+	return 0x10000ull<<Int(Dir);
+    }
+    else
+      return 0x10000000000ull<<Int(Dir);
+  }
+  else{
+    if(p.isEmpty())
+      return 0x10101010001ull<<Int(Dir);
+    else if(p.isOnBoardByOwner<Attack>())
+      return 0x10000ull<<Int(Dir);
+    else
+      return 0x10001000000ull<<Int(Dir);
+  }
+}
+
+template<osl::Player Attack>
+osl::checkmate::King8Info 
+osl::to_king8info(EffectState const& state, Square king, PieceMask pinned)
+{
+  PieceMask on_board_defense=state.piecesOnBoard(alt(Attack));
+  on_board_defense.reset(king_piece_id(alt(Attack)));
+  uint64_t canMoveMask = make_king8info<Attack,UR>(state, king, pinned,on_board_defense)
+    + make_king8info<Attack,R> (state, king, pinned, on_board_defense)
+    + make_king8info<Attack,DR>(state, king, pinned, on_board_defense)
+    + make_king8info<Attack,U> (state, king, pinned, on_board_defense)
+    + make_king8info<Attack,D> (state, king, pinned, on_board_defense)
+    + make_king8info<Attack,UL>(state, king, pinned, on_board_defense)
+    + make_king8info<Attack,L> (state, king, pinned, on_board_defense)
+    + make_king8info<Attack,DL>(state, king, pinned, on_board_defense);
+  for (auto num: to_range(state.longEffectAt(king, Attack))){
+    Piece attacker=state.pieceOf(num);
+    Direction d= base8_dir<Attack>(king, attacker.square());
+    if((canMoveMask&(0x100<<Int(d)))!=0)
+      canMoveMask-=((0x100<<Int(d))+0x1000000000000ull);
+  }
+  return King8Info(canMoveMask);
+}
+
+namespace osl
+{
+  // explicit template instantiation
+  template checkmate::King8Info to_king8info<BLACK>(EffectState const&, Square, PieceMask);
+  template checkmate::King8Info to_king8info<WHITE>(EffectState const&, Square, PieceMask);
+}
+
 
 /* ------------------------------------------------------------------------- */
 
@@ -819,3 +938,45 @@ namespace osl
 
 
 
+// kingOpenMove.cc
+template <osl::Player P>
+bool osl::move_classifier::KingOpenMove::
+isMember(const EffectState& state, Ptype, Square from, Square to,
+         Square exceptFor)
+{
+  assert(! from.isPieceStand());
+  Square king_position=state.kingSquare<P>();
+  if (king_position.isPieceStand())
+    return false;
+  /**
+   * 守っている玉が動く状況では呼ばない
+   */
+  assert(king_position != from);
+  /**
+   * openになってしまうかどうかのチェック
+   */
+  Offset offset=base8_step(king_position,from);
+  /**
+   * 移動元が王の8方向でないか
+   * openにならない
+   */
+  if(offset == Offset_ZERO
+     || offset==base8_step(king_position, to))
+    return false;
+  if(!state.isEmptyBetween(from,king_position,offset,true)) return false;
+  Square pos=from;
+  Piece p;
+  for(pos-=offset;;pos-=offset){
+    // TODO: exceptFor を毎回チェックする必要があるのはoffset方向の時だけ
+    if (! ((pos == exceptFor) || (p=state.pieceAt(pos), p.isEmpty())))
+      break;
+    assert(pos.isOnBoard());
+  }
+  /**
+   * そのptypeoがそのoffsetを動きとして持つか
+   * 注: 持つ => safe でない => false を返す
+   */
+  if (! p.isOnBoardByOwner<alt(P)>())
+    return false;
+  return any(ptype_effect(p.ptypeO(),pos,king_position));
+}

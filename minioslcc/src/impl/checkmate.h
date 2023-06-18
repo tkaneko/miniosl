@@ -1,7 +1,7 @@
 #ifndef CHECKMATE_H
 #define CHECKMATE_H
 #include "state.h"
-#include "more.h"
+#include "impl/more.h"
 // immediateCheckmate.h
 
 namespace osl

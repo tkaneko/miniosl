@@ -1,9 +1,9 @@
 #include "acutest.h"
 #include "state.h"
-#include "more.h"
+#include "impl/more.h"
 #include "record.h"
-#include "checkmate.h"
-#include "bitpack.h"
+#include "impl/checkmate.h"
+#include "impl/bitpack.h"
 #include <iostream>
 #include <bitset>
 #include <algorithm>
@@ -333,6 +333,11 @@ void test_piece_stand() {
     PieceStand   pRook(0,0,0,0,0,0,1,0);
     PieceStand   pKing(0,0,0,0,0,0,0,1);
 
+    TEST_CHECK(p1.to_csa(BLACK) == "");
+    TEST_CHECK(p1.to_csa(WHITE) == "");
+    TEST_CHECK(pPawn.to_csa(BLACK) == "P+00FU\n");
+    TEST_CHECK(pPawn.to_csa(WHITE) == "P-00FU\n");
+
     p1.addAtmostOnePiece(pPawn);
     p1.addAtmostOnePiece(pKnight);
     p1.addAtmostOnePiece(pGold);
@@ -396,18 +401,6 @@ void test_piece_stand() {
     p1.subAtmostOnePiece(pKing);
 
     TEST_CHECK_EQUAL(PieceStand(0,0,0,0,0,0,0,0),p1);
-  }
-  {
-    PieceStand src;
-    for (auto ptype: piece_stand_order) {
-        src.add(ptype, random() % 3);
-    }
-    std::stringstream ss;
-    PieceStandIO::writeNumbers(ss, src);
-    PieceStand dst;
-    PieceStandIO::readNumbers(ss, dst);
-    
-    TEST_CHECK_EQUAL(src, dst);
   }
 }
 
@@ -607,7 +600,7 @@ void test_csa() {
       move = csa::to_move("+7775FU", state);
       TEST_CHECK(! move.isNormal());
     }
-    catch (std::runtime_error& e) {
+    catch (csa::ParseError& e) {
     }
   }
 }
@@ -4437,14 +4430,14 @@ void test_combination_id() {
 
 void test_pack_position() {
   {
-    StateLabelTuple ps;
+    StateRecord256 ps;
     auto bs = ps.to_bitset();
-    StateLabelTuple ps2;
+    StateRecord256 ps2;
     ps2.restore(bs);
     TEST_CHECK(to_usi(ps.state) == to_usi(ps2.state));
   }
   {
-    StateLabelTuple ps;
+    StateRecord256 ps;
     TEST_ASSERT_EQUAL(ps.flipped, false);
     ps.flip();
     TEST_ASSERT_EQUAL(ps.flipped, true);
@@ -4453,9 +4446,9 @@ void test_pack_position() {
     auto sfen = "sfen l2g3nl/5k3/2npppsgp/p2s2p2/5P1pP/PrPPS1R2/4P1P2/2G1K1G2/LNS4NL b B3Pbp 1";
     EffectState state = usi::to_state(sfen);
     
-    StateLabelTuple ps = {state};
+    StateRecord256 ps = {state};
     auto bs = ps.to_bitset();
-    StateLabelTuple ps2;
+    StateRecord256 ps2;
     ps2.restore(bs);
 
     TEST_CHECK(sfen == to_usi(ps2.state));
@@ -4656,7 +4649,7 @@ void test_compress_record()
 {
   std::string sfen = "startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f 9c9d 3h4g 7c7d 1g1f 7d7e 2e2d 2c2d 2h2d 8e8f 8g8f P*2c 2d7d 8b8f 5i5h 7b7c 7d7e 2c2d P*8g 8f8b 7e3e 3b2c 3e3f 2d2e 7g7f 5b4b 1f1e 3c3d 4i3h 7c6d 8h2b+ 3a2b 4f4e 2b3c 4g5f 8a7c 6g6f P*8f 8g8f 8b8f P*8g 8f8a 3f4f 6a6b 7i6h 5c5d 6h6g 4b3b 3g3f 5d5e 5f4g 6d5c 2i3g 6c6d 7f7e 8a8d 5h4h B*2d 3f3e 2d3e 4f3f P*8h 7h8h 1c1d 1e1d 1a1d 1i1d 2c1d P*2b 3c2b 4e4d 4c4d 8h7h 6d6e P*1b 1d2d L*7d P*7b 1b1a+ 2b1a 8i7g 4d4e 7d7c+ 7b7c 7g6e L*4f 6e5c 4f4g 4h5h 3e1g+ 3g4e 2d3e P*4d 8d4d P*3c 2a3c B*2a 3b2a 4e3c+ S*3b S*2d 4g4h+ 5h6h 4h5h 6g5h P*6g 7h6g B*1e 2d1e 3b3c 3f3g 1g1f L*1g N*4f 1g1f 4f5h+ 6h5h 6b5c B*6b 4d4c N*2d S*2c P*4d 5c4d B*5b 1a2b 5b4c+ 4d4c R*4a B*3a 4a4c+ 3c2d 1e2d N*4f 5h4g 3e3f 3g3f N*3e 2d3e L*1d S*3b 2a1a G*2a 1a1b 4c2c 2b2c N*2d 1b1c 3b2c+ 1c2c 3e3d 2c2d G*2c";
   auto record = usi::read_record(sfen);
-  // record.moves.resize(2);
+  
   std::vector<uint64_t> code_seq;
   int count = bitpack::append_binary_record(record, code_seq);
   TEST_ASSERT(count > 0);
@@ -4669,7 +4662,7 @@ void test_compress_record()
   // separate each position for training data
   auto all_data = record.export_all(false); // no flip
   TEST_ASSERT(all_data.size() == record.moves.size());
-  StateLabelTuple ps;
+  StateRecord256 ps;
   EffectState replay;
   for (auto data: all_data) {
     B256 b256{data};
@@ -4683,7 +4676,7 @@ void test_compress_record()
     auto record = usi::read_record("startpos moves 7g7f 3c3d");
     auto all_data = record.export_all(true);
     EffectState replay;
-    StateLabelTuple tuple;
+    StateRecord256 tuple;
     tuple.restore(all_data[0]);
     TEST_ASSERT(tuple.state == replay);
     TEST_ASSERT(! tuple.flipped);
@@ -4700,6 +4693,165 @@ void test_compress_record()
     TEST_ASSERT(tuple.flipped);
   }
 }
+
+void test_hash() {
+  auto record = usi::read_record("startpos moves 7g7f 3c3d 8h2b+ 3a2b B*4e");
+  TEST_ASSERT_EQUAL(record.moves.size()+1, record.history.size());
+
+  EffectState state = record.initial_state;
+  HashStatus code(state);
+  for (auto move: record.moves) {
+    state.makeMove(move);
+    
+    HashStatus code_fresh(state);
+    code = code.new_zero_history(move, state.inCheck());
+    TEST_ASSERT(code_fresh == code);
+  }
+}
+
+void test_repetition() {
+  {
+    std::istringstream ss("P1-KY-KE-GI-KI-OU-KI-GI-KE-KY\n"
+                          "P2 * -HI *  *  *  *  * -KA * \n"
+                          "P3-FU-FU-FU-FU-FU-FU-FU-FU-FU\n"
+                          "P4 *  *  *  *  *  *  *  *  * \n"
+                          "P5 *  *  *  *  *  *  *  *  * \n"
+                          "P6 *  *  *  *  *  *  *  *  * \n"
+                          "P7+FU+FU+FU+FU+FU+FU+FU+FU+FU\n"
+                          "P8 * +KA *  *  *  *  * +HI * \n"
+                          "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY\n"
+                          "+\n"
+                          "+3948GI\n" "-7162GI\n"
+                          "+4839GI\n" "-6271GI\n"
+                          "+3948GI\n" "-7162GI\n"
+                          "+4839GI\n" "-6271GI\n"
+                          "+3948GI\n" "-7162GI\n"
+                          "+4839GI\n" "-6271GI\n");
+    auto record = csa::read_record(ss);
+  
+    auto state(record.initial_state);
+    const auto& moves = record.moves;
+
+    TEST_CHECK(! record.has_repeat_state(-moves.size()));
+    TEST_CHECK(record.history[0].turn() == BLACK);
+    TEST_CHECK(record.consecutive_in_check(-moves.size()) == 0);
+    for (int i=0; i<(int)moves.size(); ++i) {
+      const auto& cur = record.history[i+1];
+      if (i < 3)
+        TEST_CHECK(! record.has_repeat_state(i+1));
+      else {
+        TEST_CHECK(record.has_repeat_state(i+1));
+        TEST_CHECK(record.previous_repeat_index(i+1) == i+1-4);
+        TEST_CHECK(record.previous_repeat_index(i+1) == record.previous_repeat_index(i+1-moves.size()));
+        TEST_MSG("%d v.s. %d", record.previous_repeat_index(i+1), i+1-4);
+        TEST_ASSERT(cur.is_repeat_of(record.history[i+1-4]));
+      }
+      TEST_CHECK(! cur.in_check());
+      TEST_CHECK(cur.repeat_count() == (i+1)/4);
+      TEST_CHECK(cur.king(BLACK) == Square(5,9));
+      TEST_CHECK(cur.king(WHITE) == Square(5,1));
+      TEST_CHECK(cur.turn() == players[(i+1)%2]);
+      TEST_CHECK(record.consecutive_in_check(i+1) == 0);
+    }
+    TEST_CHECK(record.history.back().repeat_count() == 3);
+    TEST_MSG("%d v.s. %d", record.history.back().repeat_count(), 3);
+    TEST_CHECK(record.result == Draw);
+  }
+  {
+    std::istringstream ss("P1 *  *  *  *  * +UM *  * -KY\n"
+                          "P2 *  *  *  *  *  *  * -KE-OU\n"
+                          "P3 *  *  *  *  *  * +FU * -FU\n"
+                          "P4 *  *  *  *  *  *  * +FU * \n"
+                          "P5 *  *  *  *  *  *  *  *  * \n"
+                          "P6 *  *  *  *  *  *  *  *  * \n"
+                          "P7 *  *  *  *  *  *  *  *  * \n"
+                          "P8 *  *  *  *  *  *  *  *  * \n"
+                          "P9+OU *  *  *  *  *  *  *  * \n"
+                          "P-00AL\n"
+                          "+\n"
+                          "+4123UM\n" "-1221OU\n"
+                          "+2332UM\n" "-2112OU\n"
+                          "+3223UM\n" "-1221OU\n"
+                          "+2332UM\n" "-2112OU\n"
+                          "+3223UM\n" "-1221OU\n"
+                          "+2332UM\n" "-2112OU\n"
+                          "+3223UM\n");
+    auto record = csa::read_record(ss);
+  
+    auto state(record.initial_state);
+    const auto& moves = record.moves;
+
+    TEST_CHECK(! record.has_repeat_state(-record.moves.size()));
+    TEST_CHECK(record.consecutive_in_check(-record.moves.size()) == 0);
+    TEST_CHECK(! record.history[0].in_check());
+
+    for (int i=0; i<(int)moves.size(); ++i) {
+      const auto& cur = record.history[i+1];
+      TEST_CHECK(cur.in_check() == (i%2 == 0));
+      if (cur.in_check())
+        TEST_CHECK(record.consecutive_in_check(i+1) == i / 2 + 1);
+
+      TEST_CHECK(cur.king(BLACK) == Square(9,9));
+      TEST_CHECK(cur.king(WHITE) == Square(1,2)
+                 || cur.king(WHITE) == Square(2,1));
+      if (i < 4)
+        TEST_CHECK(! record.has_repeat_state(i+1));
+      else {
+        TEST_CHECK(record.has_repeat_state(i+1));
+        TEST_CHECK(record.previous_repeat_index(i+1) == i+1-4);
+        TEST_CHECK(cur.is_repeat_of(record.history[i+1-4]));
+      }      
+    }
+    TEST_CHECK(record.result == WhiteWin);
+  }
+  {
+    std::istringstream ss("P1 *  *  *  *  *  *  *  * -KY\n"
+                          "P2 *  *  *  *  *  * +UM-KE-OU\n"
+                          "P3 *  *  *  *  *  * +FU * -FU\n"
+                          "P4 *  *  *  *  *  *  * +FU * \n"
+                          "P5 *  *  *  *  *  *  *  *  * \n"
+                          "P6 *  *  *  *  *  *  *  *  * \n"
+                          "P7 *  *  *  *  *  *  *  *  * \n"
+                          "P8 *  *  *  *  *  *  *  *  * \n"
+                          "P9+OU *  *  *  *  *  *  *  * \n"
+                          "P-00AL\n"
+                          "+\n"
+                          "+3223UM\n" "-1221OU\n"
+                          "+2332UM\n" "-2112OU\n"
+                          "+3223UM\n" "-1221OU\n"
+                          "+2332UM\n" "-2112OU\n"
+                          "+3223UM\n" "-1221OU\n"
+                          "+2332UM\n" "-2112OU\n");
+    auto record = csa::read_record(ss);
+  
+    auto state(record.initial_state);
+    const auto& moves = record.moves;
+
+    TEST_CHECK(! record.has_repeat_state(-record.moves.size()));
+    TEST_CHECK(record.consecutive_in_check(-record.moves.size()) == 0);
+    TEST_CHECK(! record.history[0].in_check());
+
+    for (int i=0; i<(int)moves.size(); ++i) {
+      const auto& cur = record.history[i+1];
+      TEST_CHECK(cur.in_check() == (i%2 == 0));
+      if (cur.in_check())
+        TEST_CHECK(record.consecutive_in_check(i+1) == i / 2 + 1);
+
+      TEST_CHECK(cur.king(BLACK) == Square(9,9));
+      TEST_CHECK(cur.king(WHITE) == Square(1,2)
+                 || cur.king(WHITE) == Square(2,1));
+      if (i < 3)
+        TEST_CHECK(! record.has_repeat_state(i+1));
+      else {
+        TEST_CHECK(record.has_repeat_state(i+1));
+        TEST_CHECK(record.previous_repeat_index(i+1) == i+1-4);
+        TEST_CHECK(cur.is_repeat_of(record.history[i+1-4]));
+      }      
+    }
+    TEST_CHECK(record.result == WhiteWin);
+  }
+}
+
 
 TEST_LIST = {
   { "player", test_player },
@@ -4724,5 +4876,7 @@ TEST_LIST = {
   { "pack_position", test_pack_position },
   { "win_if_declare", test_win_if_declare },
   { "compress_record", test_compress_record },
+  { "hash", test_hash },
+  { "repetition", test_repetition },
   { nullptr, nullptr }
 };

@@ -22,7 +22,7 @@ namespace osl
      */
     typedef std::array<uint64_t,4> B256;
     /** an instance of training data for prediction of the next move or game reselt given state */
-    struct StateLabelTuple {
+    struct StateRecord256 {
       BaseState state = BaseState(HIRATE);
       Move next;
       GameResult result = InGame;
@@ -55,7 +55,7 @@ namespace osl
     }
   } // bitpack
   using bitpack::B256;
-  using bitpack::StateLabelTuple;  
+  using bitpack::StateRecord256;  
 }
 
 #endif

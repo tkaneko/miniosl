@@ -7,11 +7,14 @@ set(CMAKE_CXX_STANDARD_REQUIRED True)
 option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 #set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-add_library(minioslcc20 src/basic-type.cc src/state.cc src/more.cc
-  src/checkmate.cc src/record.cc src/bitpack.cc)
+add_library(minioslcc20 src/basic-type.cc src/base-state.cc src/state.cc
+  src/record.cc src/impl/effect.cc src/impl/more.cc
+  src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc)
+target_include_directories(minioslcc20 PRIVATE src)
 
 add_subdirectory(pybind11)
-pybind11_add_module(minioslcc src/miniosl.cc src/miniosl-state.cc)
+pybind11_add_module(minioslcc src/pyb/miniosl.cc src/pyb/miniosl-state.cc)
+target_include_directories(minioslcc PRIVATE src)
 target_link_libraries(minioslcc PRIVATE minioslcc20)
 
 option(BUILD_UTILS "build utilities" ON)

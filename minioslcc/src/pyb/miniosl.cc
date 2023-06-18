@@ -1,11 +1,11 @@
-#include "miniosl.h"
+#include "pyb/miniosl.h"
 #include <pybind11/stl.h>
 #include <pybind11/operators.h>
 
 #include "state.h"
 #include "record.h"
-#include "bitpack.h"
-#include "more.h"
+#include "impl/bitpack.h"
+#include "impl/more.h"
 #include <sstream>
 #include <iostream>
 #include <fstream>
@@ -20,6 +20,7 @@ void pyosl::init_basic(py::module_& m) {
   m.doc() = "shogi utilities derived from osl";
   // classes
   py::class_<osl::Square>(m, "Square", py::dynamic_attr())
+    .def(py::init<>())
     .def(py::init<int,int>())
     .def("x", &osl::Square::x)
     .def("y", &osl::Square::y)
@@ -68,10 +69,24 @@ void pyosl::init_basic(py::module_& m) {
     ;
   
   py::class_<osl::MiniRecord>(m, "MiniRecord", py::dynamic_attr())
+    .def(py::init<>())
     .def_readonly("initial_state", &osl::MiniRecord::initial_state)
     .def_readonly("moves", &osl::MiniRecord::moves)
     .def_readonly("result", &osl::MiniRecord::result)
     .def_readonly("final_move", &osl::MiniRecord::final_move)
+    .def("state_size", &osl::MiniRecord::state_size)
+    .def("move_size", &osl::MiniRecord::move_size)
+    .def("set_initial_state", &osl::MiniRecord::set_initial_state)
+    .def("add_move", [](osl::MiniRecord& record, osl::Move move, bool in_check) {
+      if (record.history.size() == 0)
+        throw std::logic_error("add_move before set_initial_state");
+      record.add_move(move, in_check);
+    })
+    .def("settle_repetition", &osl::MiniRecord::settle_repetition)
+    .def("branch_at", &osl::MiniRecord::branch_at)
+    .def("repeat_count", &osl::MiniRecord::repeat_count, py::arg("id")=0)
+    .def("previous_repeat_index", &osl::MiniRecord::previous_repeat_index, py::arg("id")=0)
+    .def("consecutive_in_check", &osl::MiniRecord::consecutive_in_check, py::arg("id")=0)
     .def("has_winner", &osl::MiniRecord::has_winner)
     .def("to_usi", py::overload_cast<const osl::MiniRecord&>(&osl::to_usi))
     .def("pack_record", [](const osl::MiniRecord& r){
@@ -85,15 +100,19 @@ void pyosl::init_basic(py::module_& m) {
         + " " + std::to_string(r.moves.size()) + " moves'>"; })
     .def(py::self == py::self)
     .def(py::self != py::self)
+    .def("__copy__",  [](const osl::MiniRecord& r) { return osl::MiniRecord(r);})
+    .def("__deepcopy__",  [](const osl::MiniRecord& r) { return osl::MiniRecord(r);})
     ;
   // minor classes 
-  py::class_<osl::StateLabelTuple>(m, "StateLabelTuple", py::dynamic_attr())
-    .def_readonly("state", &osl::StateLabelTuple::state)
-    .def_readonly("move", &osl::StateLabelTuple::next)
-    .def_readonly("result", &osl::StateLabelTuple::result)
-    .def_readonly("flipped", &osl::StateLabelTuple::flipped)
-    .def("to_bitset", &osl::StateLabelTuple::to_bitset)
-    .def("restore", &osl::StateLabelTuple::restore)
+  py::class_<osl::StateRecord256>(m, "StateRecord256", py::dynamic_attr())
+    .def_readonly("state", &osl::StateRecord256::state)
+    .def_readonly("move", &osl::StateRecord256::next)
+    .def_readonly("result", &osl::StateRecord256::result)
+    .def_readonly("flipped", &osl::StateRecord256::flipped)
+    .def("to_bitset", &osl::StateRecord256::to_bitset)
+    .def("restore", &osl::StateRecord256::restore)
+    .def("__copy__",  [](const osl::StateRecord256& r) { return osl::StateRecord256(r);})
+    .def("__deepcopy__",  [](const osl::StateRecord256& r) { return osl::StateRecord256(r);})
     ;  
   
   // functions
@@ -123,7 +142,7 @@ void pyosl::init_basic(py::module_& m) {
   m.def("to_ja", py::overload_cast<osl::Move, const state_t&, osl::Square>(&osl::to_ki2),
         py::arg("move"), py::arg("state"), py::arg("prev_to")=osl::Square());
   m.def("to_state_label_tuple", [](std::array<uint64_t,4> binary){
-    osl::StateLabelTuple obj;
+    osl::StateRecord256 obj;
     obj.restore(binary);
     return obj;
   });

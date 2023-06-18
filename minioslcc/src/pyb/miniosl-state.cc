@@ -1,12 +1,12 @@
-#include "miniosl.h"
+#include "pyb/miniosl.h"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
 #include <pybind11/numpy.h>
 #include <pybind11/operators.h>
 #include "state.h"
 #include "record.h"
-#include "bitpack.h"
-#include "more.h"
+#include "impl/bitpack.h"
+#include "impl/more.h"
 #include <sstream>
 #include <iostream>
 #include <fstream>
@@ -61,10 +61,12 @@ void pyosl::init_state_np(py::module_& m) {
     .def("__str__", [](const base_t &s) { return osl::to_csa(s); })
     .def(py::self == py::self)
     .def(py::self != py::self)
+    .def("__copy__",  [](const base_t& s) { return base_t(s);})
+    .def("__deepcopy__",  [](const base_t& s) { return base_t(s);})
     ;
   // state
   typedef osl::EffectState state_t;
-  py::class_<state_t, base_t>(m, "CCState", py::dynamic_attr(),
+  py::class_<state_t, base_t>(m, "State", py::dynamic_attr(),
                       "shogi state = board position + pieces in hand (mochigoma)")
     .def(py::init())
     .def(py::init<const state_t&>())
@@ -88,12 +90,17 @@ void pyosl::init_state_np(py::module_& m) {
     .def("make_move", [](state_t &s, std::string input) {
       auto move = pyosl::to_move(s, input);
       if (! move.is_ordinary_valid() || ! s.isLegal(move))
-        throw std::runtime_error("move error "+input);
+        throw std::domain_error("move error "+input);
       s.makeMove(move);
     })
-    .def("make_move", &state_t::makeMove)
+    .def("make_move", [](state_t &s, osl::Move move) {
+      if (! s.isLegal(move))
+        throw std::domain_error("move error "+osl::to_csa(move));
+      s.makeMove(move);
+    })
+    .def("make_move_pass", &state_t::makeMovePass)
     .def("__repr__", [](const state_t &s) {
-      return "<CCState '" + osl::to_usi(s) + "'>";
+      return "<State '" + osl::to_usi(s) + "'>";
     })
     .def("__str__", [](const state_t &s) { return osl::to_csa(s); })
     .def("count_cover", py::overload_cast<osl::Player,osl::Square>(&state_t::countEffect, py::const_),
@@ -111,6 +118,11 @@ void pyosl::init_state_np(py::module_& m) {
     .def("decode_move", [](const state_t& s, uint32_t c) { return osl::bitpack::decode_move12(s, c); },
          "uncompress move from 12bits uint")
     .def("try_checkmate_1ply", &state_t::tryCheckmate1ply, "try to find a checkmate move")
+    .def("hash_code", [](const state_t& s) { osl::HashStatus hash(s);
+        return std::make_pair(hash.board_hash, hash.black_stand.to_uint());
+    }, "64bit int for board and 32bit for (black) hand pieces")
+    .def("__copy__",  [](const state_t& s) { return state_t(s);})
+    .def("__deepcopy__",  [](const state_t& s) { return state_t(s);})
   ;
 
   // functions depends on np
@@ -168,7 +180,7 @@ py::array_t<uint64_t> pyosl::to_np_pack(const BaseState& state) {
   auto packed = py::array_t<uint64_t>(4);
   auto buffer = packed.request();
   auto ptr = static_cast<uint64_t*>(buffer.ptr);
-  osl::StateLabelTuple instance {state};
+  osl::StateRecord256 instance {state};
   auto bs = instance.to_bitset();
   for (int i: std::views::iota(0,4))
     ptr[i] = bs[i];
@@ -228,7 +240,7 @@ pyosl::to_np_batch_44ch(const std::vector<std::array<uint64_t,4>>& batch) {
   auto convert = [&](int l, int r) {
     for (int i=l; i<r; ++i) {
       const auto& binary = batch[i];
-      osl::StateLabelTuple obj;
+      osl::StateRecord256 obj;
       obj.restore(binary);
       helper::write_np_44ch(obj.state, &ptr[i*9*9*44]);
       label_ptr[i] = obj.next.to().index81();

@@ -2,7 +2,7 @@
 // immediateCheckmate.cc
 #include "checkmate.h"
 #include "state.h"
-#include "more.h"
+#include "impl/more.h"
 #include <iostream>
 namespace osl
 {
@@ -965,6 +965,107 @@ bool osl::win_if_declare(const EffectState& state) {
     + state.countPiecesOnStand(Turn, PAWN);
 
   return score_in_area + score_stand >= 27 + (Turn==BLACK);
+}
+
+namespace
+{
+  bool canCheckmate(osl::Ptype ptype,osl::Direction dir,unsigned int mask)
+  {
+    // 王はdropできない, 打ち歩詰め
+    if(ptype==osl::KING || ptype==osl::PAWN) return false;
+    // ptypeがdir方向に利きを持たない == 王手をかけられない
+    if(!(osl::ptype_move_direction[Int(ptype)]
+         & (one_hot(dir) | one_hot(to_long(dir)))))
+      return false;
+    int dx=black_dx(dir), dy=black_dy(dir);
+    for (auto dir1: osl::base8_directions()) {
+      if (!bittest(mask, dir1)) continue;
+      int dx1=black_dx(dir1), dy1=black_dy(dir1);
+      auto o32 = osl::to_offset32(dx-dx1,dy-dy1);
+      if(! any(ptype_effect(newPtypeO(osl::BLACK,ptype),o32)))
+	return false;
+    }
+    return true;
+  }
+}
+
+osl::checkmate::ImmediateCheckmateTable::ImmediateCheckmateTable()
+{
+  // ptypeDropMaskの初期化
+  for(int i=0;i<0x100;i++){
+    for(auto ptype: all_basic_ptype()) {
+      unsigned char mask=0;
+      for (auto dir: base8_directions()) {
+	// 玉の逃げ道がある
+	if (bittest(i, dir)) continue;
+	if(canCheckmate(ptype,dir,i))
+	  mask |= one_hot(dir);
+      }
+      ptypeDropMasks[i][idx(ptype)]=mask;
+    }
+  }
+  // dropPtypeMaskの初期化
+  for(int i=0;i<0x10000;i++){
+    unsigned char ptypeMask=0;
+    for (Ptype ptype: all_basic_ptype()) {
+      for (auto dir: base8_directions()){
+	// 空白でない
+	if (!bittest(i, dir)) continue;
+	// 玉の逃げ道がある
+	if((i&(0x100<<idx(dir)))!=0)continue;
+	if(canCheckmate(ptype,dir,(i>>8)&0xff)){
+	  ptypeMask |= 1u<<basic_idx(ptype);
+	  goto nextPtype;
+	}
+      }
+    nextPtype:;
+    }
+    dropPtypeMasks[i]=ptypeMask;
+  }
+  // blockingMaskの初期化
+  for (auto ptype: all_basic_ptype()) {
+    for (auto dir: base8_directions()){
+      unsigned int mask=0;
+      if(ptype_move_direction[Int(ptype)]
+         & (one_hot(dir) | one_hot(to_long(dir)))){
+	int dx=black_dx(dir);
+	int dy=black_dy(dir);
+	for (auto dir1: base8_directions()) {
+	  int dx1=black_dx(dir1);
+	  int dy1=black_dy(dir1);
+	  auto  o32 = osl::to_offset32(dx-dx1,dy-dy1);
+	  if(! any(ptype_effect(newPtypeO(BLACK,ptype),o32))){
+	    if(base8_step(o32) != Offset_ZERO && !(dx==-dx1 && dy==-dy1)){
+	      mask |= one_hot(dir1);
+	    }
+	  }
+	}
+      }
+      blockingMasks[idx(ptype)][dir]=mask;
+    }
+  }
+  // effectMaskの初期化
+  for (auto ptype: all_piece_ptype()) {
+    for (auto dir: base8_directions()) {
+      unsigned int mask=0x1ff;
+      if(ptype_move_direction[Int(ptype)]
+         & (one_hot(dir) | one_hot(to_long(dir)))){ // 王手をかけられる
+	mask=0;
+	int dx=black_dx(dir);
+	int dy=black_dy(dir);
+	for (auto dir1: base8_directions()) {
+	  int dx1=black_dx(dir1);
+	  int dy1=black_dy(dir1);
+	  auto o32 = to_offset32(dx-dx1,dy-dy1);
+	  if(dir!= dir1 &&
+	     ! any(ptype_effect(newPtypeO(BLACK,ptype),o32))){
+	    mask |= one_hot(dir1);
+	  }
+	}
+      }
+      noEffectMasks[idx(ptype)][dir]=mask;
+    }
+  }
 }
 
 // ;;; Local Variables:

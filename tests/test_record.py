@@ -1,6 +1,7 @@
 import miniosl
 import minioslcc
 import numpy as np
+import copy
 
 sfen = 'startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f'\
     + ' 9c9d 3h4g 7c7d 1g1f 7d7e 2e2d 2c2d 2h2d 8e8f 8g8f P*2c 2d7d 8b8f 5i5h'\
@@ -15,6 +16,15 @@ sfen = 'startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f'\
     + ' P*4d 5c4d B*5b 1a2b 5b4c+ 4d4c R*4a B*3a 4a4c+ 3c2d 1e2d N*4f 5h4g' \
     + ' 3e3f 3g3f N*3e 2d3e L*1d S*3b 2a1a G*2a 1a1b 4c2c 2b2c N*2d 1b1c' \
     + ' 3b2c+ 1c2c 3e3d 2c2d G*2c'
+
+
+def test_copy():
+    r = miniosl.usi_record('startpos')
+    c = copy.copy(r)
+    assert r == c
+    move = r.initial_state.to_move('7g7f')
+    r.add_move(move, False)
+    assert r != c
 
 
 def test_anim():

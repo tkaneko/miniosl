@@ -33,7 +33,7 @@ def test_square():
 
 
 def test_piece():
-    base = miniosl.CCState()
+    base = miniosl.State()
     s59 = miniosl.Square(5, 9)
     piece = base.piece_at(s59)
     assert piece.ptype() == miniosl.king
@@ -128,3 +128,9 @@ def test_move():
     assert not m0045.is_promotion()
     assert m0045.is_drop()
     assert m0045.color() == miniosl.black
+
+
+def test_bitset():
+    mobility = miniosl.ptype_move_direction[miniosl.knight]
+    one_hot = 2**int(miniosl.UUR)
+    assert (mobility & one_hot) != 0

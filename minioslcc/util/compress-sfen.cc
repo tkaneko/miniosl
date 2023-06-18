@@ -1,6 +1,6 @@
 // validate-sfen.cc
 #include "record.h"
-#include "bitpack.h"
+#include "impl/bitpack.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>

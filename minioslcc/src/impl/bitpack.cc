@@ -211,7 +211,7 @@ std::tuple<int,int,int,int> osl::bitpack::detail::unpack4(uint64_t code) {
 }
 
 
-osl::bitpack::B256 osl::bitpack::StateLabelTuple::to_bitset() const {
+osl::bitpack::B256 osl::bitpack::StateRecord256::to_bitset() const {
   B256Extended code;
   std::vector<Piece> board_pieces; board_pieces.reserve(40);
   for (int x: board_y_range()) // 1..9
@@ -279,7 +279,7 @@ osl::bitpack::B256 osl::bitpack::StateLabelTuple::to_bitset() const {
   
   return pack(code);
 }
-void osl::bitpack::StateLabelTuple::restore(B256 packed) {
+void osl::bitpack::StateRecord256::restore(B256 packed) {
   B256Extended code = unpack(packed);
   state.initEmpty();
 
@@ -366,7 +366,7 @@ void osl::bitpack::StateLabelTuple::restore(B256 packed) {
   this->flipped = code.flip;
 }
 
-void osl::bitpack::StateLabelTuple::flip() {
+void osl::bitpack::StateRecord256::flip() {
   flipped ^= 1;
   state = state.rotate180();
   next = next.rotate180();
@@ -432,20 +432,22 @@ int osl::bitpack::read_binary_record(const uint64_t *&in, MiniRecord& record) {
   };
   uint16_t header = retrieve();
   // std::cerr << "header " << header << ' ' << std::bitset<12>(header) << '\n';
-  record.initial_state = EffectState();
-  record.moves.resize(header >> 2);
+  record.set_initial_state(EffectState());
+  const int length = header >> 2;
+  record.moves.reserve(length);
   record.result = GameResult(header & 3);
 
   EffectState state;
-  int cnt = 0;
-  while (cnt < record.moves.size()) {
+  for (int cnt=0; cnt < length; ++cnt) {
     uint16_t code = retrieve();
     auto move = decode_move12(state, code);
-    record.moves[cnt++] = move;
     state.makeMove(move);
+    record.add_move(move, state.inCheck());
   }
   if (record.has_winner())
     record.final_move = decode_move12(state, retrieve());
+
+  record.settle_repetition();
   
   return in - ptr_at_beginning;
 }

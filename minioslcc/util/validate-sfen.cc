@@ -1,6 +1,6 @@
 // validate-sfen.cc
 #include "record.h"
-#include "bitpack.h"
+#include "impl/bitpack.h"
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -33,7 +33,7 @@ void check_consistency(const osl::MiniRecord& record) {
   bool made_check = false, made_checkmate = false;
   osl::MoveVector all, check;
   int cnt = 0;
-  osl::StateLabelTuple ps2;
+  osl::StateRecord256 ps2;
   for (auto move: record.moves) {
     if (made_checkmate)
       throw std::logic_error("checkmate inconsistent");
@@ -58,7 +58,7 @@ void check_consistency(const osl::MiniRecord& record) {
     }
     test_checkmate1ply(state);
 
-    osl::StateLabelTuple instance{state, move};
+    osl::StateRecord256 instance{state, move};
     auto bs = instance.to_bitset();
     ps2.restore(bs);
       
@@ -88,7 +88,7 @@ int main(int argc, char *argv[]) {
   }
   
   std::ifstream is(sfen);
-  int count=0;
+  int count=0, repetition_count=0, repetition_draw=0, declaration_count=0;
   std::string line;
   try {
     while (getline(is, line)) {
@@ -96,6 +96,13 @@ int main(int argc, char *argv[]) {
       if (validate_library_as_well)
         check_consistency(record);
       ++count;
+      if (record.repeat_count() >= 3) {
+        ++repetition_count;
+        if (record.result == osl::Draw)
+          ++repetition_draw;
+      }
+      if (record.final_move == osl::Move::DeclareWin())
+        ++declaration_count;
     }
   }
   catch (std::exception& e) {
@@ -104,5 +111,9 @@ int main(int argc, char *argv[]) {
     return 1;
   }
   std::cout << "read " << count << " records\n";
-  std::cout << "found " << checkmate_success << " 1ply checkmate\n";
+  std::cout << "1ply checkmate " << checkmate_success << "\n"
+            << "draw by repetition " << repetition_draw << "\n"
+            << "other repetition " << repetition_count - repetition_draw << "\n"
+            << "win by declaration " << declaration_count << "\n"
+    ;
 }

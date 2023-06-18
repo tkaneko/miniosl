@@ -3,7 +3,6 @@ import miniosl
 import numpy as np
 import drawsvg as dw
 import logging
-import random
 import base64
 
 css = ".piece { font-family: Noto Serif CJK JP; }"  # prevent tofu in png
@@ -48,9 +47,17 @@ def radius(cnt):
 class ShogiSVG:
     """svg under drawing"""
 
-    def __init__(self, state: miniosl.BaseState):
+    def __init__(self, state: miniosl.BaseState, last_move_ja: str = '',
+                 id_prefix: str = '', move_number: int = 0,
+                 repeat_distance: int = 0, repeat_count: int = 0):
         self.state = state
-        self.d = dw.Drawing(scale*14.5, scale*11.5, id_prefix=str(id))
+        self.last_move_ja = last_move_ja
+        self.move_number = move_number
+        self.repeat_distance = repeat_distance
+        self.repeat_count = repeat_count + 1
+        width = scale*14.5
+        height = scale*12.5 if move_number > 0 else scale*11.5
+        self.d = dw.Drawing(width, height, id_prefix=id_prefix)
         self.d.append_css(css)
 
     def add(self, element) -> None:
@@ -127,11 +134,17 @@ class ShogiSVG:
 
     def show_side_to_move(self):
         player_to_move = "先手" if self.state.turn() == miniosl.black else "後手"
-        self.add(dw.Text('手番 '+player_to_move, font_size=scale*.75, x=gx(9)+scale*.05, y=gy(10),
-                         **char_property))
-        if hasattr(self.state, 'last_move_ja') and self.state.last_move_ja:
-            self.add(dw.Text('('+self.state.last_move_ja + ' まで)', font_size=scale*.7,
+        self.add(dw.Text('手番 '+player_to_move, font_size=scale*.75,
+                         x=gx(9)+scale*.05, y=gy(10), **char_property))
+        if self.last_move_ja:
+            self.add(dw.Text(f'({self.last_move_ja} まで)', font_size=scale*.7,
                              x=gx(5)+scale*.05, y=gy(10), **sub_property))
+        if self.move_number > 0:
+            msg = f'{self.move_number}手目'
+            if self.repeat_distance > 0:
+                msg += f' ({self.repeat_distance}手前と同一局面 {self.repeat_count}回目)'
+            self.add(dw.Text(msg, font_size=scale*.7,
+                             x=gx(9)+scale*.05, y=gy(11), **sub_property))
 
     def hand_pieces_str(self, player: miniosl.Player) -> str:
         ret = ''
@@ -184,21 +197,29 @@ class ShogiSVG:
 
 def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
                  decorate: bool = False, plane: np.ndarray = None,
-                 plane_color: str = 'orange'
+                 plane_color: str = 'orange',
+                 last_move_ja: str = '',
+                 last_to: miniosl.Square | None = None,
+                 move_number: int = 0, repeat_distance: int = 0,
+                 repeat_count: int = 0,
                  ) -> dw.drawing.Drawing:
     """make a picture of state as svg"""
-    if decorate and not isinstance(state, miniosl.CCState):
-        logging.warning('promote BaseState to CCState for decoration')
-        state = miniosl.CCState(state)
-    if id == 0:
-        id = random.randrange(2**20)
+    if decorate and not isinstance(state, miniosl.State):
+        logging.warning('promote BaseState to State for decoration')
+        state = miniosl.State(state)
+    id_prefix = str(id)
+    if id_prefix == '':
+        board, stand = state.hash_code()
+        id_prefix = f'{board}-{stand}-{move_number}-{repeat_count}'
 
-    svg = ShogiSVG(state)
+    svg = ShogiSVG(state, last_move_ja=last_move_ja, move_number=move_number,
+                   id_prefix=id_prefix, repeat_distance=repeat_distance,
+                   repeat_count=repeat_count)
     if decorate:
         svg.decorate()
 
     if isinstance(state, miniosl.State):
-        if last_to := state.last_to():
+        if last_to:
             x, y = last_to.to_xy()
             svg.add(dw.Rectangle(gx(x), gy(y-1), scale, scale,
                                  **last_move_property))
@@ -222,3 +243,8 @@ def save_png(png: dw.raster.Raster, filename: str) -> None:
     bytes = b64png[len('data:image/png;base64,'):]
     with open(filename, "wb") as f:
         f.write(base64.b64decode(bytes.encode('utf-8')))
+
+
+def state_to_png(*args, filename='', **kwargs) -> dw.drawing.Drawing | None:
+    png = state_to_svg(*args, **kwargs).rasterize()
+    return png if not filename else miniosl.drawing.save_png(png, filename)

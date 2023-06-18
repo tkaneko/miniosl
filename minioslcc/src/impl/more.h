@@ -3,289 +3,8 @@
 #include "state.h"
 #include <string>
 #include <stdexcept>
-// piecestand.h
-namespace osl
-{
-  /**
-   * 片方の手番の持駒の枚数を記録するクラス.
-   * - 一応 king を持駒にして良いことにしておく
-   * レイアウト 長さ:index
-   * -  reserved : 1;31
-   * -  carry    : 1;
-   * -  KING     : 2;28
-   * -  carry    : 1;
-   * -  GOLD     : 3;24
-   * -  carry    : 1;
-   * -  PAWN     : 5;18
-   * -  carry    : 1;
-   * -  LANCE    : 3;14
-   * -  carry    : 1;
-   * -  KNIGHT   : 3;10
-   * -  carry    : 1;
-   * -  SILVER   : 3; 6
-   * -  carry    : 1;
-   * -  BISHOP   : 2; 3
-   * -  carry    : 1; 
-   * -  ROOK     : 2; 0
-   *
-   * == を軽くするために carry off の状態を基本とする
-   */
-  class PieceStand
-  {
-  public:
-    static constexpr uint32_t carryMask = 0x48822224;
-  private:
-    static const CArray<unsigned char,Ptype_MAX+1> shift;
-    static const CArray<unsigned char,Ptype_MAX+1> mask;
-    mutable uint32_t flags;
-  public:
-    explicit PieceStand(unsigned int value=0) : flags(value)
-    {
-    }
-    explicit PieceStand(Player, const BaseState&);
-    PieceStand(int pawnCount, int lanceCount, 
-	       int knightCount, int silverCount,
-	       int goldCount, int bishopCount,
-	       int rookCount, int kingCount) 
-      : flags(0)
-    {
-      add(PAWN, pawnCount);
-      add(LANCE, lanceCount);
-      add(KNIGHT, knightCount);
-      add(SILVER, silverCount);
-      add(GOLD, goldCount);
-      add(BISHOP, bishopCount);
-      add(ROOK, rookCount);
-      add(KING, kingCount);
-    }
 
-    void add(Ptype type, unsigned int num=1)
-    {
-      assert(is_basic(type));
-      assert(num == (num & mask[idx(type)]));
-      flags += (num << (shift[idx(type)]));
-      assert(testCarries() == 0);	// overflow 検出
-    }    
-    void sub(Ptype type, unsigned int num=1)
-    {
-      assert(is_basic(type));
-      assert(num == (num & mask[idx(type)]));
-      assert(get(type) >= num);
-      flags -= (num << (shift[idx(type)]));
-    }
-
-    /**
-     * 加算可能なら加える.
-     * 速度が必要なところでは使ってないので .cc に移動．
-     */
-    void tryAdd(Ptype type);
-    bool canAdd(Ptype type) const;
-    /**
-     * 1枚以上持っていれば減らす
-     */
-    void trySub(Ptype type)
-    {
-      if (get(type))
-	sub(type);
-    }
-
-    /**
-     * 一種類の駒しかない
-     */
-    bool atMostOneKind() const;
-
-    /**
-     * pieceStand同士の加算，減算.
-     * 足して良いのは，carry が立っていないpiecestandで
-     * かつ，含まれる駒が高々1つ
-     */
-    void addAtmostOnePiece(PieceStand const& ps){
-#ifndef NDEBUG
-      const PieceStand copy(*this);
-#endif
-      assert(! ps.testCarries());
-      assert(ps.atMostOneKind());
-      flags += ps.getFlags();
-      assert(carryUnchangedAfterAdd(copy, ps));
-    }
-
-    void subAtmostOnePiece(PieceStand const& ps){
-#ifndef NDEBUG
-      const PieceStand copy(*this);
-#endif
-      assert(! ps.testCarries());
-      assert(ps.atMostOneKind());
-      flags -= ps.getFlags();
-      assert(carryUnchangedAfterSub(copy, ps));
-    }
-  private:
-    bool carryUnchangedAfterAdd(const PieceStand& original, const PieceStand& other) const;
-    bool carryUnchangedAfterSub(const PieceStand& original, const PieceStand& other) const;
-  public:
-    unsigned int get(Ptype type) const
-    {
-      return (flags >> (shift[idx(type)])) & mask[idx(type)];
-    }
-    void carriesOff() const { flags &= (~carryMask); }
-    void carriesOn()  const { flags |= carryMask; }
-    unsigned int testCarries() const { return (flags & carryMask); }
-    bool isSuperiorOrEqualTo(PieceStand other) const
-    {
-      carriesOn();
-      other.carriesOff();
-      const bool result = (((flags - other.flags) & carryMask) == carryMask);
-      carriesOff();
-      return result;
-    }
-    /**
-     * this と other が BLACK の持駒と考えた時に，
-     * this の方が同じか沢山持っていれば真.
-     */
-    template <Player P>
-    bool hasMoreThan(PieceStand other) const
-    {
-      if (P == BLACK)
-	return isSuperiorOrEqualTo(other);
-      else
-	return other.isSuperiorOrEqualTo(*this);
-    }
-    bool hasMoreThan(Player P, PieceStand other) const
-    {
-      if (P == BLACK)
-	return hasMoreThan<BLACK>(other);
-      else
-	return hasMoreThan<WHITE>(other);
-    }
-    unsigned int getFlags() const { return flags; }
-    /** どれかの駒を一枚でも持っている */
-    bool any() const { return flags; }
-    /**
-     * 種類毎に this と other の持駒の多い方を取る
-     */
-    const PieceStand max(PieceStand other) const
-    {
-      // other以上の数持っているptypeに対応するcarryが1になる．
-      const unsigned int mask0 = ((flags|carryMask)-other.flags) & carryMask;
-      // ROOK BISHOP KING用のMASKを作る
-      unsigned int my_mask = mask0-((mask0&0x40000024)>>2);
-      // GOLD SILVER KNIGHT LANCE用のMASKを作る
-      my_mask -= (mask0&0x08022200)>>3;
-      // PAWN用のMASKのみ残す
-      my_mask -= (mask0&0x00800000)>>5;
-      // my_mask が1のptypeの数は自分から，0のptypeはotherのところの値を
-      return PieceStand((flags&my_mask)|(other.flags&~my_mask));
-    }     
-    /**
-     * 種類毎に this と other の持駒の多い方を取る (max のalternative)
-     */
-    const PieceStand max2(PieceStand other) const
-    {
-      // other以上の数持っているptypeに対応するcarryが1になる．
-      const unsigned int diff0=((flags|carryMask)-other.flags);
-      const unsigned int mask0=diff0&carryMask;
-
-      // ROOK BISHOP KING GOLD SILVER KNIGHT LANCE用のMASKを作る
-      const unsigned int mask02=(mask0&0x40000024u)+(mask0&0x48022224u);
-      unsigned int my_mask=mask0-(mask02>>3);
-
-      // PAWN用のMASKのみ残す
-      my_mask -= (mask0&0x00800000)>>5;
-      // my_mask が1のptypeの数は自分から，0のptypeはotherのところの値を
-      return PieceStand((other.flags+(diff0&my_mask))&~carryMask);
-    }     
-
-    const PieceStand nextStand(Player pl, Move move) const
-    {
-      assert(move.isNormal());
-      PieceStand result = *this;
-      if (move.player() == pl)
-      {
-	if (auto ptype = move.capturePtype(); ptype!=Ptype_EMPTY)
-	{
-	  result.add(unpromote(ptype));
-	}
-	else if (move.isDrop())
-	{
-	  const Ptype ptype = move.ptype();
-	  assert(get(ptype));
-	  result.sub(ptype);
-	}
-      }
-      return result;
-    }
-    const PieceStand nextStand(Move move) const
-    {
-      return nextStand(move.player(), move);
-    }
-    const PieceStand previousStand(Player pl, Move move) const
-    {
-      assert(move.isNormal());
-      PieceStand result = *this;
-      if (move.player() == pl)
-      {
-	if (Ptype ptype = move.capturePtype(); ptype!=Ptype_EMPTY)
-	{
-	  const Ptype before = unpromote(ptype);
-	  assert(get(before));
-	  result.sub(before);
-	}
-	else if (move.isDrop())
-	{
-	  const Ptype ptype = move.ptype();
-	  result.add(ptype);
-	}
-      }
-      return result;
-    }
-    const PieceStand previousStand(Move move) const
-    {
-      return previousStand(move.player(), move);
-    }
-  };
-
-  inline bool operator==(PieceStand l, PieceStand r)
-  {
-    assert(! l.testCarries());
-    assert(! r.testCarries());
-    return l.getFlags() == r.getFlags();
-  }
-  inline bool operator!=(PieceStand l, PieceStand r)
-  {
-    return ! (l == r);
-  }
-  inline bool operator<(PieceStand l, PieceStand r)
-  {
-    assert(! l.testCarries());
-    assert(! r.testCarries());
-    return l.getFlags() < r.getFlags();
-  }
-  std::ostream& operator<<(std::ostream&, PieceStand l);
-
-  struct PieceStandIO
-  {
-    /**
-     * 持駒の数を空白区切で出力する. 数値処理用途
-     */
-    static std::ostream& writeNumbers(std::ostream&, const PieceStand& stand);
-    static std::istream& readNumbers(std::istream&, PieceStand& stand);
-  };
-} // namespace osl
-// additionalEffect.h
-
-namespace osl
-{
-  /**
-   * 追加利きを求める
-   */
-  struct AdditionalEffect
-  {
-    /**
-     * target に attack の追加利きが一つでもあるか．
-     * 相手の影利きが先にある場合は対象としない．
-     */
-    static bool hasEffect(const EffectState&, Square target, Player attack);
-  };
-} // namespace osl
+// contents that depend on EffectState
 
 // king8Info.h
 namespace osl
@@ -318,33 +37,48 @@ namespace osl
     constexpr inline unsigned int libertyCount(King8Info value) { return ((value>>48)&0xfull); }
     constexpr inline unsigned int spaces(King8Info value) { return ((value>>32)&0xffull); }
     constexpr inline unsigned int moves(King8Info value) { return ((value>>40)&0xffull); }
-
-    template<Player Attack>
-    King8Info to_king8info(EffectState const& state, Square king, PieceMask pinned);
+  }
+  using checkmate::King8Info;
+  template<Player Attack>
+  King8Info to_king8info(EffectState const& state, Square king, PieceMask pinned);
     
-    template <Player Attack>
-    inline King8Info to_king8info(EffectState const& state, Square king) {
-      return to_king8info<Attack>(state,king,state.pin(alt(Attack)));
-    }
-    inline King8Info to_king8info(Player attack, EffectState const& state) {
-      Square king=state.kingSquare(alt(attack));
-      return (attack == BLACK) ? to_king8info<BLACK>(state, king) : to_king8info<WHITE>(state, king);
-    }
-    /**
-     * alt(P)の玉にDirの方向で迫るcanMoveMaskを計算する.
-     * @param P(template) - 攻撃側のplayer
-     * @param Dir(template) - 敵玉に迫る方向(shortの8方向)
-     * @param state - 初期状態
-     * @param target - alt(P)の玉があるpotision
-     */
-    template<Player P,Direction Dir>
-    uint64_t make_king8info(EffectState const& state,Square target, PieceMask pinned,
-                            PieceMask on_board_defense);
+  template <Player Attack>
+  inline King8Info to_king8info(EffectState const& state, Square king) {
+    return to_king8info<Attack>(state,king,state.pin(alt(Attack)));
+  }
+  inline King8Info to_king8info(Player attack, EffectState const& state) {
+    Square king=state.kingSquare(alt(attack));
+    return (attack == BLACK) ? to_king8info<BLACK>(state, king) : to_king8info<WHITE>(state, king);
+  }
+  /**
+   * alt(P)の玉にDirの方向で迫るcanMoveMaskを計算する.
+   * @param P(template) - 攻撃側のplayer
+   * @param Dir(template) - 敵玉に迫る方向(shortの8方向)
+   * @param state - 初期状態
+   * @param target - alt(P)の玉があるpotision
+   */
+  template<Player P,Direction Dir>
+  uint64_t make_king8info(EffectState const& state,Square target, PieceMask pinned,
+                          PieceMask on_board_defense);
 
-    std::ostream& operator<<(std::ostream&, King8Info);
-  } // checkmate
-  using checkmate::to_king8info;
+  std::ostream& operator<<(std::ostream&, King8Info);
 } // namespace osl
+
+namespace osl
+{
+  /**
+   * 追加利きを求める
+   */
+  struct AdditionalEffect
+  {
+    /**
+     * target に attack の追加利きが一つでもあるか．
+     * 相手の影利きが先にある場合は対象としない．
+     */
+    static bool hasEffect(const EffectState&, Square target, Player attack);
+  };
+} // namespace osl
+
 
 // pieceTable
 namespace osl

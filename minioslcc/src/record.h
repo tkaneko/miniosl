@@ -1,35 +1,82 @@
 #ifndef MINIOSL_RECORD_H
 #define MINIOSL_RECORD_H
-#include "state.h"
+#include "impl/hash.h"
+#include "impl/more.h"
 #include <filesystem>
 #include <sstream>
 #include <tuple>
 
-// csa.h
 namespace osl
 {
-  enum GameResult { BlackWin, WhiteWin, Draw, InGame };
-  constexpr GameResult win_result(Player P) { return P == BLACK ? BlackWin : WhiteWin; }
-  constexpr GameResult loss_result(Player P) { return P == BLACK ? WhiteWin : BlackWin; }
-  constexpr bool has_winner(GameResult r) { return r == BlackWin || r == WhiteWin; }
-  constexpr GameResult flip(GameResult r) {
-    if (! has_winner(r)) return r;
-    return (r == BlackWin) ? WhiteWin : BlackWin;
-  }
+  /**
+   * A game record.
+   * 
+   * Incrementally constructed by the following sequence of method calls:
+   * - set_initial_state(), 
+   * - add_move() (x #moves)
+   * - guess_result() (optional)
+   * - settle_repetition()
+   */
   struct MiniRecord {
     EffectState initial_state;
     std::vector<Move> moves;
+    /** history status of moves.size()+1 */
+    std::vector<HashStatus> history;
     /** to distinguish resign or DeclareWin if game has the winner */
     Move final_move;
     GameResult result = InGame;
 
+    int state_size() const { return history.size(); }
+    int move_size() const { return moves.size(); }
     bool has_winner() const { return osl::has_winner(result); }
     std::vector<std::array<uint64_t,4>> export_all(bool flip_if_white_to_move=true) const;
+    /** inquiry on state
+     * @param id = index if positive otherwise rollback from current (the last item), i.e., 0 for current
+     */
+    int repeat_count(int id=0) const {
+      int now = resolve_id(id);
+      const auto& cur = history.at(now);
+      return cur.history.count;
+    }
+    bool has_repeat_state(int id=0) const { return repeat_count(id) > 0; }
+    /** state (not move) index of repeating, only meaningful if has_repeat_state()
+     * @param id = index if positive otherwise rollback from current (the last item), i.e., 0 for current
+     */
+    int previous_repeat_index(int id=0) const {
+      int now = resolve_id(id);
+      return now - history.at(now).history.prev_dist*2;
+    }
+
+    /** number of consecutive in-check states
+     * @param id = index if positive otherwise rollback from current (the last item), i.e., 0 for current
+     */
+    int consecutive_in_check(int id=0) const { return osl::consecutive_in_check(history, resolve_id(id)); }
     
     void guess_result(const EffectState& final);
+    void settle_repetition();
+
+    void set_initial_state(const BaseState& state) {
+      *this = MiniRecord { EffectState(state) };
+      history.emplace_back(HashStatus(initial_state));
+    }
+    /** @param in_check status after make_move */
+    void add_move(Move moved, bool in_check);
+    MiniRecord branch_at(int idx) {
+      if (idx >= moves.size())
+        throw std::domain_error("index too large "+std::to_string(idx)+" v.s. "+std::to_string(moves.size()));
+      MiniRecord copy {initial_state,
+                       {moves.begin(), moves.begin()+idx},
+                       {history.begin(), history.begin()+idx+1}};
+      return copy;
+    }
     
     friend inline bool operator==(const MiniRecord&, const MiniRecord&) = default;
     friend inline bool operator!=(const MiniRecord&, const MiniRecord&) = default;
+    int resolve_id(int id) const {
+      int now = (id <= 0) ? moves.size()+id : id;  // history[moves.size()] == history.back()
+      assert(0 <= now && now < history.size());
+      return now;
+    }
   };
 
   std::string to_csa(const BaseState&);
@@ -51,8 +98,8 @@ namespace osl
    */
   namespace csa
   {
-    struct ParseError : public std::runtime_error {
-      ParseError(const std::string& w) : std::runtime_error(w) {}
+    struct ParseError : public std::domain_error {
+      ParseError(const std::string& w) : std::domain_error(w) {}
     };
 
     Move to_move_light(const std::string& s,const BaseState& st);

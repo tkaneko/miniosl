@@ -1,7 +1,7 @@
 #include "record.h"
-#include "more.h"
-#include "checkmate.h"
-#include "bitpack.h"
+#include "impl/more.h"
+#include "impl/checkmate.h"
+#include "impl/bitpack.h"
 #include <fstream>
 #include <iostream>
 #include <algorithm>
@@ -34,9 +34,9 @@ osl::Ptype osl::csa::to_ptype(const std::string& s) {
 osl::Move osl::csa::to_move_light(const std::string& s,const BaseState& state) {
   if (s == "%KACHI")
     return Move::DeclareWin();
-  if (s == "%TORYO")
+  if (s == "%TORYO" || s == "%ILLEGAL_MOVE")
     return Move::Resign();
-  if (s == "%PASS")		// FIXME: not in CSA protocol
+  if (s == "%PASS" || s == "%SENNICHITE" || s == "%JISHOGI") // note: pass is not in CSA protocol
     return Move::PASS(state.turn());
 
   Player pl=csa::to_player(s.at(0));
@@ -178,7 +178,7 @@ std::string osl::to_csa(const Move *first, const Move *last) {
 std::vector<std::array<uint64_t,4>> osl::MiniRecord::export_all(bool flip_if_white) const {
   std::vector<std::array<uint64_t,4>> ret;
   EffectState state(initial_state);
-  StateLabelTuple ps;
+  StateRecord256 ps;
   for (auto move: moves) {
     ps.state = state;
     ps.next = move;
@@ -198,8 +198,34 @@ void osl::MiniRecord::guess_result(const EffectState& state) {
     result = win_result(state.turn());
     final_move = Move::DeclareWin();
   }
-  // todo Draw,
 }        
+
+void osl::MiniRecord::add_move(Move moved, bool in_check) {
+  assert(history.size()>0);
+  moves.push_back(moved);
+  history.push_back(history.back().new_zero_history(moved, in_check));
+}
+
+void osl::MiniRecord::settle_repetition() {
+  HistoryTable table;
+  int interrupt_number = history.size()-1;
+  for (size_t i=0; i<history.size(); ++i) {
+    auto result = table.add(i, history[i], history);
+    if (result != InGame) {
+      if (this->result != InGame && this->result != result) {
+        std::cerr << "game result inconsistency " << this->result << ' ' << result << '\n';
+        throw std::domain_error("game result inconsistency");
+      }
+      this->result = result;
+      interrupt_number = i;
+      break;
+    }
+  }
+  if (interrupt_number < history.size()-1)
+    std::cerr << "game terminated at " << interrupt_number
+              << " by " << moves[interrupt_number-1]
+              << " before " << history.size() << "\n";
+}
 
 osl::MiniRecord osl::csa::read_record(const std::filesystem::path& filename) {
   std::ifstream is(filename);
@@ -248,6 +274,7 @@ osl::MiniRecord osl::csa::read_record(std::istream& is) {
   }
   if (record.result == InGame)
     record.guess_result(latest);
+  record.settle_repetition();
   return record;
 }
 
@@ -258,8 +285,8 @@ osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord
   case '+':
   case '-':{
     const Move m = csa::to_move(s,state);
-    record.moves.push_back(m);
     state.makeMove(m);
+    record.add_move(m, state.inCheck());
     break;
   }
   case '%': {
@@ -272,14 +299,17 @@ osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord
       record.final_move = legal ? Move::DeclareWin() : Move::Resign();
       return legal ? win_result(state.turn()) : loss_result(state.turn());
     }
-    if (s == "%CHUDAN")
+    if (s == "%SENNICHITE" || s == "%CHUDAN")
       return Draw;
     // fall through
   }  
   case 'T':
+  case '#':
   case '\'':
     break;
-  default: 
+  default:
+    if (s.starts_with("END"))
+      break;
     std::cerr << "ignored " << s << '\n';
   }
   return InGame;
@@ -337,13 +367,19 @@ bool osl::csa::detail::parse_state_line(BaseState& state, MiniRecord& record, st
     if(s.length()==1){
       state.setTurn(pl);
       state.initFinalize();
-      record.initial_state = EffectState(state);
+      record.set_initial_state(state);
       return true;
     }
   }
   case 'N': case '$': case 'V': case '\'':
     break;
   default:
+    if (s.starts_with("BEGIN") || s.starts_with("END") || s.starts_with("Format")
+        || s.starts_with("Declaration") || s.starts_with("Game_ID:") || s.starts_with("Your_Turn:")
+        || s.starts_with("Rematch_On_Draw") || s.starts_with("To_Move") || s.starts_with("Max_Moves:")
+        || s.starts_with("Time_Unit") || s.starts_with("Total_Time") || s.starts_with("Increment")
+        )
+      break;
     std::cerr << "ignored " << s << '\n';
   }
   return false;
@@ -682,13 +718,11 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
           }
         }
       }
-      state.initFinalize();
-      record.initial_state = EffectState(state);
       int move_number; // will not be used
-      if (! (is >> move_number))
-        return record;
-      assert(is);
+      is >> move_number;
     }
+    state.initFinalize();
+    record.set_initial_state(state);
   }
   if (! (is >> word))
     return record;
@@ -698,11 +732,11 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
   while (is >> word) {
     Move m = to_move(word, uptodate);
     if (! m.isNormal()) {
-      record.moves.push_back(m);
+      record.moves.push_back(m); // typically poped back later
       break;
     }
-    record.moves.push_back(m);
     uptodate.makeMove(m);
+    record.add_move(m, uptodate.inCheck());
   }
   if (record.moves.size()>0) {
     auto turn = uptodate.turn();
@@ -721,6 +755,7 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
   }
   if (record.result == InGame)
     record.guess_result(uptodate);
+  record.settle_repetition();
   return record;
 } 
 

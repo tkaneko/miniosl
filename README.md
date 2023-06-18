@@ -8,7 +8,7 @@ WIP.
 
 [https://colab.research.google.com/drive/1orT32kOR58owC0SfhPdC0yodFdn8h2nX?usp=share_link](https://colab.research.google.com/drive/1orT32kOR58owC0SfhPdC0yodFdn8h2nX?usp=share_link)
 
-![](doc/policy-sample.png)
+![](https://github.com/tkaneko/miniosl/raw/main/doc/policy-sample.png)
 
 ## pip wheel
 
@@ -20,3 +20,8 @@ WIP.
 - Python 3.10+
 - cmake 3.22+
 
+typical commands
+- `git clone --recursive https://github.com/tkaneko/miniosl.git`
+- `cd miniosl`
+- `pip3 install -e .`
+  - example for envvar: `CMAKE_BUILD_PARALLEL_LEVEL=4` `CXX=g++-12`

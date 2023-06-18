@@ -8,7 +8,7 @@ def minirecord_replay(self: miniosl.MiniRecord, n: int) -> miniosl.State:
     """return state after n-th move"""
     if n < 0:
         n = len(self.moves) - n
-    s = miniosl.state.State(self.initial_state)
+    s = miniosl.State(self.initial_state)
     for i, move in enumerate(self.moves):
         if i >= n:
             break
@@ -16,7 +16,7 @@ def minirecord_replay(self: miniosl.MiniRecord, n: int) -> miniosl.State:
     return s
 
 
-def state_to_png(state: miniosl.State, decorate: bool) -> apng.PNG:
+def state_to_png(state: miniosl.State | miniosl.UI, decorate: bool) -> apng.PNG:
     """return png object of state"""
     b64png = state.to_png(decorate=decorate).as_data_uri()
     bytes = b64png[len('data:image/png;base64,'):]
@@ -28,7 +28,7 @@ def minirecord_to_apng(self: miniosl.MiniRecord,
                        decorate: bool = False) -> apng.APNG:
     """return animation of the specified range of record as apng"""
     im = apng.APNG(1)
-    s = miniosl.state.State(self.initial_state)
+    s = miniosl.UI(self.initial_state)
     if start <= 0:
         im.append(state_to_png(s, decorate), delay=delay)
     for i, move in enumerate(self.moves):
