@@ -14,7 +14,7 @@ WIP.
 
 - [https://pypi.org/project/miniosl/](https://pypi.org/project/miniosl/)
 
-## build from source
+## work with source code
 
 - C++20 (tested with g++ 12.2.1 in `manylinux_2_28`, Apple clang 14.0.3)
 - Python 3.10+

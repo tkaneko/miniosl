@@ -1,4 +1,6 @@
 #include "bitpack.h"
+#include <algorithm>
+#include <iostream>
 #include <cmath>
 
 uint64_t osl::bitpack::detail::combination_id(int first, int second) {
@@ -46,7 +48,7 @@ namespace osl
     auto lance  = add4(ptype_id[basic_idx(LANCE)]);
   
     if (std::popcount(done) != 40-18)
-      std::runtime_error("StateLabelTuple encode");
+      std::domain_error("StateLabelTuple encode");
     return {king, rook, bishop, gold, silver, knight, lance };
   }
   struct B256Extended {
@@ -160,7 +162,7 @@ osl::Move osl::bitpack::decode_move12(const BaseState& state, uint32_t code) {
   }
   // move on board
   if (! state.pieceAt(to).canMoveOn(state.turn()))
-    throw std::runtime_error("decode inconsistent to" + std::to_string(code));
+    throw std::domain_error("decode inconsistent to" + std::to_string(code));
   Direction dir = Direction(code_dir_or_ptype);
   if (! is_basic(dir)) {
     dir = Direction(code_dir_or_ptype-move12_unpromote_offset);
@@ -171,7 +173,7 @@ osl::Move osl::bitpack::decode_move12(const BaseState& state, uint32_t code) {
   while (state.pieceAt(from).isEmpty())
     from -= step;
   if (! state.pieceAt(from).isOnBoardByOwner(state.turn()))
-    throw std::runtime_error("decode inconsistent from" + std::to_string(code));
+    throw std::domain_error("decode inconsistent from" + std::to_string(code));
   auto ptype = state.pieceAt(from).ptype();
   if (promote)
     ptype = osl::promote(ptype);
@@ -188,7 +190,7 @@ std::pair<int,int> osl::bitpack::detail::unpack2(uint32_t code) {
     if (combination_id(0, n2) > code)
       --n2;
   int n1 = code - combination_id(0, n2);
-  return std::make_pair(n1, n2);
+  return {n1, n2};
 }
 
 std::tuple<int,int,int,int> osl::bitpack::detail::unpack4(uint64_t code) {
@@ -265,7 +267,7 @@ osl::bitpack::B256 osl::bitpack::StateRecord256::to_bitset() const {
   for (auto ptype: basic_ptype) {
     if (ptype == PAWN) continue;
     if (ptype_count[basic_idx(ptype)] != ptype_piece_count(ptype))
-      throw std::runtime_error("StateLabelTuple::to_bitset unexpected piece number");
+      throw std::domain_error("StateLabelTuple::to_bitset unexpected piece number");
   }
   auto [king_code, rook_code, bishop_code, gold_code, silver_code, knight_code, lance_code] = encode(ptype_bid);
   code.order_hi= (king_code * comb2(38) + rook_code) * comb2(36) + bishop_code;
@@ -279,7 +281,8 @@ osl::bitpack::B256 osl::bitpack::StateRecord256::to_bitset() const {
   
   return pack(code);
 }
-void osl::bitpack::StateRecord256::restore(B256 packed) {
+
+void osl::bitpack::StateRecord256::restore(const B256& packed) {
   B256Extended code = unpack(packed);
   state.initEmpty();
 
@@ -375,9 +378,9 @@ void osl::bitpack::StateRecord256::flip() {
 int osl::bitpack::append_binary_record(const MiniRecord& record, std::vector<uint64_t>& out) {
   constexpr int move_length_limit = 1<<10;
   if (record.initial_state != BaseState(HIRATE))
-    throw std::runtime_error("append_binary_record initial state != startpos");
+    throw std::domain_error("append_binary_record initial state != startpos");
   if (record.moves.size() >= move_length_limit)
-    throw std::runtime_error("append_binary_record length limit over "+std::to_string(record.moves.size()));
+    throw std::domain_error("append_binary_record length limit over "+std::to_string(record.moves.size()));
   if (record.moves.size() == 0)
     return 0;
   size_t size_at_beginning = out.size();
@@ -450,4 +453,75 @@ int osl::bitpack::read_binary_record(const uint64_t *&in, MiniRecord& record) {
   record.settle_repetition();
   
   return in - ptr_at_beginning;
+}
+
+
+osl::bitpack::B320 osl::bitpack::StateRecord320::to_bitset() const {
+  // before: past --- history[0], history[1],..., history[4], base.next --- future
+  // after: past --- base.next, history[1],..., history[4], history[0] --- future
+  // base.next need to be a legal move in base.state to apply base.to_bitset()
+  // similarly, we need the corresponding state for each move encoding
+  auto base = this->base;
+  auto history = this->history;
+  std::swap(base.next, history[0]);
+  B256 base_code = base.to_bitset();
+  
+  // std::cerr << "enc base " << base.next << '\n';
+  EffectState state(base.state);
+  if (base.next.isNormal())
+    state.makeMove(base.next);
+  uint64_t history_code=0;
+  for (int j=0; j<5; ++j) {
+    int i = (j+1)%5;
+    auto move = history[i];
+    uint64_t code = encode12(state, move);
+    history_code += code << (j*12);
+    // std::cerr << "enc " <<j << ' ' << i << ' ' << move << '\n';
+    if (move.isNormal())
+      state.makeMove(move);
+  }
+  B320 ret;
+  for (int i=0; i<4; ++i) ret[i] = base_code[i];
+  ret[4] = history_code;
+  return ret;
+}
+
+void osl::bitpack::StateRecord320::restore(const B320& binary) {
+  B256 base_code{binary[0], binary[1], binary[2], binary[3]};
+  base.restore(base_code);
+  EffectState state(base.state);
+  if (base.next.isNormal())
+    state.makeMove(base.next);
+  auto history_code = binary[4];
+  // std::cerr << "base " << base.next << '\n';
+  for (int j=0; j<5; ++j) {
+    int i = (j+1)%5;    
+    auto code = history_code & ((1ull << 12)-1);
+    history_code >>= 12;
+    auto move = decode_move12(state, code);
+    history[i] = move;
+    // std::cerr << i << ' ' << move << '\n';
+    if (move.isNormal()) {
+      if (! state.isAcceptable(move))
+        throw std::domain_error("not acceptable "+to_csa(move));
+      state.makeMove(move);
+    }
+  }
+  std::ranges::remove(history, Move());
+  std::swap(base.next, history[0]);
+}
+
+void osl::bitpack::StateRecord320::flip() {
+  base.flip();
+  for (auto &move: history)
+    if (move.isNormal())
+      move = move.rotate180();
+}
+
+osl::EffectState osl::bitpack::StateRecord320::make_state() const {
+  EffectState state(base.state);
+  for (auto move: history)
+    if (move.isNormal())
+      state.makeMove(move);
+  return state;
 }

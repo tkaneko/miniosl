@@ -141,6 +141,29 @@ EffectState::findThreatenedPiece(Player P) const
   return Piece::EMPTY();
 }
 
+osl::Move osl::EffectState::to_move(std::string csa_or_usi) const {
+  try {
+    return usi::to_move(csa_or_usi, *this);
+  }
+  catch (std::exception& e) {
+  }
+  try {
+    return csa::to_move(csa_or_usi, *this);
+  }
+  catch (std::exception& e) {
+  }
+  throw std::domain_error("not acceptable "+csa_or_usi);
+}
+
+void osl::EffectState::make_move(std::string csa_or_usi) {
+  auto move = to_move(csa_or_usi);
+  if (move.isPass() || isAcceptable(move))
+    makeMove(move);
+  else
+    throw std::domain_error("not acceptable "+csa_or_usi);
+}
+
+
 void osl::EffectState::makeMove(Move move) {
   assert(turn() == move.player());
   effects.clearPast();
@@ -511,6 +534,13 @@ osl::Move osl::EffectState::tryCheckmate1ply() const {
   auto best_move=Move::PASS(turn());
   if (! inCheck())
     ImmediateCheckmate::hasCheckmateMove(turn(),*this,best_move);
+  return best_move;
+}
+
+osl::Move osl::EffectState::findThreatmate1ply() const {
+  auto best_move=Move::PASS(turn());
+  if (! inCheck())
+    ImmediateCheckmate::hasCheckmateMove(alt(turn()),*this,best_move);
   return best_move;
 }
 

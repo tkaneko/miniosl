@@ -4,6 +4,7 @@
 
 #include "state.h"
 #include "record.h"
+#include "opening.h"
 #include "impl/bitpack.h"
 #include "impl/more.h"
 #include <sstream>
@@ -103,7 +104,42 @@ void pyosl::init_basic(py::module_& m) {
     .def("__copy__",  [](const osl::MiniRecord& r) { return osl::MiniRecord(r);})
     .def("__deepcopy__",  [](const osl::MiniRecord& r) { return osl::MiniRecord(r);})
     ;
+  
   // minor classes 
+  py::class_<osl::RecordSet>(m, "RecordSet", py::dynamic_attr())
+    .def(py::init<>())
+    .def(py::init<const std::vector<osl::MiniRecord>&>())
+    .def_readonly("records", &osl::RecordSet::records)
+    .def_static("from_usi_file", &osl::RecordSet::from_usi_file)
+    ;
+  py::class_<osl::BasicHash>(m, "BasicHash", py::dynamic_attr())
+    .def(py::init<>())
+    .def(py::self == py::self)
+    .def(py::self != py::self)
+    ;
+  auto tree_type = py::class_<osl::OpeningTree>(m, "OpeningTree", py::dynamic_attr())
+    .def(py::init<>())
+    .def_readonly("table", &osl::OpeningTree::table)
+    .def("__contains__", [](osl::OpeningTree& t, std::pair<uint64_t, uint32_t> key) { return t.contains(key); })
+    .def("__getitem__", [](osl::OpeningTree& t, std::pair<uint64_t, uint32_t> key) { return t[key]; })
+    .def("size", &osl::OpeningTree::size)
+    .def("board_size", &osl::OpeningTree::board_size)
+    .def("export_all", &osl::OpeningTree::export_all)
+    .def_static("from_record_set", &osl::OpeningTree::from_record_set)
+    .def_static("restore_from", &osl::OpeningTree::restore_from)
+    ;
+  py::class_<osl::OpeningTree::Node>(tree_type, "Node", py::dynamic_attr())
+    .def_readonly("result_count", &osl::OpeningTree::Node::result_count)
+    .def("__getitem__", &osl::OpeningTree::Node::operator[])
+    .def("count", &osl::OpeningTree::Node::count)
+    .def("black_advantage", &osl::OpeningTree::Node::black_advantage)
+    .def("__str__", [](const osl::OpeningTree::Node& node) {
+      return std::to_string(node[0]) + "-" + std::to_string(node[1]) + "-" + std::to_string(node[2])
+        + " (" + std::to_string(node[3]) + ")"; })
+    .def("__repr__", [](const osl::OpeningTree::Node& node) {
+      return "<OpeningTree.Node "+std::to_string(node.count()) +">"; })
+    ;
+  
   py::class_<osl::StateRecord256>(m, "StateRecord256", py::dynamic_attr())
     .def_readonly("state", &osl::StateRecord256::state)
     .def_readonly("move", &osl::StateRecord256::next)
@@ -146,6 +182,7 @@ void pyosl::init_basic(py::module_& m) {
     obj.restore(binary);
     return obj;
   });
+  m.def("hash_after_move", &osl::make_move);
   
   // enums
   py::enum_<osl::Player>(m, "Player", py::arithmetic())

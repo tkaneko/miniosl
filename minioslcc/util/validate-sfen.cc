@@ -34,6 +34,7 @@ void check_consistency(const osl::MiniRecord& record) {
   osl::MoveVector all, check;
   int cnt = 0;
   osl::StateRecord256 ps2;
+  auto last_to = osl::Square();
   for (auto move: record.moves) {
     if (made_checkmate)
       throw std::logic_error("checkmate inconsistent");
@@ -65,8 +66,14 @@ void check_consistency(const osl::MiniRecord& record) {
     if (instance.state != ps2.state || move != ps2.next)
       throw std::runtime_error("pack position consistency"+to_usi(state)+" "+to_usi(move)+" "+to_usi(ps2.next)
                                +" "+std::to_string(cnt));
+    auto ja = to_ki2(move, state, last_to);
+    auto m = osl::kanji::to_move(ja, state, last_to);
+    if (move != m)
+      throw std::logic_error("japanese representation for "+to_csa(move));
     
     state.makeMove(move);
+    last_to = move.to();
+    
     if (!state.check_internal_consistency())
       throw std::runtime_error("internal consistency "+to_usi(move)+" "+std::to_string(cnt));
     made_checkmate = state.inCheckmate();

@@ -292,7 +292,7 @@ namespace osl
     }};
   constexpr std::array<std::pair<int,int>, Ptype_SIZE> ptype_piece_id = {{
       {0, 0}, {0, 0},
-      {0, 18}, {26, 30}, {18, 22}, {22, 26}, {36, 38}, {38, 40}, 
+      {0, 18}, {32, 36}, {18, 22}, {22, 26}, {36, 38}, {38, 40}, 
       {30, 32}, {26, 30}, {0, 18}, {32, 36}, {18, 22}, {22, 26}, {36, 38}, {38, 40}, 
     }};
   constexpr int ptype_piece_count(Ptype ptype) {
@@ -970,6 +970,7 @@ namespace osl
 namespace osl
 {
   enum GameResult { BlackWin, WhiteWin, Draw, InGame };
+  constexpr int GameResultTypes = 4;
   constexpr GameResult win_result(Player P) { return P == BLACK ? BlackWin : WhiteWin; }
   constexpr GameResult loss_result(Player P) { return P == BLACK ? WhiteWin : BlackWin; }
   constexpr bool has_winner(GameResult r) { return r == BlackWin || r == WhiteWin; }

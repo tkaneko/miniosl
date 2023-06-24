@@ -30,6 +30,7 @@ namespace osl
     int move_size() const { return moves.size(); }
     bool has_winner() const { return osl::has_winner(result); }
     std::vector<std::array<uint64_t,4>> export_all(bool flip_if_white_to_move=true) const;
+    std::vector<std::array<uint64_t,5>> export_all320(bool flip_if_white_to_move=true) const;
     /** inquiry on state
      * @param id = index if positive otherwise rollback from current (the last item), i.e., 0 for current
      */
@@ -61,14 +62,8 @@ namespace osl
     }
     /** @param in_check status after make_move */
     void add_move(Move moved, bool in_check);
-    MiniRecord branch_at(int idx) {
-      if (idx >= moves.size())
-        throw std::domain_error("index too large "+std::to_string(idx)+" v.s. "+std::to_string(moves.size()));
-      MiniRecord copy {initial_state,
-                       {moves.begin(), moves.begin()+idx},
-                       {history.begin(), history.begin()+idx+1}};
-      return copy;
-    }
+    MiniRecord branch_at(int idx);
+    void replay(EffectState& state, int idx);
     
     friend inline bool operator==(const MiniRecord&, const MiniRecord&) = default;
     friend inline bool operator!=(const MiniRecord&, const MiniRecord&) = default;
@@ -77,6 +72,19 @@ namespace osl
       assert(0 <= now && now < history.size());
       return now;
     }
+  };
+  /** a set of MiniRecord-s */
+  struct RecordSet {
+    RecordSet() {}
+    RecordSet(const std::vector<MiniRecord>& v) : records(v) {}
+
+    std::vector<MiniRecord> records;
+
+    /** read csa files in folder */
+    static RecordSet from_path(std::string folder_path, int limit=-1);
+    /** read usi lines */
+    static RecordSet from_usi_lines(std::istream&);
+    static RecordSet from_usi_file(std::string);
   };
 
   std::string to_csa(const BaseState&);
@@ -96,12 +104,7 @@ namespace osl
    * CSA形式.
    * CSA形式の定義 http://www.computer-shogi.org/wcsc12/record.html
    */
-  namespace csa
-  {
-    struct ParseError : public std::domain_error {
-      ParseError(const std::string& w) : std::domain_error(w) {}
-    };
-
+  namespace csa {
     Move to_move_light(const std::string& s,const BaseState& st);
     Move to_move(const std::string& s,const EffectState& st);
     Player to_player(char c);
@@ -119,6 +122,9 @@ namespace osl
       return read_record(is);
     }
     inline EffectState read_board(const std::string& str) { return read_record(str).initial_state; }
+    struct ParseError : public std::domain_error {
+      ParseError(const std::string& w) : std::domain_error(w) {}
+    };
   } // namespace csa
 } // namespace osl
 
@@ -134,11 +140,6 @@ namespace osl
     Move to_move(const std::string&, const EffectState&);
     PtypeO to_ptypeo(char);
     
-    class ParseError : public std::invalid_argument {
-    public:
-      ParseError(const std::string& msg = "") : invalid_argument(msg) { }
-    };
-
     /** 
      * 盤面を取得する. 
      * board文字列が不正なときは、ParseErrorがthrowされる. 
@@ -150,24 +151,28 @@ namespace osl
     void parse(const std::string& line, EffectState&);
 
     MiniRecord read_record(std::string line);
-
     EffectState to_state(const std::string& line);
+
+    class ParseError : public std::domain_error {
+    public:
+      ParseError(const std::string& msg = "") : domain_error(msg) { }
+    };
   }
 
   /**
    * gnushogi で使われるフォーマット.
    * 何種類かある．
    */
-  namespace psn
-  {
-    class ParseError : public std::invalid_argument {
-    public:
-      ParseError(const std::string& msg = "") : invalid_argument(msg) {}
-    };
+  namespace psn {
     Move to_move_light(const std::string&, const BaseState&);
     Move to_move(const std::string&, const EffectState&);
     Square to_square(const std::string&);
     Ptype to_ptype(char);
+
+    class ParseError : public std::domain_error {
+    public:
+      ParseError(const std::string& msg = "") : domain_error(msg) {}
+    };
   }
   std::string to_psn(Move);
   std::string to_psn(Square);
@@ -181,6 +186,22 @@ namespace osl
   std::u8string to_ki2(Square cur, Square prev);
   std::u8string to_ki2(Player);
   std::u8string to_ki2(Ptype);
+  namespace kanji {
+    Move to_move(std::u8string, const EffectState& state, Square last_to=Square());
+    Square to_square(std::u8string);
+    Ptype to_ptype(std::u8string);
+    Player to_player(std::u8string);
+
+    extern const std::u8string suji[], dan[], ptype_name[], promote_flag[], sign[], sign_alt[];
+    extern const std::u8string K_ONAZI, K_MIGI, K_HIDARI, K_SPACE;
+
+    class ParseError : public std::domain_error {
+    public:
+      ParseError(const std::string& msg = "") : domain_error(msg) {}
+    };
+    // hopefully addressed in c++23
+    inline auto debugu8(const std::u8string& s) { return reinterpret_cast<const char*>(s.c_str()); }
+  }
 } // osl
 
 

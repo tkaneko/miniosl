@@ -77,3 +77,71 @@ def np_array_to_sfen_file(data: np.ndarray, filename: str) -> int:
             if code_count >= len(data) or n == 0:
                 break
     return record_count
+
+
+def save_record_set(records: miniosl.RecordSet, filename: str,
+                    name: str = '') -> (np.ndarray):
+    """save recordset to npz"""
+    filename = filename if filename.endswith('.npz') else filename+'.npz'
+    if name == '':
+        name = 'record_set'
+    data = []
+    count = 0
+    for r in records.records:
+        data += r.pack_record()
+        count += 1
+    dict = {}
+    dict[name] = np.array(data, dtype=np.uint64)
+    dict[name+'_record_count'] = count
+    np.savez_compressed(filename, **dict)
+
+
+def load_record_set(filename: str, name: str = ''):
+    """load RecordSet from npz file"""
+    filename = filename if filename.endswith('.npz') else filename+'.npz'
+    dict = np.load(filename)
+    for key in dict.keys():
+        data = dict[key]
+        if data.ndim != 1 or not (name == '' or name == key):
+            continue
+        code_count = 0
+        record_set = []
+        while code_count < len(data):
+            record, n = miniosl.unpack_record(data[code_count:])
+            record_set.append(record)
+            code_count += n
+            if n == 0:
+                raise ValueError("malformed data")
+        return miniosl.RecordSet(record_set)
+    raise ValueError("data not found")
+
+
+def save_opening_tree(tree: miniosl.OpeningTree,
+                      filename: str) -> (np.ndarray):
+    """save OpeningTree to npz"""
+    filename = filename if filename.endswith('.npz') else filename+'.npz'
+    key_board, key_stand, node = tree.export_all()
+    dict = {}
+    dict['board'] = np.array(key_board, dtype=np.uint64)
+    dict['stand'] = np.array(key_stand, dtype=np.uint64)
+    dict['node'] = np.array(node, dtype=np.uint64)
+    np.savez_compressed(filename, **dict)
+
+
+def load_opening_tree(filename: str) -> miniosl.OpeningTree:
+    """load OpeningTree from npz file"""
+    filename = filename if filename.endswith('.npz') else filename+'.npz'
+    dict = np.load(filename)
+    return miniosl.OpeningTree.restore_from(dict['board'], dict['stand'],
+                                            dict['node'])
+
+
+def retrieve_children(tree: miniosl.OpeningTree, state: miniosl.BaseState
+                      ) -> list[(miniosl.OpeningTree.Node, miniosl.Move)]:
+    code = state.hash_code()
+    code_list = [(miniosl.hash_after_move(code, move), move)
+                 for move in state.genmove()]
+    children = [(tree[new_code], move)
+                for new_code, move in code_list if new_code in tree]
+    children.sort(key=lambda node: -node[0].count())
+    return children

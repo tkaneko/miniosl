@@ -2,9 +2,11 @@
 #include "impl/more.h"
 #include "impl/checkmate.h"
 #include "impl/bitpack.h"
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <algorithm>
+#include <deque>
 
 /* ------------------------------------------------------------------------- */
 
@@ -175,6 +177,23 @@ std::string osl::to_csa(const Move *first, const Move *last) {
 }
 
 /* ------------------------------------------------------------------------- */
+void osl::MiniRecord::replay(EffectState& state, int idx) {
+  if (idx > moves.size())
+    throw std::domain_error("replay: index too large");
+  state.copyFrom(initial_state);
+  for (int i=0; i<idx; ++i)
+    state.makeMove(moves[i]);
+}
+
+osl::MiniRecord osl::MiniRecord::branch_at(int idx) {
+  if (idx >= moves.size())
+    throw std::domain_error("index too large "+std::to_string(idx)+" v.s. "+std::to_string(moves.size()));
+  MiniRecord copy {initial_state,
+                   {moves.begin(), moves.begin()+idx},
+                   {history.begin(), history.begin()+idx+1}};
+  return copy;
+}
+
 std::vector<std::array<uint64_t,4>> osl::MiniRecord::export_all(bool flip_if_white) const {
   std::vector<std::array<uint64_t,4>> ret;
   EffectState state(initial_state);
@@ -187,6 +206,32 @@ std::vector<std::array<uint64_t,4>> osl::MiniRecord::export_all(bool flip_if_whi
       ps.flip();
     ret.push_back(ps.to_bitset());
     state.makeMove(move);
+  }
+  return ret;
+}
+
+std::vector<std::array<uint64_t,5>> osl::MiniRecord::export_all320(bool flip_if_white) const {
+  std::vector<std::array<uint64_t,5>> ret;
+  std::deque<Move> history5;
+  EffectState state(initial_state);
+  StateRecord320 ps;
+  for (size_t i=0; i<moves.size(); ++i) {
+    auto move = moves[i];
+    ps.base.state = state;
+    ps.base.next = move;
+    ps.base.result = result;
+    std::ranges::fill(ps.history, Move());
+    std::copy(history5.begin(), history5.end(), ps.history.begin());
+    // 
+    if (flip_if_white && move.player() == WHITE) // different from state.turn() with odd-length history
+      ps.flip();
+    ret.push_back(ps.to_bitset());
+    history5.push_back(move);
+    if (history5.size() > 5) {
+      auto old = history5.front();
+      history5.pop_front();
+      state.makeMove(old);
+    }
   }
   return ret;
 }
@@ -277,6 +322,48 @@ osl::MiniRecord osl::csa::read_record(std::istream& is) {
   record.settle_repetition();
   return record;
 }
+
+osl::RecordSet osl::RecordSet::from_path(std::string path, int limit) {
+  RecordSet result;
+  auto folder = std::filesystem::path(path);
+  if (limit < 0) {
+    int count=0;
+    for (auto& file: std::filesystem::directory_iterator{folder}) {
+      if (! file.is_regular_file() || file.path().extension() != ".csa")
+        continue;
+      ++count;
+    }
+    limit = count;
+  }
+  result.records.reserve(limit);
+  for (auto& file: std::filesystem::directory_iterator{folder}) {
+    if (! file.is_regular_file() || file.path().extension() != ".csa")
+      continue;
+    if (result.records.size() >= result.records.capacity())
+      break;
+
+    result.records.push_back(csa::read_record(file));
+  }
+  return result;
+}
+
+osl::RecordSet osl::RecordSet::from_usi_lines(std::istream& is) {
+  RecordSet result;
+  std::string line;
+  while (getline(is, line)){
+    result.records.push_back(usi::read_record(line));
+  }
+  return result;
+}
+osl::RecordSet osl::RecordSet::from_usi_file(std::string path) {
+  std::ifstream is(path);
+  if (! is)
+    throw std::domain_error("file not found"+path);
+  return from_usi_lines(is);
+}
+
+
+
 
 osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord& record, std::string s) {
   if (s.length()==0) 
@@ -759,135 +846,7 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
   return record;
 } 
 
-// ki2
-namespace osl
-{
-  namespace kanji
-  {
-    const std::u8string suji[] = {
-      u8"", u8"１", u8"２", u8"３", u8"４", u8"５", u8"６", u8"７", u8"８", u8"９", };
-    const std::u8string dan[] = {
-      u8"", u8"一", u8"二", u8"三", u8"四", u8"五", u8"六", u8"七", u8"八", u8"九", };
-    const std::u8string K_NARU = u8"成", K_ONAZI = u8"同", K_PASS = u8"(パス)", K_UTSU = u8"打",
-      K_YORU = u8"寄", K_HIKU = u8"引", K_UE = u8"上", K_HIDARI = u8"左", K_MIGI = u8"右", K_SUGU = u8"直";
-    const std::u8string ptype_name[] = {
-      u8"",  u8"",
-      u8"と", u8"成香", u8"成桂", u8"成銀", u8"馬", u8"龍",
-      u8"王", u8"金", u8"歩", u8"香", u8"桂", u8"銀", u8"角", u8"飛",
-    };
-    const std::u8string promote_flag[] = { u8"不成", u8"成", };
-    const std::u8string sign[] = { u8"☗", u8"☖", };
-  }
-}
-std::u8string osl::to_ki2(osl::Square sq) {
-  if (sq.isPieceStand())
-    return u8"";
-  return kanji::suji[sq.x()] + kanji::dan[sq.y()];
-}
-
-std::u8string osl::to_ki2(Ptype ptype) {
-  return kanji::ptype_name[idx(ptype)];
-}
-
-std::u8string osl::to_ki2(Square cur, Square prev) {
-  return (cur == prev) ? kanji::K_ONAZI : to_ki2(cur);
-}
-std::u8string osl::to_ki2(Move m, const EffectState& state, Square prev) {
-  const Player player = m.player();
-  std::u8string ret = kanji::sign[idx(player)];
-  if (m.isPass()) {
-    ret += kanji::K_PASS;
-    return ret;
-  }
-  const Square from = m.from(), to = m.to();
-  const Ptype ptype = m.oldPtype();
-  mask_t pieces = state.effectAt(player, to).to_ullong() & piece_id_set(ptype);
-  const mask_t promoted = state.promotedPieces().to_ullong();
-  if (is_promoted(ptype))
-    pieces &= promoted;
-  else
-    pieces &= ~promoted;
-  if (from.isPieceStand()) {
-    ret += to_ki2(to) + to_ki2(ptype);
-    int has_effect = 0;
-    for (int id: to_range(pieces))
-      if (state.pieceOf(id).ptype() == ptype)
-	++has_effect;
-
-    if (has_effect)
-      ret += kanji::K_UTSU;
-    return ret;
-  }
-  ret += prev.isOnBoard() && (to == prev) ? kanji::K_ONAZI : to_ki2(to);
-  ret += to_ki2(m.oldPtype());
-  const int count = std::popcount(pieces);
-  if (count >= 2) {
-    CArray<int,3> x_count = {{ 0 }}, y_count = {{ 0 }};
-    int my_x = 0, my_y = 0;
-    for (int id: to_range(pieces)) {
-      const Piece p = state.pieceOf(id);
-      if (p.ptype() != ptype)
-	continue;
-      int index_x = 1, index_y = 1;
-      if (p.square().x() != to.x())
-	index_x = ((p.square().x() - to.x()) * sign(player) > 0)
-	  ? 2 : 0;
-      if (p.square().y() != to.y())
-	index_y = ((p.square().y() - to.y()) * sign(player) > 0)
-	  ? 2 : 0;
-      if (p.square() == from)
-	my_x = index_x, my_y = index_y;
-      x_count[index_x]++;
-      y_count[index_y]++;
-    }
-    if (y_count[my_y] == 1) {
-      if (from.y() == to.y()) 
-	ret += kanji::K_YORU;
-      else if ((to.y() - from.y())*sign(player) > 0)
-	ret += kanji::K_HIKU;
-      else
-	ret += kanji::K_UE;
-    }
-    else if (x_count[my_x] == 1) {
-      if (from.x() == to.x()) {
-	if (is_promoted(ptype) && is_major(ptype)) {
-	  const Piece l = state.pieceAt
-	    (Square(from.x() - sign(player), from.y()));
-	  if (l.isOnBoardByOwner(player) && l.ptype() == ptype)
-	    ret += kanji::K_HIDARI;
-	  else
-	    ret += kanji::K_MIGI;
-	}
-	else 
-	  ret += kanji::K_SUGU;
-      }
-      else if ((to.x() - from.x())*sign(player) > 0)
-	ret += kanji::K_MIGI;
-      else
-	ret += kanji::K_HIDARI;
-    }
-    else if (from.x() == to.x()) {
-      if ((to.y() - from.y())*sign(player) > 0)
-	ret += kanji::K_HIKU;
-      else
-	ret += kanji::K_SUGU;
-    }
-    else {
-      if ((to.x() - from.x())*sign(player) > 0)
-	ret += kanji::K_MIGI;
-      else
-	ret += kanji::K_HIDARI;
-      if ((to.y() - from.y())*sign(player) > 0)
-	ret += kanji::K_HIKU;
-      else
-	ret += kanji::K_UE;
-    }
-  }
-  if (can_promote(m.oldPtype()))
-    if (m.isPromotion()
-	|| to.isPromoteArea(player) || from.isPromoteArea(player)) {
-      ret += kanji::promote_flag[m.isPromotion()];
-  }
-  return ret;
-}
-
+// ;;; Local Variables:
+// ;;; mode:c++
+// ;;; c-basic-offset:2
+// ;;; End:

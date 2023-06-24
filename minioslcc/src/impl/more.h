@@ -448,6 +448,15 @@ namespace osl
       template<Player P>
       static void generate(const EffectState& state,Square target,
 			   Store& action);
+      static void generateOfTurn(const EffectState& state,Square target,
+                                 MoveVector& moves) {
+        Store store(moves);
+        if (state.turn() == BLACK)
+          return generate<BLACK>(state, target, store);
+        else
+          return generate<WHITE>(state, target, store);
+      }
+      
       /**
        * @param target 取る駒の位置 (can be empty)
        * @param piece  この駒以外で取る

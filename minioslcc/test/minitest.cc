@@ -2339,7 +2339,7 @@ void test_checkmate()
 	"P4 *  *  *  *  *  *  * +KE * \n"
 	"P5 *  *  *  *  *  *  *  *  * \n"
 	"P6 *  *  *  *  *  *  *  *  * \n"
-	"P7 *  *  *  *  *  *  *  *  * \n"
+	"P7 * -FU *  *  *  *  *  *  * \n"
 	"P8 *  *  *  *  *  *  *  *  * \n"
 	"P9 * +OU *  *  *  *  *  *  * \n"
 	"P+00FU00KY\n"
@@ -2349,6 +2349,11 @@ void test_checkmate()
     const bool checkmate 
       = ImmediateCheckmate::hasCheckmateMove(BLACK,state,best_move);
     TEST_CHECK(checkmate);
+    TEST_CHECK(best_move == Move(Square(1,2), LANCE, BLACK));
+    TEST_CHECK(best_move == state.tryCheckmate1ply());
+    Move threatmate = state.findThreatmate1ply() ;
+    TEST_CHECK(threatmate.isNormal());
+    TEST_CHECK(threatmate == Move(Square(8,8), GOLD, WHITE));
   }
   {
     EffectState state(csa::read_board(
@@ -3279,7 +3284,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 *  *  *  *  *  *  *  *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m82u(Square(9,3), Square(8,2), GOLD, Ptype_EMPTY, false, BLACK);
     const Move m82y(Square(7,2), Square(8,2), GOLD, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗８二金上", to_ki2(m82u, state));
@@ -3312,7 +3317,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 * +KI+KI *  *  * +GI+GI * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m81l(Square(9,2), Square(8,1), GOLD, Ptype_EMPTY, false, BLACK);
     const Move m81r(Square(7,2), Square(8,1), GOLD, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗８一金左", to_ki2(m81l, state));
@@ -3345,7 +3350,7 @@ void test_ki2() {
                                "P8+TO *  *  *  *  *  *  *  * \n"
                                "P9+TO+TO+TO *  *  * +GI+GI * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m52l(Square(6,3), Square(5,2), GOLD, Ptype_EMPTY, false, BLACK);
     const Move m52s(Square(5,3), Square(5,2), GOLD, Ptype_EMPTY, false, BLACK);
     const Move m52r(Square(4,3), Square(5,2), GOLD, Ptype_EMPTY, false, BLACK);
@@ -3382,7 +3387,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 *  *  *  *  *  *  *  *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m82h(Square(9,1), Square(8,2), PROOK, Ptype_EMPTY, false, BLACK);
     const Move m82u(Square(8,4), Square(8,2), PROOK, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗８二龍引", to_ki2(m82h, state));
@@ -3399,7 +3404,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 *  *  *  *  *  * -OU *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m43y(Square(2,3), Square(4,3), PROOK, Ptype_EMPTY, false, BLACK);
     const Move m43h(Square(5,2), Square(4,3), PROOK, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗４三龍寄", to_ki2(m43y, state));
@@ -3416,7 +3421,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 *  *  *  *  *  * -OU *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m43r(Square(2,3), Square(4,3), PROOK, Ptype_EMPTY, false, BLACK);
     const Move m43l(Square(5,3), Square(4,3), PROOK, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗４三龍右", to_ki2(m43r, state));
@@ -3433,7 +3438,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9+RY+RY *  *  *  * -OU *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m88l(Square(9,9), Square(8,8), PROOK, Ptype_EMPTY, false, BLACK);
     const Move m88r(Square(8,9), Square(8,8), PROOK, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗８八龍左", to_ki2(m88l, state));
@@ -3450,7 +3455,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  * +RY * \n"
                                "P9 *  *  *  *  *  *  *  * +RY\n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m17l(Square(2,8), Square(1,7), PROOK, Ptype_EMPTY, false, BLACK);
     const Move m17r(Square(1,9), Square(1,7), PROOK, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗１七龍左", to_ki2(m17l, state));
@@ -3471,7 +3476,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 *  *  *  *  *  *  *  *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m85y(Square(9,5), Square(8,5), PBISHOP, Ptype_EMPTY, false, BLACK);
     const Move m85h(Square(6,3), Square(8,5), PBISHOP, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗８五馬寄", to_ki2(m85y, state));
@@ -3489,7 +3494,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 *  *  *  *  *  *  *  *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m12h(Square(1,1), Square(1,2), PBISHOP, Ptype_EMPTY, false, BLACK);
     const Move m12u(Square(3,4), Square(1,2), PBISHOP, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗１二馬引", to_ki2(m12h, state));
@@ -3506,7 +3511,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9+UM *  *  * +UM *  *  *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m77l(Square(9,9), Square(7,7), PBISHOP, Ptype_EMPTY, false, BLACK);
     const Move m77r(Square(5,9), Square(7,7), PBISHOP, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗７七馬左", to_ki2(m77l, state));
@@ -3523,7 +3528,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  * +UM\n"
                                "P9 *  *  *  *  *  *  *  *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m29l(Square(4,7), Square(2,9), PBISHOP, Ptype_EMPTY, false, BLACK);
     const Move m29r(Square(1,8), Square(2,9), PBISHOP, Ptype_EMPTY, false, BLACK);
     TEST_CHECK_EQUAL(u8"☗２九馬左", to_ki2(m29l, state));
@@ -3541,7 +3546,7 @@ void test_ki2() {
                                "P8 *  *  *  *  *  *  *  *  * \n"
                                "P9 *  *  *  * +OU *  *  *  * \n"
                                "P+00AL\n"
-                               "-\n"));
+                               "+\n"));
     const Move m33ke(Square(3,3), KNIGHT, BLACK);
     TEST_CHECK_EQUAL(u8"☗３三桂", to_ki2(m33ke, state));
   }
@@ -3577,6 +3582,116 @@ void test_ki2() {
     const Move m52funari(Square(5,3), Square(5,2), PPAWN, Ptype_EMPTY, true, BLACK);
     TEST_CHECK_EQUAL(u8"☗５二歩成", to_ki2(m52funari, state));
   }
+  {
+    auto state(csa::read_board("P1 *  *  * +TO *  * +TO+RY * \n"
+                               "P2 *  *  * +TO+TO+NY+OU+TO * \n"
+                               "P3 *  * +NK+NG+TO+TO+NK+NG * \n"
+                               "P4 *  * +UM+TO+NG+TO+TO * +TO\n"
+                               "P5 *  *  * +TO+FU *  * +TO+KI\n"
+                               "P6 *  * -TO *  *  * -TO *  * \n"
+                               "P7 * -NG-KI-UM *  * -NY *  * \n"
+                               "P8-NY-KI *  * -TO-TO *  * -NY\n"
+                               "P9 *  *  *  * -OU *  *  *  * \n"
+                               "P+00KE00KE\n"
+                               "P-00HI00KI\n"
+                               "-\n"));
+    auto move = state.to_move("-1828NY");
+    TEST_CHECK_EQUAL(u8"☖２八成香寄", to_ki2(move, state));    
+  }
+}
+
+void test_kanji() {
+  {
+    auto state(csa::read_board(
+                               "P1-KY-KE-GI * -OU-KI * +RY-KY\n"
+                               "P2 * -HI * -KI+GI-KI *  *  * \n"
+                               "P3-FU-FU-FU * +FU * -FU * -KE\n"
+                               "P4 *  *  * +UM+KY-FU *  * -FU\n"
+                               "P5 *  *  *  *  *  *  *  *  * \n"
+                               "P6 *  * +FU *  *  * +FU *  * \n"
+                               "P7+FU+FU * +FU * +FU+GI * +FU\n"
+                               "P8 *  * +GI-FU+OU *  *  *  * \n"
+                               "P9-UM * +KI *  *  *  * +KE+KY\n"
+                               "P+00KE00FU00FU00FU\n"
+                               "-\n"));
+    auto move = state.to_move("-4252KI");
+    Square last_to(5,2);
+    auto ja = to_ki2(move, state, last_to);
+    TEST_ASSERT(ja == u8"☖同金左寄");
+    auto m2 = kanji::to_move(ja, state, last_to);
+    TEST_ASSERT_EQUAL(move, m2);
+  }
+  {
+    auto K_BLACK_SIGN = kanji::sign[0], K_WHITE_SIGN = kanji::sign[1];
+    auto K_PAWN = kanji::ptype_name[idx(PAWN)], K_GOLD = kanji::ptype_name[idx(GOLD)];
+    auto K_R2 = kanji::suji[2], K_R5 = kanji::suji[5], K_R8 = kanji::suji[8];
+    auto K_K4 = kanji::dan[4], K_K5 = kanji::dan[5], K_K6 = kanji::dan[6], K_K8 = kanji::dan[8];
+  
+    const auto str_b26fu     = K_BLACK_SIGN + K_R2 + K_K6 + K_PAWN;
+    const auto str_w84fu     = K_WHITE_SIGN + K_R8 + K_K4 + K_PAWN;
+    const auto str_b25fu     = K_BLACK_SIGN + K_R2 + K_K5 + K_PAWN;
+    const auto str_w85fu     = K_WHITE_SIGN + K_R8 + K_K5 + K_PAWN;
+    const auto str_b24fu     = K_BLACK_SIGN + K_R2 + K_K4 + K_PAWN;
+    const auto str_wdofu     = K_WHITE_SIGN + kanji::K_ONAZI + kanji::K_SPACE + K_PAWN;
+    const auto str_b58kimigi = K_BLACK_SIGN + K_R5 + K_K8 + K_GOLD + kanji::K_MIGI;
+  
+    EffectState state;
+    Move last_move;
+  
+    Move m26fu(Square(2,7), Square(2,6), PAWN, Ptype_EMPTY, false, BLACK);
+    TEST_CHECK_EQUAL(m26fu, kanji::to_move(str_b26fu, state));
+    last_move = m26fu;
+    state.makeMove(last_move);
+
+    Move m84fu(Square(8,3), Square(8,4), PAWN, Ptype_EMPTY, false, WHITE);
+    TEST_CHECK_EQUAL(m84fu, kanji::to_move(str_w84fu, state, last_move.to()));
+    last_move = m84fu;
+    state.makeMove(last_move);
+
+    Move m25fu(Square(2,6), Square(2,5), PAWN, Ptype_EMPTY, false, BLACK);
+    TEST_CHECK_EQUAL(m25fu, kanji::to_move(str_b25fu, state, last_move.to()));
+    last_move = m25fu;
+    state.makeMove(last_move);
+
+    Move m85fu(Square(8,4), Square(8,5), PAWN, Ptype_EMPTY, false, WHITE);
+    TEST_CHECK_EQUAL(m85fu, kanji::to_move(str_w85fu, state, last_move.to()));
+    last_move = m85fu;
+    state.makeMove(last_move);
+
+    Move m24fu(Square(2,5), Square(2,4), PAWN, Ptype_EMPTY, false, BLACK);
+    TEST_CHECK_EQUAL(m24fu, kanji::to_move(str_b24fu, state, last_move.to()));
+    last_move = m24fu;
+    state.makeMove(last_move);
+
+    Move mdofu(Square(2,3), Square(2,4), PAWN, PAWN, false, WHITE);
+    TEST_CHECK_EQUAL(mdofu, kanji::to_move(str_wdofu, state, last_move.to()));
+    last_move = mdofu;
+    state.makeMove(last_move);
+
+    Move m58ki(Square(4,9), Square(5,8), GOLD, Ptype_EMPTY, false, BLACK);
+    TEST_CHECK_EQUAL(m58ki, kanji::to_move(str_b58kimigi, state, last_move.to()));
+    last_move = m58ki;
+    state.makeMove(last_move);
+  }
+  {
+    EffectState state(csa::read_board("P1-OU * -KI *  *  *  *  * -KY\n"
+                                      "P2 * -GI *  *  *  *  *  * -HI\n"
+                                      "P3-KY-FU * -KI-FU * -KE * -FU\n"
+                                      "P4-FU * -FU * -GI *  * -FU * \n"
+                                      "P5 * +KE * -FU *  *  *  *  * \n"
+                                      "P6 * +FU+FU-KE+FU+FU * +KA * \n"
+                                      "P7 * +GI * +KI+GI *  *  * +FU\n"
+                                      "P8 * +OU+KI *  *  *  *  *  * \n"
+                                      "P9+KY *  *  *  *  * -HI+KE+KY\n"
+                                      "P+00KA00FU00FU\n"
+                                      "P-00FU00FU00FU00FU\n"
+                                      "+\n"));
+    auto move = state.to_move("+7868KI");
+    Square last_to(6,6);
+    auto ja = to_ki2(move, state, last_to);
+    auto m2 = kanji::to_move(ja, state, last_to);
+    TEST_CHECK_EQUAL(move, m2);
+  }  
 }
 
 namespace osl
@@ -4453,6 +4568,61 @@ void test_pack_position() {
 
     TEST_CHECK(sfen == to_usi(ps2.state));
   }
+  {
+    StateRecord320 ps;
+    auto bs = ps.to_bitset();
+    StateRecord320 ps2;
+    ps2.restore(bs);
+    TEST_CHECK(to_usi(ps.base.state) == to_usi(ps2.base.state));
+    TEST_CHECK(ps.base == ps2.base);
+    TEST_CHECK(ps.history == ps2.history);
+  }
+  {
+    EffectState state;
+    auto m7 = state.to_move("+7776FU");
+    state.makeMove(m7);
+    auto m3 = state.to_move("-3334FU");
+
+    {
+      StateRecord320 ps;
+      ps.base.next = m3;
+      ps.history[0] = m7;
+    
+      auto bs = ps.to_bitset();
+      StateRecord320 ps2;
+      ps2.restore(bs);
+      TEST_CHECK(ps.base.state == ps2.base.state);
+      TEST_CHECK(ps.base.next == ps2.base.next);
+      TEST_MSG("%s v.s. %s", to_csa(ps.base.next).c_str(), to_csa(ps2.base.next).c_str());
+      TEST_CHECK(ps.base == ps2.base);
+      TEST_CHECK(ps.history == ps2.history);
+
+      ps.flip();
+      TEST_CHECK(ps.base.flipped);
+      TEST_CHECK(ps.base.next == m7);
+      TEST_CHECK(ps.history[0] == m3);
+
+      ps2.restore(ps.to_bitset());
+      TEST_CHECK(ps.base == ps2.base);
+      TEST_CHECK(ps.history == ps2.history);    
+    }
+    state.makeMove(m3);
+    auto m2 = state.to_move("+2726FU");
+    {
+      StateRecord320 ps;
+      ps.base.next = m2;
+      ps.history[0] = m7;
+      ps.history[1] = m3;
+
+      StateRecord320 ps2;
+      ps2.restore(ps.to_bitset());
+      TEST_CHECK(ps.base.state == ps2.base.state);
+      TEST_CHECK(ps.base.next == ps2.base.next);
+      TEST_MSG("%s v.s. %s", to_csa(ps.base.next).c_str(), to_csa(ps2.base.next).c_str());
+      TEST_CHECK(ps.base == ps2.base);
+      TEST_CHECK(ps.history == ps2.history);
+    }
+  }
 }
 
 void test_win_if_declare()
@@ -4659,19 +4829,34 @@ void test_compress_record()
   TEST_ASSERT(count == read_count);
   TEST_ASSERT(record == r2);
 
-  // separate each position for training data
-  auto all_data = record.export_all(false); // no flip
-  TEST_ASSERT(all_data.size() == record.moves.size());
-  StateRecord256 ps;
-  EffectState replay;
-  for (auto data: all_data) {
-    B256 b256{data};
-    ps.restore(b256);
-    TEST_ASSERT(ps.state == replay);
-    TEST_ASSERT(replay.isLegal(ps.next));
-    replay.makeMove(ps.next);
+  {
+    // separate each position for training data
+    auto all_data = record.export_all(false); // no flip
+    TEST_ASSERT(all_data.size() == record.moves.size());
+    StateRecord256 ps;
+    EffectState replay;
+    for (auto data: all_data) {
+      B256 b256{data};
+      ps.restore(b256);
+      TEST_ASSERT(ps.state == replay);
+      TEST_ASSERT(replay.isLegal(ps.next));
+      replay.makeMove(ps.next);
+    }
   }
-
+  {
+    // separate each position for training data, 320bit version
+    auto all_data = record.export_all320(false);
+    TEST_ASSERT(all_data.size() == record.moves.size());
+    StateRecord320 ps;
+    EffectState replay;
+    for (auto data: all_data) {
+      B320 b320{data};
+      ps.restore(b320);
+      TEST_CHECK(ps.make_state() == replay);
+      TEST_ASSERT(replay.isLegal(ps.base.next));
+      replay.makeMove(ps.base.next);
+    }
+  }
   {
     auto record = usi::read_record("startpos moves 7g7f 3c3d");
     auto all_data = record.export_all(true);
@@ -4705,6 +4890,8 @@ void test_hash() {
     
     HashStatus code_fresh(state);
     code = code.new_zero_history(move, state.inCheck());
+    if (code_fresh != code)
+      std::cerr << code_fresh << ' ' << code << '\n';
     TEST_ASSERT(code_fresh == code);
   }
 }
@@ -4868,6 +5055,7 @@ TEST_LIST = {
   { "effect_state2", test_effect_state2 },
   { "usi", test_usi },
   { "ki2", test_ki2 },
+  { "kanji", test_kanji },
   { "classifier", test_classify },
   { "checkmate", test_checkmate },
   { "addeffect", test_addeffect },

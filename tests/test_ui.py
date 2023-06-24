@@ -117,14 +117,16 @@ def test_replay():
 
 def test_illegal_move():
     board = miniosl.UI()
-    move = board.to_move('+7775FU')
-    assert not move.is_normal()
+    with pytest.raises(ValueError):
+        move = board.to_move('+7775FU')
+        assert not move.is_normal()
 
     move = board.to_move('7g7f')
     assert move.is_normal()
 
-    move = board.to_move('7g7c')
-    assert not move.is_normal()
+    with pytest.raises(ValueError):
+        move = board.to_move('7g7c')
+        assert not move.is_normal()
 
 
 def test_illegal_make_move():
@@ -184,3 +186,9 @@ def test_repeat():
     for i, m in enumerate(moves, 1):
         s.make_move(m)
         assert s.repeat_count() == i // 4
+
+
+def test_read_japanese():
+    board = miniosl.UI()
+    assert board.read_japanese_move('☗７六歩') == board.to_move('7g7f')
+    assert board.read_japanese_move('☗５八金右') == board.to_move('4i5h')

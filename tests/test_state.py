@@ -96,6 +96,13 @@ def test_np_pack():
     assert binary.dtype == np.uint64
 
 
+def test_np_stdch():
+    board = miniosl.State()
+    data = board.to_np_stdch()
+    assert isinstance(data, np.ndarray)
+    assert data.dtype == np.float32
+
+
 def test_board_csa():
     board = minioslcc.State()
     csa = board.to_csa()
@@ -129,14 +136,16 @@ def test_encode_move():
 
 def test_illegal_move():
     board = miniosl.State()
-    move = board.to_move('+7775FU')
-    assert not move.is_normal()
+    with pytest.raises(ValueError):
+        move = board.to_move('+7775FU')
+        assert not move.is_normal()
 
     move = board.to_move('7g7f')
     assert move.is_normal()
 
-    move = board.to_move('7g7c')
-    assert not move.is_normal()
+    with pytest.raises(ValueError):
+        move = board.to_move('7g7c')
+        assert not move.is_normal()
 
     board.make_move('+7776FU')
 
@@ -156,3 +165,10 @@ def test_hash_code():
     a, b = board.hash_code()
     assert a != 0
     assert b == 0
+
+
+def test_read_japanese():
+    board = miniosl.State()
+    assert board.read_japanese_move('▲７六歩') == board.to_move('7g7f')
+    assert board.read_japanese_move('☗５八金右') == board.to_move('4i5h')
+    assert board.read_japanese_move('☗５八金左') == board.to_move('6i5h')

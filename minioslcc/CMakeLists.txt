@@ -8,8 +8,8 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 #set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 add_library(minioslcc20 src/basic-type.cc src/base-state.cc src/state.cc
-  src/record.cc src/impl/effect.cc src/impl/more.cc
-  src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc)
+  src/record.cc src/opening.cc src/impl/effect.cc src/impl/more.cc
+  src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc src/impl/japanese.cc)
 target_include_directories(minioslcc20 PRIVATE src)
 
 add_subdirectory(pybind11)
@@ -44,10 +44,15 @@ if(BUILD_TEST)
   target_link_libraries(minitest PRIVATE minioslcc20)
   add_test(NAME run_test_mini COMMAND minitest)
   
-  add_executable(minitest_file test/minitest_file.cc)
-  target_include_directories(minitest_file PRIVATE src)
-  target_include_directories(minitest_file PRIVATE acutest/include)
-  target_compile_options(minitest_file PRIVATE -Wno-deprecated-declarations)
-  target_link_libraries(minitest_file PRIVATE minioslcc20)
-  add_test(NAME run_test_file COMMAND minitest_file)
+  add_executable(minitest-file test/minitest-file.cc)
+  target_include_directories(minitest-file PRIVATE src test acutest/include)
+  target_compile_options(minitest-file PRIVATE -Wno-deprecated-declarations)
+  target_link_libraries(minitest-file PRIVATE minioslcc20)
+  add_test(NAME run_test_file COMMAND minitest-file)
+
+  add_executable(minitest-file-record test/minitest-file-record.cc)
+  target_include_directories(minitest-file-record PRIVATE src test acutest/include)
+  target_compile_options(minitest-file-record PRIVATE -Wno-deprecated-declarations)
+  target_link_libraries(minitest-file-record PRIVATE minioslcc20)
+  add_test(NAME run_test_file_record COMMAND minitest-file-record)
 endif()

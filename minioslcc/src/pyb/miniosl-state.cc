@@ -16,7 +16,8 @@
 
 namespace pyosl {
   using namespace osl;
-  Move to_move(const EffectState& state, std::string move);
+  Move read_japanese_move(const EffectState& state, std::u8string move, Square last_to=Square());
+    
   /** pieces on board as numpy array */
   py::array_t<int8_t> to_np(const BaseState& state);
   /** hand pieces as numpy array */
@@ -24,15 +25,17 @@ namespace pyosl {
   /** squares covered by pieces as numpy array */
   py::array_t<int8_t> to_np_cover(const EffectState& state);
 
+  const int basic_channels = 44, ext_channels = 10;
   namespace helper {
     void write_np_44ch(const BaseState& state, float *);
+    void write_np_additional(const EffectState& state, float *);
   }
   /** a simple set of state features including board and hands */
   py::array_t<float> to_np_44ch(const BaseState& state);
   /** batch version of to_np_44ch */
   std::pair<py::array_t<float>, py::array_t<int8_t>>
   to_np_batch_44ch(const std::vector<std::array<uint64_t,4>>& batch);
-
+  py::array_t<float> to_np_stdch(const EffectState& state);
 
   /** pack into 256bits */
   py::array_t<uint64_t> to_np_pack(const BaseState& state);
@@ -51,6 +54,7 @@ void pyosl::init_state_np(py::module_& m) {
     .def("king_square", [](const base_t& s, osl::Player P) { return s.kingSquare(P); })
     .def("to_usi", [](const base_t &s) { return osl::to_usi(s); })
     .def("to_csa", [](const base_t &s) { return osl::to_csa(s); })
+    .def("hash_code", &osl::hash_code, "64bit int for board and 32bit for (black) hand pieces")
     .def("to_np", &pyosl::to_np, "pieces on board as numpy array")
     .def("to_np_hand", &pyosl::to_np_hand, "pieces on hand as numpy array")
     .def("to_np_44ch", &pyosl::to_np_44ch, "a simple set of state features including board and hands")
@@ -87,14 +91,9 @@ void pyosl::init_state_np(py::module_& m) {
       s.generateCheck(moves);
       return moves;
     }, "generate check moves only")
-    .def("make_move", [](state_t &s, std::string input) {
-      auto move = pyosl::to_move(s, input);
-      if (! move.is_ordinary_valid() || ! s.isLegal(move))
-        throw std::domain_error("move error "+input);
-      s.makeMove(move);
-    })
+    .def("make_move", &state_t::make_move)
     .def("make_move", [](state_t &s, osl::Move move) {
-      if (! s.isLegal(move))
+      if (! s.isLegal(move) || ! s.isAcceptable(move))
         throw std::domain_error("move error "+osl::to_csa(move));
       s.makeMove(move);
     })
@@ -110,7 +109,10 @@ void pyosl::init_state_np(py::module_& m) {
     }, "the bitset of piece-ids reachable to given square")
     .def("in_check", py::overload_cast<>(&state_t::inCheck, py::const_))
     .def("in_checkmate", py::overload_cast<>(&state_t::inCheckmate, py::const_))
-    .def("to_move", &pyosl::to_move, "parse and return move")
+    .def("to_move", &state_t::to_move, "parse and return move")
+    .def("read_japanese_move", &pyosl::read_japanese_move,
+         py::arg("move"), py::arg("last_to")=Square(),
+         "parse and return move")
     .def("is_legal", &state_t::isLegal)
     .def("to_np_cover", &pyosl::to_np_cover, "squares covered by pieces as numpy array")
     .def("encode_move", [](const state_t& s, osl::Move m) { return osl::bitpack::encode12(s, m); },
@@ -118,11 +120,9 @@ void pyosl::init_state_np(py::module_& m) {
     .def("decode_move", [](const state_t& s, uint32_t c) { return osl::bitpack::decode_move12(s, c); },
          "uncompress move from 12bits uint")
     .def("try_checkmate_1ply", &state_t::tryCheckmate1ply, "try to find a checkmate move")
-    .def("hash_code", [](const state_t& s) { osl::HashStatus hash(s);
-        return std::make_pair(hash.board_hash, hash.black_stand.to_uint());
-    }, "64bit int for board and 32bit for (black) hand pieces")
     .def("__copy__",  [](const state_t& s) { return state_t(s);})
     .def("__deepcopy__",  [](const state_t& s) { return state_t(s);})
+    .def("to_np_stdch", &pyosl::to_np_stdch, "standard set of features features")
   ;
 
   // functions depends on np
@@ -130,14 +130,9 @@ void pyosl::init_state_np(py::module_& m) {
   m.def("to_np_batch_44ch", &pyosl::to_np_batch_44ch, "batch conversion of to_np_44ch");
 }
 
-osl::Move pyosl::to_move(const EffectState& state, std::string move) {
+osl::Move pyosl::read_japanese_move(const EffectState& state, std::u8string move, Square last_to) {
   try {
-    return usi::to_move(move, state);
-  }
-  catch (std::exception& e) {
-  }
-  try {
-    return csa::to_move(move, state);
+    return kanji::to_move(move, state, last_to);
   }
   catch (std::exception& e) {
   }
@@ -192,7 +187,7 @@ std::pair<osl::MiniRecord, int> pyosl::unpack_record(py::array_t<uint64_t> code_
   auto ptr = static_cast<const uint64_t*>(buf.ptr);
   MiniRecord record;
   auto n = bitpack::read_binary_record(ptr, record);
-  return std::make_pair(record, n);
+  return {record, n};
 }
 
 py::array_t<float> pyosl::to_np_44ch(const osl::BaseState& state) {
@@ -253,4 +248,79 @@ pyosl::to_np_batch_44ch(const std::vector<std::array<uint64_t,4>>& batch) {
   t2.join();
     
   return {batch_feature, batch_label};
+}
+
+void pyosl::helper::write_np_additional(const osl::EffectState& state, float *ptr) {
+  // reach LBR+K 8ch
+  std::array<int,81*2> lance_plane = { 0 }, bishop_plane = { 0 }, rook_plane = { 0 }, king_plane = { 0 };
+  auto fill_segment = [&](Piece p, Square dst, Player owner, std::array<int,81*2>& out, int offset=0) {
+    auto sq = p.square();
+    auto step = base8_step(dst, sq);
+    if (step == Offset_ZERO)
+      throw std::invalid_argument("offset 0");
+    sq += step;
+    while (sq != dst) {
+      if (! sq.isOnBoard())
+        throw std::invalid_argument("segment out of board");
+      out[sq.index81()+idx(owner)*81] = 1;
+      sq += step;
+    }
+    if (sq.isOnBoard())
+      out[sq.index81()+idx(owner)*81] = 1;
+  };
+    
+  for (auto z: players) {
+    auto pieces = state.piecesOnBoard(z);
+    auto lances = (pieces & ~state.promotedPieces()).to_ullong() & piece_id_set(LANCE);
+    for (int n: BitRange(lances)) 
+      fill_segment(state.pieceOf(n), state.pieceReach(change_view(z, U), n), z, lance_plane);
+    
+    auto bishops = pieces.to_ullong() & piece_id_set(BISHOP);
+    for (int n: BitRange(bishops)) 
+      for (auto dir: {UL, UR, DL, DR}) 
+        fill_segment(state.pieceOf(n), state.pieceReach(dir, n), z, bishop_plane);
+    
+    auto rooks = pieces.to_ullong() & piece_id_set(ROOK);
+    for (int n: BitRange(rooks)) 
+      for (auto dir: {U, L, R, D}) 
+        fill_segment(state.pieceOf(n), state.pieceReach(dir, n), z, rook_plane);
+
+    for (auto dir: base8_directions()) 
+      fill_segment(state.kingPiece(z), state.kingVisibilityBlackView(z, dir), z, king_plane);
+  }
+
+  std::ranges::copy(lance_plane,  ptr);
+  std::ranges::copy(bishop_plane, ptr+2*81);
+  std::ranges::copy(rook_plane,   ptr+4*81);
+  std::ranges::copy(king_plane,   ptr+6*81);
+
+  // checkmate, threatmate
+  std::array<int,81*2> th_plane = {0};
+  auto cmove = state.tryCheckmate1ply(), tmove = state.tryCheckmate1ply();
+  auto fill_move = [&](Move move, std::array<int,81*2>& out) {
+    if (! move.isNormal())
+      return;
+    auto offset = idx(move.player())*81;
+    out[move.to().index81() + offset] = 1;
+    auto from = move.from();
+    if (! from.isPieceStand()) {
+      if (move.oldPtype() == KNIGHT)
+        th_plane[from.index81() + offset] = 1;
+      else
+        fill_segment(state.pieceAt(from), move.to(), move.player(), out);
+    }
+  };
+  fill_move(cmove, th_plane);
+  fill_move(tmove, th_plane);
+  std::ranges::copy(th_plane, ptr+8*81);
+}
+
+py::array_t<float> pyosl::to_np_stdch(const EffectState& state) {
+  auto feature = py::array_t<float>(9*9*(basic_channels+ext_channels));
+  auto buffer = feature.request();
+  auto ptr = static_cast<float_t*>(buffer.ptr);
+  helper::write_np_44ch(state, ptr);
+  helper::write_np_additional(state, ptr + 9*9*basic_channels);
+
+  return feature;  
 }

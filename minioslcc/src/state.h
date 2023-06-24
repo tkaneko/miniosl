@@ -438,12 +438,18 @@ namespace osl
     void generateCheck(MoveVector& moves) const;
     /** 1手詰めの手を見つけられれば生成 */
     Move tryCheckmate1ply() const;
+    /** 自玉の詰めろを見つけられれば生成 */
+    Move findThreatmate1ply() const;
 
     void makeMove(Move move);
     void makeMovePass() {
       changeTurn();
     }
 
+    // sugars for reduce typing
+    Move to_move(std::string) const;
+    void make_move(std::string csa_or_usi);
+    
     // ----------------------------------------------------------------------
     // 5. forEachXXX
     // ----------------------------------------------------------------------

@@ -97,6 +97,9 @@ class ShogiSVG:
     def draw_plane(self, plane: np.ndarray, color: str, stroke: int = 0) -> None:
         if plane.shape != (9, 9):
             raise ValueError(f'unexpected shape of plane {plane.shape}')
+        maximum = np.max(plane)
+        if maximum > 5:
+            plane /= maximum
         weight = 1 if plane.max() > 2 or plane.max() == 0 else 4/plane.max()
         p = {'fill': color,  'fill_opacity': 0.2, 'stroke_width': stroke,
              'stroke': color}
@@ -196,7 +199,7 @@ class ShogiSVG:
 
 
 def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
-                 decorate: bool = False, plane: np.ndarray = None,
+                 decorate: bool = False, plane: np.ndarray | None = None,
                  plane_color: str = 'orange',
                  last_move_ja: str = '',
                  last_to: miniosl.Square | None = None,

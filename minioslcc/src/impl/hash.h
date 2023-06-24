@@ -2,6 +2,8 @@
 #define MINIOSL_HASH_H
 #include "state.h"
 #include <memory>
+#include <algorithm>
+#include <unordered_map>
 
 namespace osl
 {
@@ -263,6 +265,13 @@ namespace osl
     friend inline bool operator==(const HistoryStatus&, const HistoryStatus&) = default;
     friend inline bool operator!=(const HistoryStatus&, const HistoryStatus&) = default;
   };
+
+  /** 96bit hash code for a state */
+  typedef std::pair<uint64_t, uint32_t> BasicHash;
+  BasicHash make_move(const BasicHash&, Move move);
+  inline BasicHash hash_code(const BaseState& state) {
+    return { zobrist_hash_of_board(state), PieceStand(BLACK, state).to_uint() };
+  }
   /** 128bit data to detect repetition in a game history.
    *  64 + 32 + 16bit for state,
    *  16bit for history */
@@ -279,6 +288,8 @@ namespace osl
     }
     HashStatus(const EffectState& state) : HashStatus(state, state.inCheck()) {} // delegate
 
+    BasicHash basic() const { return {board_hash, black_stand.to_uint()}; }
+    
     HashStatus zero_history() const {
       HashStatus copy = *this;
       copy.history = HistoryStatus();
@@ -317,20 +328,52 @@ namespace osl
   std::ostream& operator<<(std::ostream& os, const HashStatus& hash);
 
   int consecutive_in_check(const std::vector<HashStatus>& history, int id);
+
+
+  template <class Value>
+  struct HashTable : public std::unordered_map<uint64_t,std::vector<std::pair<PieceStand, Value>>> {
+    typedef std::unordered_map<uint64_t,std::vector<std::pair<PieceStand, Value>>> map_t;
+    Value& operator[](const std::pair<uint64_t, PieceStand>& key) {
+      auto& entry = map_t::operator[](key.first);
+      auto ptr = std::find_if(entry.rbegin(), entry.rend(),
+                              [&](std::pair<PieceStand,Value> e){ return e.first == key.second; });
+      if (ptr != entry.rend())
+        return ptr->second;
+      entry.emplace_back(std::make_pair(key.second, Value()));
+      ++state_size;
+      return entry.back().second;
+    }
+    Value& operator[](const BasicHash& key) {
+      return operator[]({key.first, PieceStand(key.second)});
+    }
+    Value& operator[](const HashStatus& key) { return operator[]({key.board_hash, key.black_stand}); }
+    bool contains(const std::pair<uint64_t, PieceStand>& key) const {
+      auto p = map_t::find(key.first);
+      if (p == map_t::end()) return false;
+      auto ptr = std::find_if(p->second.rbegin(), p->second.rend(),
+                              [&](std::pair<PieceStand,Value> e){ return e.first == key.second; });
+      return ptr != p->second.rend();
+    }
+    bool contains(const BasicHash& key) const {
+      return contains({key.first, PieceStand(key.second)});
+    }
+
+    /** number of elements ignoring differences in pieces in hand */
+    size_t board_size() const { return map_t::size(); }
+    /** number of elements */
+    size_t size() const { return state_size; }
+  private:
+    size_t state_size = 0;
+  };
   
-  class HistoryTable {
+  class HistoryTable : HashTable<std::vector<int>> {
   public:
     HistoryTable();
     ~HistoryTable();
     GameResult add(int move_number, HashStatus& now, const std::vector<HashStatus>& history);
 
-    typedef std::vector<std::pair<PieceStand,int>> vector_t;
-    /** @return -1 not found */
-    static int latest_same_state(const vector_t&, const HashStatus&);
-    static int first_same_state(const vector_t&, const HashStatus&);
-  private:
-    class Table;
-    std::shared_ptr<Table> table;
+    typedef HashTable<std::vector<int>> table_t;
+    typedef std::vector<int> vector_t;
   };
   
 }

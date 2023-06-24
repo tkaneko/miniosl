@@ -1,15 +1,7 @@
-#include "acutest.h"
-#include "state.h"
-#include "impl/more.h"
-#include "record.h"
-#include "impl/bitpack.h"
-#include <iostream>
-#include <fstream>
-#include <filesystem>
-#include <algorithm>
+#include "filepath.h"
 
-#define TEST_CHECK_EQUAL(a,b) TEST_CHECK((a) == (b))
-#define TEST_ASSERT_EQUAL(a,b) TEST_ASSERT((a) == (b))
+#include "impl/more.h"
+#include <algorithm>
 
 namespace osl
 {
@@ -108,28 +100,13 @@ bool is_member(const Container& c, const T& val) {
   return std::find(c.begin(), c.end(), val) != c.end();
 }
 
-auto make_path() {
-  return std::filesystem::path("csa");
-}
-
-#ifdef NDEBUG
-const int limit = 65536;
-#else
-const int limit = 2000;
-#endif
-
 void test_path() {
   try {
-    auto csa = make_path();
     int count=0;
-    for (auto& file: std::filesystem::directory_iterator{csa}) {
-      if (! file.is_regular_file() || file.path().extension() != ".csa")
-        continue;
-
+    for (auto& record: test_record_set().records) {
       if (++count > limit)
         break;
 
-      auto record=csa::read_record(file);
       auto state=record.initial_state;
       for (auto move:record.moves) {
         TEST_CHECK(state.isLegal(move));
@@ -146,17 +123,11 @@ void test_path() {
   }
 }
 
-void test_piece_stand()
-{
-  auto csa = make_path();
-  int count = 0;
-  for (auto& file: std::filesystem::directory_iterator{csa}) {
-    if (! file.is_regular_file() || file.path().extension() != ".csa")
-      continue;
+void test_piece_stand() {
+  int count=0;
+  for (auto& record: test_record_set().records) {
     if (++count > limit)
       break;
-
-    auto record=csa::read_record(file);
     auto state = record.initial_state;
       
     PieceStand black(BLACK, state);
@@ -182,16 +153,11 @@ void test_piece_stand()
 
 void test_copy()
 {
-  auto csa = make_path();
-  int count = 0;
-  
-  for (auto& file: std::filesystem::directory_iterator{csa}) {
-    if (! file.is_regular_file() || file.path().extension() != ".csa")
-      continue;
+  int count=0;
+  for (auto& record: test_record_set().records) {
     if (++count > limit/2)
       break;
 
-    auto record=csa::read_record(file);
     auto state(record.initial_state);
     EffectState state2 = state;
 
@@ -216,16 +182,10 @@ void test_copy()
 
 void test_changed_effect()
 {
-  auto csa = make_path();
-  int count = 0;
-  
-  for (auto& file: std::filesystem::directory_iterator{csa}) {
-    if (! file.is_regular_file() || file.path().extension() != ".csa")
-      continue;
+  int count=0;
+  for (auto& record: test_record_set().records) {
     if (++count > limit)
       break;
-
-    auto record=csa::read_record(file);
     auto state(record.initial_state);
     for (auto move:record.moves) {
       PieceMask before[9][9][2];
@@ -338,16 +298,11 @@ void test_capture()
     for(auto move: moves)
       TEST_CHECK(state.isLegal(move));
   }
-  auto csa = make_path();
-  int count = 0;
-  
-  for (auto& file: std::filesystem::directory_iterator{csa}) {
-    if (! file.is_regular_file() || file.path().extension() != ".csa")
-      continue;
+
+  int count=0;
+  for (auto& record: test_record_set().records) {
     if (++count > limit)
       break;
-
-    auto record=csa::read_record(file);
     auto state(record.initial_state);
     for (auto move:record.moves) {
       // 王手がかかっているときはcaptureを呼ばない
@@ -386,16 +341,10 @@ void test_capture()
 
 void test_check()
 {
-  auto csa = make_path();
-  int count = 0;
-  
-  for (auto& file: std::filesystem::directory_iterator{csa}) {
-    if (! file.is_regular_file() || file.path().extension() != ".csa")
-      continue;
+  int count=0;
+  for (auto& record: test_record_set().records) {
     if (++count > limit)
       break;
-
-    auto record=csa::read_record(file);
     auto state(record.initial_state);
     int cnt = 0;
     for (auto move:record.moves) {
@@ -418,58 +367,6 @@ void test_check()
   }
 }
 
-void test_pack_position()
-{
-  auto csa = make_path();
-  int count = 0;
-  
-  for (auto& file: std::filesystem::directory_iterator{csa}) {
-    if (! file.is_regular_file() || file.path().extension() != ".csa")
-      continue;
-    if (++count > limit)
-      break;
-
-    auto record=csa::read_record(file);
-    auto state(record.initial_state);
-    StateRecord256 ps2;
-    int cnt = 0;
-    for (auto move:record.moves) {      
-      StateRecord256 ps{state, move, record.result};
-      auto bs = ps.to_bitset();
-      ps2.restore(bs);
-      
-      TEST_ASSERT(to_usi(ps.state) == to_usi(ps2.state));
-      TEST_ASSERT(move == ps2.next);
-      TEST_MSG("%s v.s. %s", to_usi(move).c_str(), to_usi(ps2.next).c_str());
-      TEST_ASSERT(ps2.result == record.result);
-      state.makeMove(move);
-    }
-  }
-}
-
-void test_hash() {
-  auto csa = make_path();
-  int count = 0;
-  
-  for (auto& file: std::filesystem::directory_iterator{csa}) {
-    if (! file.is_regular_file() || file.path().extension() != ".csa")
-      continue;
-    if (++count > limit)
-      break;
-
-    auto record=csa::read_record(file);
-    auto state(record.initial_state);
-    HashStatus code(state);
-    for (auto move: record.moves) {
-      state.makeMove(move);
-
-      HashStatus code_fresh(state);
-      code = code.new_zero_history(move, state.inCheck());
-      TEST_ASSERT(code_fresh == code);
-    }
-  }
-}
-
 
 TEST_LIST = {
   { "path", test_path },
@@ -478,7 +375,5 @@ TEST_LIST = {
   { "copy", test_copy },
   { "piece_stand", test_piece_stand },
   { "changed_effect", test_changed_effect },
-  { "pack_position", test_pack_position },
-  { "hash", test_hash },
   { nullptr, nullptr }
 };

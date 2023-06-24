@@ -29,15 +29,39 @@ namespace osl
       bool flipped = false;
 
       B256 to_bitset() const;
-      void restore(B256 binary);
+      void restore(const B256& binary);
       void flip();
+
+      friend inline bool operator==(const StateRecord256&, const StateRecord256&) = default;
+      friend inline bool operator!=(const StateRecord256&, const StateRecord256&) = default;
     };
     /** compress move to 12bit (depending on a current state) */
     uint32_t encode12(const BaseState& state, Move move);
     Move decode_move12(const BaseState& state, uint32_t code);
     constexpr uint32_t move12_resign = 0, move12_win_declare = 127;
 
-    /** to save a set of game records in npz.
+    typedef std::array<uint64_t,5> B320;
+    /** training record with history
+     * 
+     */
+    struct StateRecord320 {
+      /** almost identical to StateRecord256, except for state needed to apply history before use */
+      StateRecord256 base;
+      /** past history, padded with Resign if less than 5 */
+      std::array<Move,5> history;
+
+      B320 to_bitset() const;
+      void restore(const B320& binary);
+      void flip();
+      /** sugar: state after history applied */
+      EffectState make_state() const;
+
+      friend inline bool operator==(const StateRecord320&, const StateRecord320&) = default;
+      friend inline bool operator!=(const StateRecord320&, const StateRecord320&) = default;
+    };
+
+
+    /** to save a set of (pure) game records in npz.
      * @return number of uint64s appended
      */
     int append_binary_record(const MiniRecord&, std::vector<uint64_t>&);
@@ -55,7 +79,9 @@ namespace osl
     }
   } // bitpack
   using bitpack::B256;
-  using bitpack::StateRecord256;  
+  using bitpack::StateRecord256;
+  using bitpack::B320;
+  using bitpack::StateRecord320;
 }
 
 #endif
