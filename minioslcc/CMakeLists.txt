@@ -8,7 +8,7 @@ option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
 
 #set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 add_library(minioslcc20 src/basic-type.cc src/base-state.cc src/state.cc
-  src/record.cc src/opening.cc src/impl/effect.cc src/impl/more.cc
+  src/record.cc src/opening.cc src/feature.cc src/impl/effect.cc src/impl/more.cc
   src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc src/impl/japanese.cc)
 target_include_directories(minioslcc20 PRIVATE src)
 

@@ -63,3 +63,33 @@ def test_np():
 
     s = miniosl.State(t.state)
     assert s.to_usi() == t.state.to_usi()
+
+
+def test_channel_name():
+    assert miniosl.channel_id['black-pawn'] == int(miniosl.pawn)+14
+
+
+def test_gamemanager():
+    mgr = miniosl.GameManager()
+    m7776 = mgr.state.to_move("+7776FU")
+    ret = mgr.add_move(m7776)
+    assert ret == miniosl.InGame
+    m3334 = mgr.state.to_move("-3334FU")
+    ret = mgr.add_move(m3334)
+    assert ret == miniosl.InGame
+
+    moves = ["+3948GI", "-7162GI", "+4839GI", "-6271GI", "+3948GI", "-7162GI",
+             "+4839GI", "-6271GI", "+3948GI", "-7162GI", "+4839GI"]
+    for move in moves:
+        ret = mgr.add_move(mgr.state.to_move(move))
+        assert ret == miniosl.InGame
+
+    move = mgr.state.to_move("-6271GI")
+    ret = mgr.add_move(move)
+    assert ret == miniosl.Draw
+
+
+def test_gamemanager_feature():
+    mgr = miniosl.GameManager()
+    feature = mgr.export_heuristic_feature()
+    print(feature.shape)

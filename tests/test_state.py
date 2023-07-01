@@ -96,9 +96,9 @@ def test_np_pack():
     assert binary.dtype == np.uint64
 
 
-def test_np_stdch():
+def test_np_heuristic():
     board = miniosl.State()
-    data = board.to_np_stdch()
+    data = board.to_np_heuristic()
     assert isinstance(data, np.ndarray)
     assert data.dtype == np.float32
 
@@ -128,9 +128,7 @@ def test_encode_move():
     board.make_move('-3122GI')
     moves = board.genmove()
     for move in moves:
-        print(move)
         code = board.encode_move(move)
-        print(code)
         assert 0 < code < 2**12
 
 
@@ -172,3 +170,11 @@ def test_read_japanese():
     assert board.read_japanese_move('▲７六歩') == board.to_move('7g7f')
     assert board.read_japanese_move('☗５八金右') == board.to_move('4i5h')
     assert board.read_japanese_move('☗５八金左') == board.to_move('6i5h')
+
+
+def test_policy_move_label():
+    board = miniosl.State()
+    moves = board.genmove()
+    for move in moves:
+        code = move.policy_move_label()
+        assert board.decode_move_label(code) == move

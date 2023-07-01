@@ -1,7 +1,8 @@
 #include "acutest.h"
 #include "state.h"
-#include "impl/more.h"
 #include "record.h"
+#include "feature.h"
+#include "impl/more.h"
 #include "impl/checkmate.h"
 #include "impl/bitpack.h"
 #include <iostream>
@@ -9,6 +10,7 @@
 #include <algorithm>
 #include <filesystem>
 #include <fstream>
+#include <set>
 
 #define TEST_CHECK_EQUAL(a,b) TEST_CHECK((a) == (b))
 #define TEST_ASSERT_EQUAL(a,b) TEST_ASSERT((a) == (b))
@@ -5039,6 +5041,267 @@ void test_repetition() {
   }
 }
 
+void test_feature() {
+  {
+    EffectState state;
+    auto bd = ml::board_dense_feature(state);
+    auto hd = ml::hand_dense_feature(state);
+    auto b = ml::board_feature(state);
+    auto h = ml::hand_feature(state);
+
+    for (int y: board_y_range())
+      for (int x: board_x_range()) {
+        Square sq(x,y);
+        auto ptypeo = state.pieceAt(sq).ptypeO();
+        TEST_CHECK(bd[sq.index81()] == Int(ptypeo));
+        for (int c: std::views::iota(0, 30)) 
+          TEST_CHECK(b[c*81+sq.index81()] == ((c == ptypeo+14) || c == Int(Ptype_EDGE)+14));
+      }
+    std::vector<float> work(ml::channel_id.size()*81);
+    ml::helper::write_np_44ch(state, &work[0]);
+    ml::helper::write_np_additional(state, false, Move(), &work[0]+81*44);
+
+    state.make_move("+7776FU");
+  
+    auto lance = ml::lance_cover(state);
+    std::set lance_covered{Square{9,8}, {9,7}, {1,8}, {1,7}};
+    for (int y: board_y_range())
+      for (int x: board_x_range()) {
+        Square sq(x,y);
+        TEST_CHECK(lance[sq.index81()] == lance_covered.count(sq));
+        TEST_CHECK(lance[sq.index81()+81] == lance_covered.count(sq.rotate180()));
+      }      
+
+    auto bishop = ml::bishop_cover(state);
+    std::set bishop_covered{Square{9,7}, {9,9}, {7,9}, {7,7}, {6,6}, {5,5}, {4,4}, {3,3}};
+    std::set bishop_covered_w{Square{1,3}, {1,1}, {3,1}, {3,3}};
+    for (int y: board_y_range())
+      for (int x: board_x_range()) {
+        Square sq(x,y);
+        TEST_CHECK(bishop[sq.index81()] == bishop_covered.count(sq));
+        TEST_CHECK(bishop[sq.index81()+81] == bishop_covered_w.count(sq));
+      }      
+
+    auto rook = ml::rook_cover(state);
+    std::set rook_covered{Square{1,8}, {2,7}, {2,9}, {3,8}, {4,8}, {5,8}, {6,8}, {7,8}, {8,8}};
+    for (int y: board_y_range())
+      for (int x: board_x_range()) {
+        Square sq(x,y);
+        TEST_CHECK(rook[sq.index81()] == rook_covered.count(sq));
+        TEST_CHECK(rook[sq.index81()+81] == rook_covered.count(sq.rotate180()));
+      }      
+
+    auto king = ml::king_visibility(state);
+    std::set king_visible{Square{4,9}, {4,8}, {3,7}, {5,8}, {5,7}, {6,9}, {6,8}, {7,7}, {8,6}, {9,5}};
+    std::set king_visible_w{Square{4,1}, {4,2}, {3,3}, {5,2}, {5,3}, {6,1}, {6,2}, {7,3}};
+    for (int y: board_y_range())
+      for (int x: board_x_range()) {
+        Square sq(x,y);
+        TEST_CHECK(king[sq.index81()] == king_visible.count(sq));
+        TEST_CHECK(king[sq.index81()+81] == king_visible_w.count(sq));
+      }
+  }
+  {
+    EffectState state
+      (csa::read_board(
+                       "P1 *  *  *  *  *  *  *  * -OU\n"
+                       "P2 *  *  *  *  *  *  *  *  * \n"
+                       "P3 *  *  *  *  *  *  *  *  * \n"
+                       "P4 *  *  *  *  *  *  *  *  * \n"
+                       "P5 *  *  *  *  *  *  *  *  * \n"
+                       "P6 *  *  *  *  *  *  *  *  * \n"
+                       "P7 *  *  *  *  *  *  *  *  * \n"
+                       "P8 *  *  *  *  *  *  *  *  * \n"
+                       "P9 * +OU *  *  *  *  *  *  * \n"
+                       "P+00FU00KY\n"
+                       "P-00AL\n"
+                       "+\n"));
+    auto king = ml::king_visibility(state);
+    TEST_CHECK(king[Square(8,1).index81()]);
+    TEST_CHECK(king[Square(1,2).index81()]);
+    TEST_CHECK(king[Square(1,9).index81()]);
+    TEST_CHECK(king[Square(9,9).index81()]);
+    TEST_CHECK(king[Square(9,8).index81()]);
+    TEST_CHECK(king[Square(1,9).index81()+81]);
+    TEST_CHECK(king[Square(9,9).index81()+81]);
+    TEST_CHECK(king[Square(9,1).index81()+81]);
+  }
+  {
+    EffectState state
+      (csa::read_board(
+                       "P1 * -OU *  *  *  *  *  *  * \n"
+                       "P2 *  *  *  *  *  *  *  *  * \n"
+                       "P3 *  *  *  *  *  *  *  *  * \n"
+                       "P4 *  *  *  *  *  *  *  *  * \n"
+                       "P5 *  *  *  *  *  *  *  *  * \n"
+                       "P6 *  *  *  *  *  *  *  *  * \n"
+                       "P7 *  *  *  *  *  *  *  *  * \n"
+                       "P8 *  *  *  *  *  *  *  *  * \n"
+                       "P9 *  *  *  *  *  *  *  * +OU\n"
+                       "P+00FU00KY\n"
+                       "P-00AL\n"
+                       "+\n"));
+    auto king = ml::king_visibility(state);
+    TEST_CHECK(king[Square(1,1).index81()]);
+    TEST_CHECK(king[Square(9,1).index81()]);
+    TEST_CHECK(king[Square(9,9).index81()]);
+    TEST_CHECK(king[Square(1,1).index81()+81]);
+    TEST_CHECK(king[Square(1,8).index81()+81]);
+    TEST_CHECK(king[Square(8,9).index81()+81]);
+    TEST_CHECK(king[Square(9,2).index81()+81]);
+    TEST_CHECK(king[Square(9,1).index81()+81]);
+  }
+  {
+    EffectState state
+      (csa::read_board(
+                       "P1 *  *  *  *  *  *  *  * +OU\n"
+                       "P2 *  *  *  *  *  *  *  *  * \n"
+                       "P3 *  *  *  *  *  *  *  *  * \n"
+                       "P4 *  *  *  *  *  *  *  *  * \n"
+                       "P5 *  *  *  *  *  *  *  *  * \n"
+                       "P6 *  *  *  *  *  *  *  *  * \n"
+                       "P7 *  *  *  *  *  *  *  *  * \n"
+                       "P8 *  *  *  *  *  *  *  *  * \n"
+                       "P9 * -OU *  *  *  *  *  *  * \n"
+                       "P+00FU00KY\n"
+                       "P-00AL\n"
+                       "+\n"));
+    auto king = ml::king_visibility(state);
+    TEST_CHECK(king[Square(1,9).index81()]);
+    TEST_CHECK(king[Square(9,1).index81()]);
+    TEST_CHECK(king[Square(9,9).index81()]);
+    TEST_CHECK(king[Square(1,2).index81()+81]);
+    TEST_CHECK(king[Square(1,9).index81()+81]);
+    TEST_CHECK(king[Square(8,1).index81()+81]);
+    TEST_CHECK(king[Square(9,8).index81()+81]);
+    TEST_CHECK(king[Square(9,9).index81()+81]);
+  }
+  {
+    EffectState state
+      (csa::read_board(
+                       "P1 *  *  *  *  *  *  * +OU * \n"
+                       "P2 *  *  *  *  *  *  *  *  * \n"
+                       "P3 *  *  *  *  *  *  *  *  * \n"
+                       "P4 *  *  *  *  *  *  *  *  * \n"
+                       "P5 *  *  *  *  *  *  *  *  * \n"
+                       "P6 *  *  *  *  *  *  *  *  * \n"
+                       "P7 *  *  *  *  *  *  *  *  * \n"
+                       "P8 *  *  *  *  *  *  *  *  * \n"
+                       "P9-OU *  *  *  *  *  *  *  * \n"
+                       "P+00FU00KY\n"
+                       "P-00AL\n"
+                       "+\n"));
+    auto king = ml::king_visibility(state);
+    TEST_CHECK(king[Square(1,1).index81()]);
+    TEST_CHECK(king[Square(1,2).index81()]);
+    TEST_CHECK(king[Square(2,9).index81()]);
+    TEST_CHECK(king[Square(9,1).index81()]);
+    TEST_CHECK(king[Square(9,8).index81()]);
+    TEST_CHECK(king[Square(1,1).index81()+81]);
+    TEST_CHECK(king[Square(1,9).index81()+81]);
+    TEST_CHECK(king[Square(9,1).index81()+81]);
+    TEST_CHECK(king[Square(9,2).index81()+81]);
+    TEST_CHECK(king[Square(9,8).index81()+81]);
+  }
+  {
+    EffectState state
+      (csa::read_board(
+                       "P1+OU *  *  *  *  *  *  *  * \n"
+                       "P2 *  *  *  *  *  *  *  *  * \n"
+                       "P3 *  *  *  *  *  *  *  *  * \n"
+                       "P4 *  *  *  *  *  *  *  *  * \n"
+                       "P5 *  *  *  *  *  *  *  *  * \n"
+                       "P6 *  *  *  *  *  *  *  *  * \n"
+                       "P7 *  *  *  *  *  *  *  *  * \n"
+                       "P8 *  *  *  *  *  *  *  *  * \n"
+                       "P9 *  *  *  *  *  *  * -OU * \n"
+                       "P+00FU00KY\n"
+                       "P-00AL\n"
+                       "+\n"));
+    auto king = ml::king_visibility(state);
+    TEST_CHECK(king[Square(1,1).index81()]);
+    TEST_CHECK(king[Square(1,9).index81()]);
+    TEST_CHECK(king[Square(9,9).index81()]);
+    TEST_CHECK(king[Square(2,1).index81()+81]);
+    TEST_CHECK(king[Square(1,9).index81()+81]);
+    TEST_CHECK(king[Square(1,8).index81()+81]);
+    TEST_CHECK(king[Square(9,9).index81()+81]);
+    TEST_CHECK(king[Square(9,2).index81()+81]);
+  }
+  {
+    EffectState state
+      (csa::read_board(
+                       "P1 * -OU *  *  *  *  * -HI * \n"
+                       "P2 * -FU *  *  *  *  *  *  * \n"
+                       "P3 *  *  *  *  *  *  *  *  * \n"
+                       "P4 *  *  *  *  *  *  *  *  * \n"
+                       "P5 *  *  *  * +KA *  *  *  * \n"
+                       "P6 *  *  *  *  * -KA *  *  * \n"
+                       "P7 *  *  *  *  *  *  *  *  * \n"
+                       "P8 *  *  *  *  *  *  * +FU+FU\n"
+                       "P9 * +KY *  *  *  *  *  * +OU\n"
+                       "P+00FU00KY\n"
+                       "P-00AL\n"
+                       "+\n"));
+    auto best_move = state.tryCheckmate1ply();
+    TEST_CHECK(best_move.isNormal());
+    auto mate_path = ml::mate_path(state);
+    TEST_CHECK(mate_path[Square(8,2).index81()]);
+    TEST_CHECK(mate_path[Square(8,3).index81()]);
+    TEST_CHECK(mate_path[Square(8,8).index81()]);
+    TEST_CHECK(mate_path[Square(8,9).index81()]);
+    TEST_CHECK(mate_path[Square(2,8).index81()+81]);
+    TEST_CHECK(mate_path[Square(2,7).index81()+81]);
+    TEST_CHECK(mate_path[Square(2,2).index81()+81]);
+    TEST_CHECK(mate_path[Square(2,1).index81()+81]);
+  }
+}
+
+void test_policy_move_label() {
+  {
+    EffectState state;
+    MoveVector moves;
+    state.generateLegal(moves);
+    for (auto move: moves) {
+      int code = ml::policy_move_label(move);
+      TEST_CHECK(ml::decode_move_label(code, state) == move);
+    }
+  }
+  {
+    EffectState state;
+    state.make_move("+7776FU");
+    state.make_move("-3334FU");
+    state.make_move("+8822UM");
+    EffectState rotated(state.rotate180());
+    MoveVector moves;
+    rotated.generateLegal(moves);
+    for (auto move: moves) {
+      int code = ml::policy_move_label(move);
+      TEST_CHECK(ml::decode_move_label(code, rotated) == move);
+    }
+  }
+}
+
+void test_game_manager() {
+  GameManager mgr;
+  auto m7776 = mgr.state.to_move("+7776FU");
+  auto ret = mgr.add_move(m7776);
+  TEST_CHECK(ret == InGame);
+  auto m3334 = mgr.state.to_move("-3334FU");
+  ret = mgr.add_move(m3334);
+  TEST_CHECK(ret == InGame);
+
+  auto moves = {"+3948GI", "-7162GI", "+4839GI", "-6271GI", "+3948GI", "-7162GI",
+                "+4839GI", "-6271GI", "+3948GI", "-7162GI", "+4839GI"};
+  for (auto move: moves) {
+    ret = mgr.add_move(mgr.state.to_move(move));
+    TEST_CHECK(ret == InGame);
+  }
+  auto move = mgr.state.to_move("-6271GI");
+  ret = mgr.add_move(move);
+  TEST_CHECK(ret == Draw);
+}
+
 
 TEST_LIST = {
   { "player", test_player },
@@ -5066,5 +5329,8 @@ TEST_LIST = {
   { "compress_record", test_compress_record },
   { "hash", test_hash },
   { "repetition", test_repetition },
+  { "feature", test_feature },
+  { "policy_move_label", test_policy_move_label },
+  { "game_manager", test_game_manager },
   { nullptr, nullptr }
 };

@@ -299,9 +299,11 @@ class UI:
         self.opening_tree = tree
         tree.save_npz('opening.npz')
 
-    def show_features(self, plane_id: int, *args, **kwargs):
-        if self._features is None:
-            self._features = self._state.to_np_stdch().reshape((-1, 9, 9))
+    def show_features(self, plane_id: int | str, *args, **kwargs):
+        if not hasattr(self, "_features") or self._features is None:
+            self._features = self._state.to_np_heuristic().reshape((-1, 9, 9))
+        if isinstance(plane_id, str):
+            plane_id = miniosl.channel_id[plane_id]
         if not is_in_notebook():
             print(self._features[plane_id])
         return self.hint(plane=self._features[plane_id], *args, **kwargs)

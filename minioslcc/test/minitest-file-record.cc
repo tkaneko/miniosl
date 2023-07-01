@@ -1,4 +1,5 @@
 #include "filepath.h"
+#include "feature.h"
 #include "impl/bitpack.h"
 
 using namespace osl;
@@ -7,6 +8,8 @@ void test_pack_position() {
   const auto& data = test_record_set();
   int count = 0;
   for (const auto& record: data.records) {
+    if (++count > limit)
+      break;
     auto state(record.initial_state);
     StateRecord256 ps2;
     int cnt = 0;
@@ -28,6 +31,8 @@ void test_hash() {
   const auto& data = test_record_set();
   int count = 0;
   for (const auto& record: data.records) {
+    if (++count > limit)
+      break;
     auto state(record.initial_state);
     HashStatus code(state);
     for (auto move: record.moves) {
@@ -44,6 +49,8 @@ void test_japanese() {
   const auto& data = test_record_set();
   int count = 0;
   for (const auto& record: data.records) {
+    if (++count > limit)
+      break;
     auto state(record.initial_state);
     auto last_to = Square();
     for (auto move: record.moves) {
@@ -66,10 +73,30 @@ void test_japanese() {
   }
 }
 
+void test_policy_move_label() {
+  const auto& data = test_record_set();
+  int count = 0;
+  MoveVector legal_moves;
+  for (const auto& record: data.records) {
+    if (++count > limit)
+      break;
+    auto state(record.initial_state);
+    for (auto move: record.moves) {
+      state.generateLegal(legal_moves);
+      for (auto m: legal_moves) {
+        int code = ml::policy_move_label(m);
+        TEST_CHECK(0 <= code && code < 27*81);
+        TEST_CHECK(ml::decode_move_label(code, state) == m);
+      }
+    }
+  }
+}
+
 
 TEST_LIST = {
   { "japanese", test_japanese },
   { "pack_position", test_pack_position },
   { "hash", test_hash },
+  { "policy_move_label", test_policy_move_label },
   { nullptr, nullptr }
 };

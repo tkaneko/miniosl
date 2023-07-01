@@ -192,3 +192,16 @@ def test_read_japanese():
     board = miniosl.UI()
     assert board.read_japanese_move('☗７六歩') == board.to_move('7g7f')
     assert board.read_japanese_move('☗５八金右') == board.to_move('4i5h')
+
+
+def test_show_features():
+    board = miniosl.UI()
+    board.show_features('black-pawn')
+    board.show_features('black-hand-pawn')
+    for i in range(54):
+        board.show_features(i)
+
+    board = miniosl.UI('sfen 7nk/7n1/9/7N1/9/9/1p7/9/1K7 b LP2r2b4g4sn3l16p 1')
+    for i in range(54):
+        print(i)
+        board.show_features(i)

@@ -31,6 +31,8 @@ namespace osl
     bool has_winner() const { return osl::has_winner(result); }
     std::vector<std::array<uint64_t,4>> export_all(bool flip_if_white_to_move=true) const;
     std::vector<std::array<uint64_t,5>> export_all320(bool flip_if_white_to_move=true) const;
+    /** export latest state */
+    std::array<uint64_t,5> export320(bool flip_if_white_to_move=true) const;
     /** inquiry on state
      * @param id = index if positive otherwise rollback from current (the last item), i.e., 0 for current
      */
@@ -204,6 +206,17 @@ namespace osl
   }
 } // osl
 
+namespace osl {
+  struct GameManager {
+    MiniRecord record;
+    HistoryTable table;
+    EffectState state;
+
+    GameManager() { record.set_initial_state(BaseState(HIRATE)); }
+    GameResult add_move(Move move);
+    void export_heuristic_feature(float*) const;
+  };
+}
 
 #endif
 // MINIOSL_RECORD_H

@@ -53,14 +53,15 @@ def sfen_file_to_np_array(filename: str) -> (np.ndarray, int):
     return np.array(data, dtype=np.uint64), record_count
 
 
-def sfen_file_to_training_np_array(filename: str) -> np.ndarray:
+def sfen_file_to_training_np_array(filename: str, *,
+                                   with_history: bool = False) -> np.ndarray:
     """return training data expanding positions in sfen file"""
     data = []
     with open(filename, 'r') as f:
         for line in f:
             line = line.strip()
             record = miniosl.usi_record(line)
-            data += record.export_all()
+            data += record.export_all320() if with_history else record.export_all()
     return np.array(data, dtype=np.uint64)
 
 

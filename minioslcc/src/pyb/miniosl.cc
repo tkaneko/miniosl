@@ -5,6 +5,7 @@
 #include "state.h"
 #include "record.h"
 #include "opening.h"
+#include "feature.h"
 #include "impl/bitpack.h"
 #include "impl/more.h"
 #include <sstream>
@@ -18,7 +19,6 @@ PYBIND11_MODULE(minioslcc, m) {
 }
 
 void pyosl::init_basic(py::module_& m) {
-  m.doc() = "shogi utilities derived from osl";
   // classes
   py::class_<osl::Square>(m, "Square", py::dynamic_attr())
     .def(py::init<>())
@@ -39,8 +39,8 @@ void pyosl::init_basic(py::module_& m) {
   py::class_<osl::Move>(m, "Move", py::dynamic_attr())
     .def("src", &osl::Move::from)
     .def("dst", &osl::Move::to)
-    .def("ptype", &osl::Move::ptype)
-    .def("old_ptype", &osl::Move::oldPtype)
+    .def("ptype", &osl::Move::ptype, "piece type after move")
+    .def("old_ptype", &osl::Move::oldPtype, "piece type before move")
     .def("capture_ptype", &osl::Move::capturePtype)
     .def("is_promotion", &osl::Move::isPromotion)
     .def("is_drop", &osl::Move::isDrop)
@@ -49,6 +49,7 @@ void pyosl::init_basic(py::module_& m) {
     .def("color", &osl::Move::player)
     .def("to_usi", [](osl::Move m) { return osl::to_usi(m); })
     .def("to_csa", [](osl::Move m) { return osl::to_csa(m); })
+    .def("policy_move_label", &osl::ml::policy_move_label)
     .def("__repr__", [](osl::Move m) { return "<Move '"+osl::to_psn(m) + "'>"; })
     .def("__str__", [](osl::Move m) { return osl::to_csa(m); })
     .def(py::self == py::self)
@@ -95,6 +96,7 @@ void pyosl::init_basic(py::module_& m) {
       return code;
     }, "encode in uint64 array")
     .def("export_all", &osl::MiniRecord::export_all, py::arg("flip_if_white_to_move")=true)
+    .def("export_all320", &osl::MiniRecord::export_all320, py::arg("flip_if_white_to_move")=true)
     .def("__len__", [](const osl::MiniRecord& r) { return r.moves.size(); })
     .def("__repr__", [](const osl::MiniRecord& r) {
       return "<MiniRecord '"+osl::to_usi(r.initial_state)
@@ -140,17 +142,6 @@ void pyosl::init_basic(py::module_& m) {
       return "<OpeningTree.Node "+std::to_string(node.count()) +">"; })
     ;
   
-  py::class_<osl::StateRecord256>(m, "StateRecord256", py::dynamic_attr())
-    .def_readonly("state", &osl::StateRecord256::state)
-    .def_readonly("move", &osl::StateRecord256::next)
-    .def_readonly("result", &osl::StateRecord256::result)
-    .def_readonly("flipped", &osl::StateRecord256::flipped)
-    .def("to_bitset", &osl::StateRecord256::to_bitset)
-    .def("restore", &osl::StateRecord256::restore)
-    .def("__copy__",  [](const osl::StateRecord256& r) { return osl::StateRecord256(r);})
-    .def("__deepcopy__",  [](const osl::StateRecord256& r) { return osl::StateRecord256(r);})
-    ;  
-  
   // functions
   typedef osl::EffectState state_t;
   m.def("alt", [](osl::Player p){ return osl::alt(p); }, "alternative player color");
@@ -177,11 +168,6 @@ void pyosl::init_basic(py::module_& m) {
   m.def("to_ja", py::overload_cast<osl::Ptype>(&osl::to_ki2));
   m.def("to_ja", py::overload_cast<osl::Move, const state_t&, osl::Square>(&osl::to_ki2),
         py::arg("move"), py::arg("state"), py::arg("prev_to")=osl::Square());
-  m.def("to_state_label_tuple", [](std::array<uint64_t,4> binary){
-    osl::StateRecord256 obj;
-    obj.restore(binary);
-    return obj;
-  });
   m.def("hash_after_move", &osl::make_move);
   
   // enums
@@ -217,6 +203,7 @@ void pyosl::init_basic(py::module_& m) {
   m.attr("ptype_csa_names") = &osl::ptype_csa_names;
   m.attr("ptype_en_names") = &osl::ptype_en_names;
   m.attr("piece_stand_order") = &osl::piece_stand_order;
+  m.attr("channel_id") = &osl::ml::channel_id;
   
   // "mapping of ptype to bitset of movable directions"
 

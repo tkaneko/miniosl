@@ -151,6 +151,7 @@ namespace osl
     extern const CArray<Direction,Offset32_SIZE> Long_Directions;
     extern const CArray<Offset, Offset32_SIZE> Basic10_Offsets;
     extern const CArray<Offset, Offset32_SIZE> Base8_Offsets_Rich;
+    extern const CArray<Offset, Offset32_SIZE> Base8_Offsets_Extended;
     extern const CArray<signed char, OnBoard_Offset_SIZE> Base8_Offsets;
     extern const CArray<unsigned char, OnBoard_Offset_SIZE> Base8_Directions;
     // PtypeTable
@@ -192,10 +193,12 @@ namespace osl
    * Longの利きの可能性のあるoffsetの場合は, 反復に使う offsetを
    * Knight以外のShortの利きのoffsetの場合はそれ自身を返す.
    * Knightの利き, 利きの可能性のない場合は0を返す
+   *
+   * 盤外の場合も Offset_ZERO になる KingVisibility など要注意
    */
   inline Offset base8_step(Offset32 offset32) { return board::Base8_Offsets_Rich[idx(offset32)]; }
   inline Offset base8_step(Square to, Square from) { return base8_step(to_offset32(to, from)); }
-  
+
   inline int onboard_offset_index(Square l, Square r) {
     return (int)(l.uintValue())-(int)(r.uintValue())-OnBoard_Offset_MIN;
   }

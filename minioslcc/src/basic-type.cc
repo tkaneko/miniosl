@@ -1,13 +1,13 @@
 #include "state.h"
 #include <iostream>
 
-std::ostream& osl::operator<<(std::ostream& os,Player player) {
+std::ostream& osl::operator<<(std::ostream& os, Player player) {
   return os << ("+-"[idx(player)]);
 }
-std::ostream& osl::operator<<(std::ostream& os,const osl::Ptype ptype) {
+std::ostream& osl::operator<<(std::ostream& os, Ptype ptype) {
   return os << ptype_en_names[Int(ptype)];
 }
-std::istream& osl::operator>>(std::istream& is, osl::Ptype& ptype) {
+std::istream& osl::operator>>(std::istream& is, Ptype& ptype) {
   std::string s;
   is >> s;
   auto ptr = std::ranges::find(ptype_en_names, s);
@@ -21,13 +21,13 @@ std::istream& osl::operator>>(std::istream& is, osl::Ptype& ptype) {
   }
   return is;
 }
-std::ostream& osl::operator<<(std::ostream& os,const osl::PtypeO ptypeO) {
+std::ostream& osl::operator<<(std::ostream& os, PtypeO ptypeO) {
   if (is_piece(ptypeO))
     return os << "PtypeO(" << owner(ptypeO) << "," 
 	      << ptype(ptypeO) << ")";
   return os << "PtypeO(" << (int)ptypeO << "," << ptype(ptypeO) << ")";
 }
-std::ostream& osl::operator<<(std::ostream& os,const Direction d){
+std::ostream& osl::operator<<(std::ostream& os, Direction d){
   static const char* names[]={
     "UL","U","UR","L",
     "R","DL","D","DR",

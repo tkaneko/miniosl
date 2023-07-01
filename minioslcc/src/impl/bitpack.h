@@ -47,7 +47,9 @@ namespace osl
     struct StateRecord320 {
       /** almost identical to StateRecord256, except for state needed to apply history before use */
       StateRecord256 base;
-      /** past history, padded with Resign if less than 5 */
+      /** past history, padded with Resign if less than 5.
+       * 4 bit reserved  (64 - 12*5)
+       */
       std::array<Move,5> history;
 
       B320 to_bitset() const;
@@ -55,6 +57,7 @@ namespace osl
       void flip();
       /** sugar: state after history applied */
       EffectState make_state() const;
+      Move last_move() const;
 
       friend inline bool operator==(const StateRecord320&, const StateRecord320&) = default;
       friend inline bool operator!=(const StateRecord320&, const StateRecord320&) = default;

@@ -373,6 +373,7 @@ void osl::bitpack::StateRecord256::flip() {
   flipped ^= 1;
   state = state.rotate180();
   next = next.rotate180();
+  result = osl::flip(result);
 }
 
 int osl::bitpack::append_binary_record(const MiniRecord& record, std::vector<uint64_t>& out) {
@@ -524,4 +525,12 @@ osl::EffectState osl::bitpack::StateRecord320::make_state() const {
     if (move.isNormal())
       state.makeMove(move);
   return state;
+}
+
+osl::Move osl::bitpack::StateRecord320::last_move() const {
+  Move ret;
+  for (auto move: history)
+    if (move.isNormal())
+      ret = move;
+  return ret;
 }

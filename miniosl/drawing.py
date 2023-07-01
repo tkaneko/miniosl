@@ -195,7 +195,8 @@ class ShogiSVG:
             self.add(dw.Text(hand_w[i], x=gx(10.2)+scale*.5, y=gy(8.4-(i-2)*0.8),
                              rotate=180, **prop))
         if len(hand_w) >= 14:
-            self.add(dw.Text(hand_others, x=gx(9.9), y=gy(5*0.8), **prop))
+            self.add(dw.Text(hand_others, x=gx(9), y=gy(8.4-5*0.8),
+                             rotate=180, **prop))
 
 
 def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
@@ -221,11 +222,10 @@ def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
     if decorate:
         svg.decorate()
 
-    if isinstance(state, miniosl.State):
-        if last_to:
-            x, y = last_to.to_xy()
-            svg.add(dw.Rectangle(gx(x), gy(y-1), scale, scale,
-                                 **last_move_property))
+    if last_to:
+        x, y = last_to.to_xy()
+        svg.add(dw.Rectangle(gx(x), gy(y-1), scale, scale,
+                             **last_move_property))
 
     for x in range(1, 10):
         for y in range(1, 10):
