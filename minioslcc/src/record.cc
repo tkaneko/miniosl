@@ -1,5 +1,4 @@
 #include "record.h"
-#include "feature.h"
 #include "impl/more.h"
 #include "impl/checkmate.h"
 #include "impl/bitpack.h"
@@ -323,26 +322,6 @@ osl::MiniRecord osl::csa::read_record(std::istream& is) {
   record.settle_repetition();
   return record;
 }
-
-osl::GameResult osl::GameManager::add_move(Move move) {
-  if (record.result != InGame)
-    throw std::logic_error("not in game");
-
-  state.makeMove(move);
-  record.add_move(move, state.inCheck());
-  auto result = table.add(record.state_size()-1, record.history.back(), record.history);
-  return result;
-}
-
-void osl::GameManager::export_heuristic_feature(float *ptr) const {
-  bool flip = this->state.turn() == WHITE;
-  EffectState state(flip ? EffectState(this->state.rotate180()) : this->state);
-  auto last_move = record.moves.empty() ? Move() : record.moves.back();
-
-  ml::helper::write_np_44ch(state, ptr);
-  ml::helper::write_np_additional(state, flip, last_move, ptr + 9*9*44);  
-}
-
 
 osl::RecordSet osl::RecordSet::from_path(std::string path, int limit) {
   RecordSet result;

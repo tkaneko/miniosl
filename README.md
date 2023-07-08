@@ -8,7 +8,9 @@ WIP.
 
 [https://colab.research.google.com/drive/1orT32kOR58owC0SfhPdC0yodFdn8h2nX?usp=share_link](https://colab.research.google.com/drive/1orT32kOR58owC0SfhPdC0yodFdn8h2nX?usp=share_link)
 
-![](https://github.com/tkaneko/miniosl/raw/main/doc/policy-sample.png)
+| `shogi.go(50)`            | `value, moves = shogi.eval()` |
+|:-------------------------:|:-----------------------------:|
+| ![](doc/board-sample.png) | ![](doc/eval-sample.png)      |
 
 ## pip wheel
 

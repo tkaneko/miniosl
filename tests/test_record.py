@@ -2,6 +2,7 @@ import miniosl
 import minioslcc
 import numpy as np
 import copy
+import random
 
 sfen = 'startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f'\
     + ' 9c9d 3h4g 7c7d 1g1f 7d7e 2e2d 2c2d 2h2d 8e8f 8g8f P*2c 2d7d 8b8f 5i5h'\
@@ -93,3 +94,20 @@ def test_gamemanager_feature():
     mgr = miniosl.GameManager()
     feature = mgr.export_heuristic_feature()
     print(feature.shape)
+
+
+def test_parallelgamemanager():
+    N = 4
+    N_GAMES = 10
+    mgrs = miniosl.ParallelGameManager(N, True)
+    feature = mgrs.export_heuristic_feature_parallel()
+    print(feature.shape)
+    cnt = 0
+    while len(mgrs.completed_games) < N_GAMES:
+        moves_chosen = []
+        for g in range(N):
+            moves = mgrs.games[g].state.genmove()
+            moves_chosen.append(random.choice(moves))
+        mgrs.add_move_parallel(moves_chosen)
+        cnt += 1
+        assert cnt < N_GAMES*miniosl.draw_limit

@@ -6,6 +6,7 @@
 #include "state.h"
 #include "record.h"
 #include "feature.h"
+#include "game.h"
 #include "impl/bitpack.h"
 #include "impl/more.h"
 #include <sstream>
@@ -41,6 +42,9 @@ namespace pyosl {
   std::pair<MiniRecord, int> unpack_record(py::array_t<uint64_t> code_seq);
 
   py::array_t<float> export_heuristic_feature(const GameManager& mgr);
+  py::array_t<float> export_heuristic_feature_parallel(const ParallelGameManager& mgr);
+
+  py::array_t<float> export_heuristic_feature_static(const EffectState&, Move=Move());
 }
 
 
@@ -55,6 +59,7 @@ void pyosl::init_state_np(py::module_& m) {
     .def("king_square", [](const base_t& s, osl::Player P) { return s.kingSquare(P); })
     .def("to_usi", [](const base_t &s) { return osl::to_usi(s); })
     .def("to_csa", [](const base_t &s) { return osl::to_csa(s); })
+    .def("rotate180", &base_t::rotate180)
     .def("hash_code", &osl::hash_code, "64bit int for board and 32bit for (black) hand pieces")
     .def("to_np", &pyosl::to_np, "pieces on board as numpy array")
     .def("to_np_hand", &pyosl::to_np_hand, "pieces on hand as numpy array")
@@ -73,7 +78,7 @@ void pyosl::init_state_np(py::module_& m) {
   // state
   typedef osl::EffectState state_t;
   py::class_<state_t, base_t>(m, "State", py::dynamic_attr(),
-                      "shogi state = board position + pieces in hand (mochigoma)")
+                              "shogi state = board position + pieces in hand (mochigoma)")
     .def(py::init())
     .def(py::init<const state_t&>())
     .def(py::init<const osl::BaseState&>())
@@ -126,7 +131,7 @@ void pyosl::init_state_np(py::module_& m) {
     .def("__deepcopy__",  [](const state_t& s) { return state_t(s);})
     .def("to_np_heuristic", &pyosl::to_np_heuristic, py::arg("flipped")=false, py::arg("last_move")=osl::Move(), 
          "standard set of features")
-  ;
+    ;
 
   py::class_<osl::StateRecord256>(m, "StateRecord256", py::dynamic_attr())
     .def_readonly("state", &osl::StateRecord256::state)
@@ -168,6 +173,14 @@ void pyosl::init_state_np(py::module_& m) {
     .def("add_move", &osl::GameManager::add_move)
     .def("export_heuristic_feature", &pyosl::export_heuristic_feature)
     ;
+  py::class_<osl::ParallelGameManager>(m, "ParallelGameManager", py::dynamic_attr())
+    .def(py::init<int,bool>())
+    .def_readonly("games", &osl::ParallelGameManager::games)
+    .def_readonly("completed_games", &osl::ParallelGameManager::completed_games)
+    .def("add_move_parallel", &osl::ParallelGameManager::add_move_parallel)
+    .def("export_heuristic_feature_parallel", &pyosl::export_heuristic_feature_parallel)
+    .def("n_parallel", &ParallelGameManager::n_parallel)
+    ;
 
   // functions depends on np
   m.def("unpack_record", &pyosl::unpack_record, "read record from np.array encoded by MiniRecord.pack_record");
@@ -182,6 +195,8 @@ void pyosl::init_state_np(py::module_& m) {
     obj.restore(binary);
     return obj;
   });
+  m.def("export_heuristic_feature", &pyosl::export_heuristic_feature_static,
+        py::arg("state"), py::arg("last_move")=osl::Move());
 }
 
 osl::Move pyosl::read_japanese_move(const EffectState& state, std::u8string move, Square last_to) {
@@ -314,3 +329,20 @@ py::array_t<float> pyosl::export_heuristic_feature(const osl::GameManager& mgr) 
   mgr.export_heuristic_feature(ptr);
   return feature;
 }
+
+py::array_t<float> pyosl::export_heuristic_feature_parallel(const osl::ParallelGameManager& mgrs) {
+  auto feature = py::array_t<float>(9*9*ml::channel_id.size()*mgrs.n_parallel());
+  auto buffer = feature.request();
+  auto ptr = static_cast<float_t*>(buffer.ptr);
+  mgrs.export_heuristic_feature_parallel(ptr);
+  return feature;
+}
+
+py::array_t<float> pyosl::export_heuristic_feature_static(const EffectState& state, Move last_move) {
+  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
+  auto buffer = feature.request();
+  auto ptr = static_cast<float_t*>(buffer.ptr);
+  GameManager::export_heuristic_feature(state, last_move, ptr);
+  return feature;
+}
+

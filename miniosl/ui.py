@@ -1,10 +1,13 @@
 from __future__ import annotations
 import miniosl
+from minioslcc import MiniRecord, BaseState, State, Square, Move
 import miniosl.drawing
 import numpy as np
 import os.path
 import copy
 import urllib
+
+Value_Scale = 1000
 
 
 def is_in_notebook() -> bool:
@@ -28,12 +31,12 @@ def is_in_notebook() -> bool:
 class UI:
     """
     shogi state = board position + pieces in hand (mochigoma),
-    enhanced with move history
+    enhanced with move history and other utilities
     """
     prefer_svg = False  # shared preference on board representation
     prefer_png = False
 
-    def __init__(self, init: str | miniosl.BaseState | miniosl.MiniRecord = '',
+    def __init__(self, init: str | BaseState | MiniRecord = '',
                  *, prefer_png=False, prefer_svg=False, default_format='usi'):
         if not UI.prefer_svg:
             UI.prefer_svg = prefer_svg or is_in_notebook()
@@ -41,43 +44,55 @@ class UI:
             UI.prefer_png = prefer_png
         self.default_format = default_format
         self.opening_tree = None
+        self.nn = None
+        self._features = None
+        self._infer_result = None
 
         if isinstance(init, UI):
             self._record = copy.copy(init._record)
             self.replay(init.cur)
             return
+        self.load_record(init)
 
-        if isinstance(init, miniosl.MiniRecord):
-            self._record = copy.copy(init)
+    def load_record_set(self, path: str, idx: int):
+        if path.endswith('.npz'):
+            set = miniosl.RecordSet.from_npz(path, limit=idx+1)
         else:
-            self._record = miniosl.MiniRecord()
-            if init == '':
-                self._record.set_initial_state(miniosl.State())  # default
-            elif isinstance(init, miniosl.BaseState):
-                self._record.set_initial_state(init)
-            elif isinstance(init, str):
-                if init.startswith('http') and init.endswith('csa'):
-                    with urllib.request.urlopen(init) as response:
+            set = miniosl.RecordSet.from_usi_file(path)
+        if idx >= len(set.records):
+            raise ValueError(f'idx {idx} >= len {len(set.records)}'
+                             + f' of record set {str}')
+        self.load_record(set.records[idx])
+
+    def load_record(self, src: str | BaseState | MiniRecord = ''):
+        self._record = MiniRecord()
+        if isinstance(src, MiniRecord):
+            self._record = copy.copy(src)
+        else:
+            self._record = MiniRecord()
+            if src == '':
+                self._record.set_initial_state(State())  # default
+            elif isinstance(src, BaseState):
+                self._record.set_initial_state(src)
+            elif isinstance(src, str):
+                if src.startswith('http') and src.endswith('csa'):
+                    with urllib.request.urlopen(src) as response:
                         the_csa = response.read().decode('utf-8')
                     self._record = miniosl.csa_record(the_csa)
-                elif os.path.isfile(init):
-                    if init.endswith('.csa'):
+                elif os.path.isfile(src):
+                    if src.endswith('.csa'):
                         self._record = miniosl.csa_record()
                     else:
                         self._record = miniosl.usi_record()
-                elif len(init) >= 8:
-                    if init[:2] == 'P1':
-                        self._record.set_initial_state(miniosl.csa_board(init))
+                elif len(src) >= 8:
+                    if src[:2] == 'P1':
+                        self._record.set_initial_state(miniosl.csa_board(src))
                     else:
-                        self._record = miniosl.usi_record(init)
+                        self._record = miniosl.usi_record(src)
                 else:
-                    raise ValueError(init+' not expected')
+                    raise ValueError(src+' not expected')
             else:
-                raise ValueError(init+' unexpected type')
-        self.replay(0)
-
-    def reset(self, src):
-        self._record = miniosl.MiniRecord()
+                raise ValueError(src+' unexpected type')
         return self.replay(0)
 
     def __repr__(self) -> str:
@@ -118,12 +133,13 @@ class UI:
         return self._record.to_apng(*args, **kwargs)
 
     # delegation for self._state
-    def to_move(self, move_rep: str) -> miniosl.Move:
+    def to_move(self, move_rep: str) -> Move:
         """interpret string as a Move"""
         return self._state.to_move(move_rep)
 
-    def read_japanese_move(self, move_rep: str, last_to: miniosl.Square | None = None):
-        return self._state.read_japanese_move(move_rep, last_to or miniosl.Square())
+    def read_japanese_move(self, move_rep: str,
+                           last_to: Square | None = None):
+        return self._state.read_japanese_move(move_rep, last_to or Square())
 
     def genmove(self):
         """generate legal moves in the state"""
@@ -150,12 +166,12 @@ class UI:
     def to_svg(self, *args, **kwargs):
         """show state in svg"""
         self._add_drawing_properties(kwargs)
-        return miniosl.drawing.state_to_svg(self._state, *args, **kwargs)
+        return miniosl.state_to_svg(self._state, *args, **kwargs)
 
     def to_png(self, *args, **kwargs):
         """show state in png"""
         self._add_drawing_properties(kwargs)
-        return miniosl.drawing.state_to_png(self._state, *args, **kwargs)
+        return miniosl.state_to_png(self._state, *args, **kwargs)
 
     # original / modified methods
     def first(self):
@@ -169,7 +185,8 @@ class UI:
     def go(self, step):
         """make moves (step > 0) or unmake moves (step < 0)"""
         if not (0 <= self.cur + step <= len(self._record)):
-            raise ValueError(f'step out of range {self.cur} + {step} max {len(self._record)}')
+            raise ValueError(f'step out of range {self.cur}'
+                             + f' + {step} max {len(self._record)}')
         return self.replay(self.cur+step)
 
     def make_move(self, move):
@@ -198,14 +215,15 @@ class UI:
         return self.replay(self.cur-1)
 
     def genmove_ja(self) -> list:
-        return [miniosl.to_ja(move, self._state, miniosl.Square()) for move in self._state.genmove()]
+        return [miniosl.to_ja(move, self._state, Square())
+                for move in self._state.genmove()]
 
-    def last_move(self) -> miniosl.Move | None:
+    def last_move(self) -> Move | None:
         if not (0 < self.cur <= len(self._record)):
             return None
         return self._record.moves[self.cur-1]
 
-    def last_to(self) -> miniosl.Square | None:
+    def last_to(self) -> Square | None:
         move = self.last_move()
         return move.dst() if move else None
 
@@ -236,7 +254,8 @@ class UI:
 
     def replay(self, idx: int):
         """move to idx-th state in the history"""
-        self._state = miniosl.State(self._record.initial_state)
+        self._state = State(self._record.initial_state)
+        self._features = None
         self.cur = idx
         self.last_move_ja = None
         if idx == 0:
@@ -246,17 +265,19 @@ class UI:
         for i, move in enumerate(self._record.moves):
             last_to = None
             if i+1 == idx:
-                last_to = self._record.moves[i-1].dst() if i > 0 else miniosl.Square()
+                last_to = self._record.moves[i-1].dst() if i > 0 else Square()
             self._do_make_move(move, last_to)
             if i+1 >= idx:
                 break
         return self.hint()
 
-    def _do_make_move(self, move: miniosl.Move,
-                      last_to: miniosl.Square | None = None):
+    def _do_make_move(self, move: Move,
+                      last_to: Square | None = None):
         self._features = None
         if last_to is not None:
             self.last_move_ja = miniosl.to_ja(move, self._state, last_to)
+        else:
+            self.last_move_ja = miniosl.to_ja(move, self._state)
         self._state.make_move(move)
 
     def load_opening_tree(self, filename):
@@ -299,11 +320,75 @@ class UI:
         self.opening_tree = tree
         tree.save_npz('opening.npz')
 
+    def update_features(self):
+        if self._features is None:
+            if last_move := self.last_move():
+                f = miniosl.export_heuristic_feature(self._state, last_move)
+            else:
+                f = miniosl.export_heuristic_feature(self._state)
+            self._features = f.reshape((-1, 9, 9))
+
     def show_features(self, plane_id: int | str, *args, **kwargs):
-        if not hasattr(self, "_features") or self._features is None:
-            self._features = self._state.to_np_heuristic().reshape((-1, 9, 9))
+        self.update_features()
+        turn = self._state.turn()
+        flip = turn == miniosl.white
         if isinstance(plane_id, str):
+            if plane_id == "pieces":
+                print('side-to-move PLNSBRk/gplnsbr')
+                miniosl.drawing.show_channels(self._features[16:], 2, 7, flip)
+                print('opponent PLNSBRk/gplnsbr')
+                miniosl.drawing.show_channels(self._features, 2, 7, flip)
+                return
+            if plane_id == "hands":
+                print('plnsgbr')
+                return miniosl.show_channels(self._features[30:], 2, 7, flip)
+            if plane_id == "long":
+                print('lbr+k')
+                return miniosl.show_channels(self._features[44:], 2, 4, flip)
+            if plane_id == "safety":
+                return miniosl.show_channels(self._features[52:], 1, 2, flip)
+            if plane_id == "lastmove":
+                return miniosl.show_channels(self._features[57:], 1, 3, flip)
             plane_id = miniosl.channel_id[plane_id]
         if not is_in_notebook():
             print(self._features[plane_id])
-        return self.hint(plane=self._features[plane_id], *args, **kwargs)
+        return self.hint(plane=self._features[plane_id], flip_if_white=True,
+                         *args, **kwargs)
+
+    def load_eval(self, path: str, device: str = "", torch_cfg: dict = {}):
+        import miniosl.inference
+        path = os.path.expanduser(path)
+        self.model = miniosl.inference.load(path, device, torch_cfg)
+
+    def eval(self, verbose=True):
+        self.update_features()
+        policy, value, aux = self.model.eval(self._features)
+        flip = self._state.turn() == miniosl.white
+        if verbose:
+            miniosl.show_channels([np.max(policy, axis=0)], 1, 1, flip)
+            print(f'eval = {value*Value_Scale:.0f}')
+        mp = miniosl.inference.sort_moves(self.genmove(), policy)
+        self._infer_result = (policy, value, mp, aux)
+        if verbose:
+            for i in range(min(len(mp), 3)):
+                print(mp[i][1], f'{mp[i][0]*100:6.1f}%')
+        return value*Value_Scale, mp
+
+    def analyze(self):
+        import matplotlib.pyplot as plt
+        now = self.cur
+        self.replay(0)
+        evals = []
+        for i in range(self._record.state_size()):
+            if i > 0:
+                self._do_make_move(self._record.moves[i-1])
+            value, *_ = self.eval(False)
+            evals.append(value * miniosl.sign(self._state.turn()))
+        self.replay(now)
+        plt.axhline(y=0, linestyle='dotted')
+        return plt.plot(np.array(evals), '+')
+
+    def show_inference_after_move(self):
+        if self._features is None or self._infer_result is None:
+            return
+        return miniosl.show_channels(self._infer_result[2], 2, 6)

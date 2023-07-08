@@ -12,9 +12,9 @@ parser.add_argument("--npz", help="npz filename", default="positions")
 group = parser.add_mutually_exclusive_group()
 group.add_argument('--sfen', nargs="+", help="filenames of sfen lines")
 parser.add_argument("--with-history", help="add history in each record",
-                   action='store_true')
+                    action='store_true')
 parser.add_argument("--shuffle", help="shuffle record",
-                   action='store_true')
+                    action='store_true')
 args = parser.parse_args()
 
 

@@ -30,6 +30,7 @@ void pyosl::init_basic(py::module_& m) {
     .def("to_csa", [](osl::Square sq) { return osl::to_csa(sq); })
     .def("is_onboard", &osl::Square::isOnBoard)
     .def("is_piece_stand", &osl::Square::isPieceStand)
+    .def("rotate180", &osl::Square::rotate180)
     .def("index81", py::overload_cast<>(&osl::Square::index81, py::const_))
     .def("__repr__", [](osl::Square sq) { return "<Square '"+osl::to_psn(sq) + "'>"; })
     .def("__str__", [](osl::Square sq) { return osl::to_csa(sq); })
@@ -47,6 +48,7 @@ void pyosl::init_basic(py::module_& m) {
     .def("is_normal", &osl::Move::isNormal)
     .def("is_capture", &osl::Move::isCapture)
     .def("color", &osl::Move::player)
+    .def("rotate180", &osl::Move::rotate180)
     .def("to_usi", [](osl::Move m) { return osl::to_usi(m); })
     .def("to_csa", [](osl::Move m) { return osl::to_csa(m); })
     .def("policy_move_label", &osl::ml::policy_move_label)
@@ -144,7 +146,8 @@ void pyosl::init_basic(py::module_& m) {
   
   // functions
   typedef osl::EffectState state_t;
-  m.def("alt", [](osl::Player p){ return osl::alt(p); }, "alternative player color");
+  m.def("alt", py::overload_cast<osl::Player>(osl::alt), "alternative player color");
+  m.def("sign", py::overload_cast<osl::Player>(osl::sign), "+1 for black or -1 for white");
   m.def("csa_board", [](std::string input){
     try { return osl::csa::read_board(input); }
     catch (std::exception& e) { std::cerr << e.what() << '\n'; } return state_t();
@@ -204,6 +207,7 @@ void pyosl::init_basic(py::module_& m) {
   m.attr("ptype_en_names") = &osl::ptype_en_names;
   m.attr("piece_stand_order") = &osl::piece_stand_order;
   m.attr("channel_id") = &osl::ml::channel_id;
+  m.attr("draw_limit") = &osl::MiniRecord::draw_limit;
   
   // "mapping of ptype to bitset of movable directions"
 

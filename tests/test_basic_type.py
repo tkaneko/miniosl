@@ -5,6 +5,8 @@ def test_color():
     assert miniosl.black != miniosl.white
     assert miniosl.alt(miniosl.black) == miniosl.white
     assert miniosl.black == miniosl.alt(miniosl.white)
+    assert miniosl.sign(miniosl.black) == 1
+    assert miniosl.sign(miniosl.white) == -1
     assert miniosl.to_csa(miniosl.black) == '+'
     assert miniosl.to_csa(miniosl.white) == '-'
 

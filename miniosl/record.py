@@ -18,9 +18,8 @@ def minirecord_replay(self: miniosl.MiniRecord, n: int) -> miniosl.State:
 
 def state_to_png(state: miniosl.State | miniosl.UI, decorate: bool) -> apng.PNG:
     """return png object of state"""
-    b64png = state.to_png(decorate=decorate).as_data_uri()
-    bytes = b64png[len('data:image/png;base64,'):]
-    return apng.PNG.from_bytes(base64.b64decode(bytes.encode('utf-8')))
+    bytes = miniosl.to_png_bytes(state.to_png(decorate=decorate))
+    return apng.PNG.from_bytes(bytes)
 
 
 def minirecord_to_apng(self: miniosl.MiniRecord,
@@ -54,7 +53,7 @@ def sfen_file_to_np_array(filename: str) -> (np.ndarray, int):
 
 
 def sfen_file_to_training_np_array(filename: str, *,
-                                   with_history: bool = False) -> np.ndarray:
+                                   with_history: bool = True) -> np.ndarray:
     """return training data expanding positions in sfen file"""
     data = []
     with open(filename, 'r') as f:
@@ -97,10 +96,10 @@ def save_record_set(records: miniosl.RecordSet, filename: str,
     np.savez_compressed(filename, **dict)
 
 
-def load_record_set(filename: str, name: str = ''):
+def load_record_set(path: str, name: str = '', *, limit: int | None = None):
     """load RecordSet from npz file"""
-    filename = filename if filename.endswith('.npz') else filename+'.npz'
-    dict = np.load(filename)
+    path = path if path.endswith('.npz') else path+'.npz'
+    dict = np.load(path)
     for key in dict.keys():
         data = dict[key]
         if data.ndim != 1 or not (name == '' or name == key):
@@ -113,6 +112,8 @@ def load_record_set(filename: str, name: str = ''):
             code_count += n
             if n == 0:
                 raise ValueError("malformed data")
+            if len(record_set) >= limit:
+                break
         return miniosl.RecordSet(record_set)
     raise ValueError("data not found")
 

@@ -74,6 +74,8 @@ namespace osl
       assert(0 <= now && now < history.size());
       return now;
     }
+
+    static constexpr int draw_limit = 320;
   };
   /** a set of MiniRecord-s */
   struct RecordSet {
@@ -205,18 +207,6 @@ namespace osl
     inline auto debugu8(const std::u8string& s) { return reinterpret_cast<const char*>(s.c_str()); }
   }
 } // osl
-
-namespace osl {
-  struct GameManager {
-    MiniRecord record;
-    HistoryTable table;
-    EffectState state;
-
-    GameManager() { record.set_initial_state(BaseState(HIRATE)); }
-    GameResult add_move(Move move);
-    void export_heuristic_feature(float*) const;
-  };
-}
 
 #endif
 // MINIOSL_RECORD_H

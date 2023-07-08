@@ -12,22 +12,23 @@ FORMAT = '%(asctime)s %(levelname)s %(message)s'
 logging.basicConfig(format=FORMAT, level=logging.DEBUG, force=True)
 
 parser = argparse.ArgumentParser("training-by-torch.py")
-parser.add_argument("--train-npz", help="npz filename for training",
-                    default="positions")
+group = parser.add_mutually_exclusive_group(required=True)
+group.add_argument("--train-npz", help="npz filename for training")
+group.add_argument("--inspect", help="visualize instance", action='store_true')
 parser.add_argument("--savefile", help="filename of output", default='out')
 parser.add_argument("--loadfile", help="load filename", default='')
 parser.add_argument("--device", help="torch device", default="cpu")
-parser.add_argument("--batch-size", help="minibatch size", type=int, default=4096)
 parser.add_argument("--validate-npz", help="npz filename for validation",
                     default="")
 parser.add_argument("--validation-size", help="number of batches",
                     default=10)
-parser.add_argument("--epoch-limit", help="maximum epoch", type=int, default=2)
-parser.add_argument("--step-limit", help="maximum #updates, 0 for inf",
-                    type=int, default=100000)
-parser.add_argument("--report-interval", type=int, default=200)
-parser.add_argument("--validation-interval", type=int, default=1000)
-parser.add_argument("--inspect", help="visualize instance", action='store_true')
+grp_l = parser.add_argument_group("training options")
+grp_l.add_argument("--batch-size", type=int, default=4096)
+grp_l.add_argument("--epoch-limit", help="maximum epoch", type=int, default=2)
+grp_l.add_argument("--step-limit", help="maximum #updates, 0 for inf",
+                   type=int, default=100000)
+grp_l.add_argument("--report-interval", type=int, default=200)
+grp_l.add_argument("--validation-interval", type=int, default=1000)
 args = parser.parse_args()
 
 

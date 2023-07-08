@@ -114,18 +114,22 @@ class ShogiSVG:
             return
         kanji = csadict[miniosl.to_csa(piece.ptype())]
         if piece.color() == miniosl.black:
-            self.add(dw.Text(kanji, font_size=scale*.875, x=gx(x)+scale*.05, y=gy(y)-scale*.125,
+            self.add(dw.Text(kanji, font_size=scale*.875,
+                             x=gx(x)+scale*.05, y=gy(y)-scale*.125,
                              **char_property))
         else:
             assert piece.color() == miniosl.white
-            self.add(dw.Text(kanji, font_size=scale*.875, x=gx(x)+scale*.9, y=gy(y)-scale*.8,
+            self.add(dw.Text(kanji, font_size=scale*.875,
+                             x=gx(x)+scale*.9, y=gy(y)-scale*.8,
                              rotate='180', **char_property))
 
     def draw_grid(self):
         for i in range(1, 10):
-            self.add(dw.Text(kanjicol[i], font_size=scale*.75, x=gx(i)+scale*.25, y=gy(0)-scale*0.25,
+            self.add(dw.Text(kanjicol[i], font_size=scale*.75,
+                             x=gx(i)+scale*.25, y=gy(0)-scale*0.25,
                              **sub_property))
-            self.add(dw.Text(kanjirow[i], font_size=scale*.625, x=gx(0)+scale/4, y=gy(i)-scale*0.25,
+            self.add(dw.Text(kanjirow[i], font_size=scale*.625,
+                             x=gx(0)+scale/4, y=gy(i)-scale*0.25,
                              **sub_property))
             if i < 9:
                 self.add(dw.Line(gx(0), gy(i), gx(9), gy(i), stroke='gray'))
@@ -135,7 +139,7 @@ class ShogiSVG:
         self.add(dw.Line(gx(0), gy(0), gx(0), gy(9), stroke='black'))
         self.add(dw.Line(gx(9), gy(0), gx(9), gy(9), stroke='black'))
 
-    def show_side_to_move(self):
+    def show_side_to_move(self, flipped: bool):
         player_to_move = "先手" if self.state.turn() == miniosl.black else "後手"
         self.add(dw.Text('手番 '+player_to_move, font_size=scale*.75,
                          x=gx(9)+scale*.05, y=gy(10), **char_property))
@@ -148,6 +152,9 @@ class ShogiSVG:
                 msg += f' ({self.repeat_distance}手前と同一局面 {self.repeat_count}回目)'
             self.add(dw.Text(msg, font_size=scale*.7,
                              x=gx(9)+scale*.05, y=gy(11), **sub_property))
+        if flipped:
+            self.add(dw.Text('先後反転', font_size=scale*.7,
+                             x=gx(2)+scale*.05, y=gy(11), **sub_property))
 
     def hand_pieces_str(self, player: miniosl.Player) -> str:
         ret = ''
@@ -206,8 +213,15 @@ def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
                  last_to: miniosl.Square | None = None,
                  move_number: int = 0, repeat_distance: int = 0,
                  repeat_count: int = 0,
+                 flip_if_white: bool = False,
                  ) -> dw.drawing.Drawing:
     """make a picture of state as svg"""
+    flipped = False
+    if flip_if_white and state.turn() == miniosl.white:
+        state = miniosl.State(state.rotate180())
+        if last_to:
+            last_to = last_to.rotate180()
+        flipped = True
     if decorate and not isinstance(state, miniosl.State):
         logging.warning('promote BaseState to State for decoration')
         state = miniosl.State(state)
@@ -235,19 +249,48 @@ def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
         svg.draw_plane(plane, plane_color, 2)
 
     svg.draw_grid()
-    svg.show_side_to_move()
+    svg.show_side_to_move(flipped)
     svg.show_hand()
 
     return svg.d
 
 
-def save_png(png: dw.raster.Raster, filename: str) -> None:
+def to_png_bytes(png: dw.raster.Raster) -> bytes:
     b64png = png.as_data_uri()
     bytes = b64png[len('data:image/png;base64,'):]
+    return base64.b64decode(bytes.encode('utf-8'))
+
+
+def save_png(png: dw.raster.Raster, filename: str) -> None:
     with open(filename, "wb") as f:
-        f.write(base64.b64decode(bytes.encode('utf-8')))
+        f.write(to_png_bytes(png))
 
 
 def state_to_png(*args, filename='', **kwargs) -> dw.drawing.Drawing | None:
     png = state_to_svg(*args, **kwargs).rasterize()
     return png if not filename else miniosl.drawing.save_png(png, filename)
+
+
+def show_channels(channels, nrows, ncols, flip=False):
+    import matplotlib.pyplot as plt
+    from mpl_toolkits.axes_grid1 import ImageGrid
+    fig = plt.figure(figsize=(ncols*2.5, nrows*2))
+    grid = ImageGrid(fig, 111, nrows_ncols=(nrows, ncols),
+                     axes_pad=0.3, label_mode='all')
+    for i, ax in enumerate(grid):
+        if flip:
+            ax.set_xticks(np.arange(9), np.arange(9, 0, -1))
+            ax.set_yticks(np.arange(9), np.arange(9, 0, -1))
+        else:
+            ax.set_xticks(np.arange(9), np.arange(1, 10))
+            ax.set_yticks(np.arange(9), np.arange(1, 10))
+        ax.xaxis.tick_top()
+        ax.yaxis.tick_right()
+        ax.imshow(channels[i], cmap='Oranges', vmin=0, vmax=1,
+                  interpolation='none')
+        if flip:
+            ax.invert_yaxis()
+        else:
+            ax.invert_xaxis()
+        ax.tick_params(axis='both', length=0)
+    return plt.show()

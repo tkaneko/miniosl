@@ -2,6 +2,7 @@
 #include "state.h"
 #include "record.h"
 #include "feature.h"
+#include "game.h"
 #include "impl/more.h"
 #include "impl/checkmate.h"
 #include "impl/bitpack.h"
@@ -11,6 +12,7 @@
 #include <filesystem>
 #include <fstream>
 #include <set>
+#include <random>
 
 #define TEST_CHECK_EQUAL(a,b) TEST_CHECK((a) == (b))
 #define TEST_ASSERT_EQUAL(a,b) TEST_ASSERT((a) == (b))
@@ -5302,6 +5304,26 @@ void test_game_manager() {
   TEST_CHECK(ret == Draw);
 }
 
+void test_parallel_game_manager() {
+  std::default_random_engine rsrc;
+  const int N = 4, N_TARGET = 10;
+  const bool force_declare = true;
+  ParallelGameManager mgrs(N, force_declare);
+  TEST_CHECK(mgrs.completed_games.size() == 0);
+  int cnt = 0;
+  while (mgrs.completed_games.size() < N_TARGET) {
+    std::vector<Move> moves_chosen(N);
+    for (int g=0; g<N; ++g) {
+      MoveVector moves;
+      mgrs.games[g].state.generateLegal(moves);
+      std::shuffle(moves.begin(), moves.end(), rsrc);
+      moves_chosen[g] = moves[0];
+    }
+    mgrs.add_move_parallel(moves_chosen);
+    ++cnt;
+    TEST_ASSERT(cnt < N_TARGET*MiniRecord::draw_limit);
+  }
+}
 
 TEST_LIST = {
   { "player", test_player },
@@ -5332,5 +5354,6 @@ TEST_LIST = {
   { "feature", test_feature },
   { "policy_move_label", test_policy_move_label },
   { "game_manager", test_game_manager },
+  { "parallel_game_manager", test_parallel_game_manager },
   { nullptr, nullptr }
 };
