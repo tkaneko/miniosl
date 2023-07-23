@@ -38,7 +38,7 @@ namespace osl
     /** compress move to 12bit (depending on a current state) */
     uint32_t encode12(const BaseState& state, Move move);
     Move decode_move12(const BaseState& state, uint32_t code);
-    constexpr uint32_t move12_resign = 0, move12_win_declare = 127;
+    constexpr uint32_t move12_resign = 0, move12_win_declare = 127, move12_pass = 126;
 
     typedef std::array<uint64_t,5> B320;
     /** training record with history

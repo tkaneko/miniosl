@@ -2,6 +2,7 @@
 #include "record.h"
 #include "impl/checkmate.h"
 #include "impl/more.h"
+#include "impl/rng.h"
 #include <iostream>
 #include <algorithm>
 
@@ -106,7 +107,7 @@ inline int bsr64(uint64_t val)
   return 63-std::countl_zero(val);
 }
 
-const osl::Piece osl::
+osl::Piece osl::
 EffectState::findThreatenedPiece(Player P) const
 {
   assert(! inCheck(P));
@@ -492,7 +493,15 @@ bool osl::EffectState::inCheckmate() const {
     return false;
   MoveVector moves;
   generateLegal(moves);
-  return moves.size() == 0;
+  return moves.empty();
+}
+
+bool osl::EffectState::inNoLegalMoves() const {
+  MoveVector moves;
+  generateLegal(moves);
+  if (moves.empty())
+    generateWithFullUnpromotions(moves);
+  return moves.empty();
 }
 
 void osl::EffectState::generateCheck(MoveVector& moves) const
@@ -748,10 +757,17 @@ namespace osl {
   }
 }
 
+namespace osl {
+  auto make_rng() {
+    static std::random_device rdev;
+    return std::default_random_engine(rdev());
+  }
+}
 
 namespace osl
 {
-  // NOTE: order matters here
+  std::array<std::default_random_engine,4> rngs = {make_rng(), make_rng(), make_rng(), make_rng() };
+  // NOTE: the order matters here
   const CArray<Direction,Offset32_SIZE> board::Long_Directions = make_Long_Directions();
   const CArray<Offset, Offset32_SIZE> board::Basic10_Offsets = make_Basic10_Offsets();
   const CArray<Offset, Offset32_SIZE> board::Base8_Offsets_Rich = make_Base8_Offsets_Rich();

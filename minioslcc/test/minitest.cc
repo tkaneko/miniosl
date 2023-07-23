@@ -18,6 +18,7 @@
 #define TEST_ASSERT_EQUAL(a,b) TEST_ASSERT((a) == (b))
 
 using namespace osl;
+using namespace std::string_literals;
 
 template <class Container, class T>
 bool is_member(const Container& c, const T& val) {
@@ -420,12 +421,12 @@ void test_move() {
     const Move m76fu(Square(7,7),Square(7,6),PAWN,Ptype_EMPTY,false,BLACK);
     TEST_CHECK(! m76fu.isPass());
     TEST_CHECK(m76fu.isNormal());
-    TEST_CHECK(! m76fu.isInvalid());
+    TEST_CHECK(! m76fu.isSpecial());
 
     const Move m34fu(Square(3,3),Square(3,4),PAWN,Ptype_EMPTY,false,WHITE);
     TEST_CHECK(! m34fu.isPass());
     TEST_CHECK(m34fu.isNormal());
-    TEST_CHECK(! m34fu.isInvalid());
+    TEST_CHECK(! m34fu.isSpecial());
   }
   {
     const Move pass_black = Move::PASS(BLACK);
@@ -437,7 +438,7 @@ void test_move() {
 
     TEST_CHECK(pass_black.isPass());
     TEST_CHECK(! pass_black.isNormal());
-    TEST_CHECK(! pass_black.isInvalid());
+    TEST_CHECK(! pass_black.isSpecial());
 
     const Move pass_white = Move::PASS(WHITE);
     TEST_CHECK_EQUAL(Ptype_EMPTY, pass_white.ptype());
@@ -448,11 +449,12 @@ void test_move() {
 
     TEST_CHECK(pass_white.isPass());
     TEST_CHECK(! pass_white.isNormal());
-    TEST_CHECK(! pass_white.isInvalid());
+    TEST_CHECK(! pass_white.isSpecial());
   }
   {
-    TEST_CHECK(Move::DeclareWin().isInvalid());
+    TEST_CHECK(Move::DeclareWin().isSpecial());
     TEST_CHECK(! Move::DeclareWin().isNormal());
+    TEST_CHECK(Move().isSpecial());
   }
   {
     const Square from(7,7);
@@ -591,7 +593,7 @@ void test_csa() {
     EffectState state;
     Move move = csa::to_move("+7776FU", state);
     TEST_CHECK(move.isNormal());
-    TEST_CHECK(! move.isInvalid());
+    TEST_CHECK(! move.isSpecial());
     TEST_CHECK(! move.isPass());
     TEST_CHECK(move.from() == Square(7,7));
     TEST_CHECK(move.to() == Square(7,6));
@@ -1974,7 +1976,7 @@ void test_usi() {
   {
     {
       EffectState state;
-      TEST_CHECK_EQUAL(std::string("startpos"), to_usi(state));
+      TEST_CHECK_EQUAL("startpos"s, to_usi(state));
     }
     {
       std::string str = "sfen kng5l/ls1S2r2/pppPp2Pp/7+B1/7p1/2Pp2P2/PP3P2P/L2+n5/K1G5L b B2S2N2Pr2gp 1";
@@ -4819,10 +4821,11 @@ void test_win_if_declare()
   }
 }
 
+std::string long_sfen = "startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f 9c9d 3h4g 7c7d 1g1f 7d7e 2e2d 2c2d 2h2d 8e8f 8g8f P*2c 2d7d 8b8f 5i5h 7b7c 7d7e 2c2d P*8g 8f8b 7e3e 3b2c 3e3f 2d2e 7g7f 5b4b 1f1e 3c3d 4i3h 7c6d 8h2b+ 3a2b 4f4e 2b3c 4g5f 8a7c 6g6f P*8f 8g8f 8b8f P*8g 8f8a 3f4f 6a6b 7i6h 5c5d 6h6g 4b3b 3g3f 5d5e 5f4g 6d5c 2i3g 6c6d 7f7e 8a8d 5h4h B*2d 3f3e 2d3e 4f3f P*8h 7h8h 1c1d 1e1d 1a1d 1i1d 2c1d P*2b 3c2b 4e4d 4c4d 8h7h 6d6e P*1b 1d2d L*7d P*7b 1b1a+ 2b1a 8i7g 4d4e 7d7c+ 7b7c 7g6e L*4f 6e5c 4f4g 4h5h 3e1g+ 3g4e 2d3e P*4d 8d4d P*3c 2a3c B*2a 3b2a 4e3c+ S*3b S*2d 4g4h+ 5h6h 4h5h 6g5h P*6g 7h6g B*1e 2d1e 3b3c 3f3g 1g1f L*1g N*4f 1g1f 4f5h+ 6h5h 6b5c B*6b 4d4c N*2d S*2c P*4d 5c4d B*5b 1a2b 5b4c+ 4d4c R*4a B*3a 4a4c+ 3c2d 1e2d N*4f 5h4g 3e3f 3g3f N*3e 2d3e L*1d S*3b 2a1a G*2a 1a1b 4c2c 2b2c N*2d 1b1c 3b2c+ 1c2c 3e3d 2c2d G*2c";
+
 void test_compress_record()
 {
-  std::string sfen = "startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f 9c9d 3h4g 7c7d 1g1f 7d7e 2e2d 2c2d 2h2d 8e8f 8g8f P*2c 2d7d 8b8f 5i5h 7b7c 7d7e 2c2d P*8g 8f8b 7e3e 3b2c 3e3f 2d2e 7g7f 5b4b 1f1e 3c3d 4i3h 7c6d 8h2b+ 3a2b 4f4e 2b3c 4g5f 8a7c 6g6f P*8f 8g8f 8b8f P*8g 8f8a 3f4f 6a6b 7i6h 5c5d 6h6g 4b3b 3g3f 5d5e 5f4g 6d5c 2i3g 6c6d 7f7e 8a8d 5h4h B*2d 3f3e 2d3e 4f3f P*8h 7h8h 1c1d 1e1d 1a1d 1i1d 2c1d P*2b 3c2b 4e4d 4c4d 8h7h 6d6e P*1b 1d2d L*7d P*7b 1b1a+ 2b1a 8i7g 4d4e 7d7c+ 7b7c 7g6e L*4f 6e5c 4f4g 4h5h 3e1g+ 3g4e 2d3e P*4d 8d4d P*3c 2a3c B*2a 3b2a 4e3c+ S*3b S*2d 4g4h+ 5h6h 4h5h 6g5h P*6g 7h6g B*1e 2d1e 3b3c 3f3g 1g1f L*1g N*4f 1g1f 4f5h+ 6h5h 6b5c B*6b 4d4c N*2d S*2c P*4d 5c4d B*5b 1a2b 5b4c+ 4d4c R*4a B*3a 4a4c+ 3c2d 1e2d N*4f 5h4g 3e3f 3g3f N*3e 2d3e L*1d S*3b 2a1a G*2a 1a1b 4c2c 2b2c N*2d 1b1c 3b2c+ 1c2c 3e3d 2c2d G*2c";
-  auto record = usi::read_record(sfen);
+  auto record = usi::read_record(long_sfen);
   
   std::vector<uint64_t> code_seq;
   int count = bitpack::append_binary_record(record, code_seq);
@@ -5287,20 +5290,20 @@ void test_policy_move_label() {
 void test_game_manager() {
   GameManager mgr;
   auto m7776 = mgr.state.to_move("+7776FU");
-  auto ret = mgr.add_move(m7776);
+  auto ret = mgr.make_move(m7776);
   TEST_CHECK(ret == InGame);
   auto m3334 = mgr.state.to_move("-3334FU");
-  ret = mgr.add_move(m3334);
+  ret = mgr.make_move(m3334);
   TEST_CHECK(ret == InGame);
 
   auto moves = {"+3948GI", "-7162GI", "+4839GI", "-6271GI", "+3948GI", "-7162GI",
                 "+4839GI", "-6271GI", "+3948GI", "-7162GI", "+4839GI"};
   for (auto move: moves) {
-    ret = mgr.add_move(mgr.state.to_move(move));
+    ret = mgr.make_move(mgr.state.to_move(move));
     TEST_CHECK(ret == InGame);
   }
   auto move = mgr.state.to_move("-6271GI");
-  ret = mgr.add_move(move);
+  ret = mgr.make_move(move);
   TEST_CHECK(ret == Draw);
 }
 
@@ -5319,11 +5322,73 @@ void test_parallel_game_manager() {
       std::shuffle(moves.begin(), moves.end(), rsrc);
       moves_chosen[g] = moves[0];
     }
-    mgrs.add_move_parallel(moves_chosen);
+    mgrs.make_move_parallel(moves_chosen);
     ++cnt;
     TEST_ASSERT(cnt < N_TARGET*MiniRecord::draw_limit);
   }
 }
+
+void test_make_move_unsafe() {
+  auto record = usi::read_record(long_sfen);
+  EffectState state = record.initial_state;
+  BaseState base {state};
+  for (auto move: record.moves) {
+    state.makeMove(move);
+    base.make_move_unsafe(move);
+    TEST_CHECK(state == base);
+    TEST_CHECK(state.check_internal_consistency());
+    TEST_CHECK(base.check_internal_consistency());
+  }
+}
+
+void test_pawn_drop_checkmate() {
+  {
+    EffectState state
+      (csa::read_board("P1 *  *  *  *  *  *  *  *  * \n"
+                       "P2 * -OU *  *  * -GI *  *  * \n"
+                       "P3 *  *  * -FU+FU-KI *  *  * \n"
+                       "P4 * -KI *  * -GI *  *  *  * \n"
+                       "P5 * +KY *  *  * +KE-KI * -FU\n"
+                       "P6 *  * +FU+FU+OU+KA-RY *  * \n"
+                       "P7-NK * +KA * +KE+FU+KE * +FU\n"
+                       "P8 *  *  *  *  *  *  *  *  * \n"
+                       "P9 *  *  * -HI *  *  *  * +KY\n"
+                       "P+00GI00FU00FU00FU00FU00FU00FU00FU\n"
+                       "P-00KI00GI00KY00KY00FU00FU00FU00FU\n"
+                       "-\n"
+                       ));
+    Move m55(Square(5,5), PAWN, WHITE);
+    TEST_CHECK(state.isPawnDropCheckmate(m55));
+    MoveVector moves;
+    state.generateLegal(moves);
+    TEST_CHECK(! is_member(moves, m55));
+  }
+  {
+    auto sfen = "startpos moves 7g7f 8c8d 2g2f 4a3b 2f2e 8d8e 8h7g 1c1d 7i7h 1d1e 6g6f 7a7b 3i4h 5a5b 5i6h 7c7d 4i5h 9c9d 9g9f 8a7c 3g3f 3c3d 4h3g 2b3c 3g4f 4c4d 3f3e 3d3e 4f3e 3a4b 2e2d 2c2d 3e2d P*2g 2h2g 3c2d 2g2d P*2c 2d4d 3b4c 4d7d 2a3c P*3d 3c4e 6h7i 8e8f 8g8f 5c5d B*3b 4e5g+ 5h5g P*8g 7h8g 9d9e 3b2c+ 9e9f 3d3c+ 4c3c 2c2b 9f9g+ 9i9g 9a9g+ 8i9g P*9f 8g9f P*9e 9f8g S*9f 8g9f 9e9f N*4e 3c4c 7d9d 9f9g+ 9d9g N*8e 8f8e 7c8e P*5c 5b6b N*7d 6b7c 7d8b+ 8e9g+ R*9c 7c8b S*7c 8b9c 7c7b 6a7b L*8e P*8d 7i6h R*2h 5g5h L*5f P*9d 9c8b 9d9c+ 8b9c P*9d 9c8b P*8c 7b8c 9d9c+ 8c9c P*8c 9c8c 2b1a 5f5h+ 6i5h N*5f 6h6g R*6i 6g5f 2h5h+ N*5g G*5e 1a5e 5d5e 5f5e S*5d 5e4f B*2h L*3g 2h3g+ 2i3g 5h2h 8e8d 8c8d L*8e 2h2f G*3f G*3e 4f5f 2f3f B*4f";
+    auto record = usi::read_record(sfen);
+    EffectState state;
+    record.replay(state, record.moves.size());
+    Move m55(Square(5,5), PAWN, WHITE);
+    TEST_CHECK(state.isPawnDropCheckmate(m55));
+    MoveVector moves;
+    state.generateLegal(moves);
+    TEST_CHECK(! is_member(moves, m55));
+  }
+}
+
+void test_subrecord_sample() {
+  constexpr int N = 24;
+  std::array<int,N> count = {0};
+  for (int i=0; i< (1ul<<29); ++i) {
+    int idx = SubRecord::weighted_sampling(N);
+    count[idx] += 1;
+    if (*std::ranges::min_element(count) > 0) {
+      break;
+    }
+  }
+  TEST_CHECK(*std::ranges::min_element(count) > 0);
+}
+
 
 TEST_LIST = {
   { "player", test_player },
@@ -5355,5 +5420,8 @@ TEST_LIST = {
   { "policy_move_label", test_policy_move_label },
   { "game_manager", test_game_manager },
   { "parallel_game_manager", test_parallel_game_manager },
+  { "make_move_unsafe", test_make_move_unsafe },
+  { "pawn_drop_checkmate", test_pawn_drop_checkmate },
+  { "subrecord_sumple", test_subrecord_sample },
   { nullptr, nullptr }
 };

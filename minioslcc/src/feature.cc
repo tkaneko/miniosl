@@ -1,5 +1,6 @@
 #include "feature.h"
 #include "record.h"
+#include "impl/rng.h"
 
 std::array<int8_t,81> osl::ml::board_dense_feature(const BaseState& state) {
   std::array<int8_t,81> board = { 0 };
@@ -138,7 +139,8 @@ void osl::ml::impl::fill_ptypeo(const BaseState& state, Square sq, PtypeO ptypeo
   for (int n: BitRange(ptype_move_direction[idx(ptype)] & 255)) {
     auto dir = Direction(n);
     auto dst = sq + to_offset(color, dir);
-    out[dst.index81()] = 1;
+    if (dst.isOnBoard())
+      out[dst.index81()] = 1;
   }
   if (unpromote(ptype) == ROOK) {
     for (auto dir: {U,D,L,R}) {
@@ -360,4 +362,84 @@ namespace osl {
   }
 }
 
+osl::SubRecord::SubRecord(const MiniRecord& record) : moves(record.moves), final_move(record.final_move), result(record.result) {
+  if (record.initial_state != BaseState(HIRATE))
+    throw std::logic_error("unexpected initial state");
+}
+
+osl::BaseState osl::SubRecord::make_state(int idx) const {
+  if (idx < 0 || moves.size() < idx)
+    throw std::range_error("make_state: out of range");
+  BaseState state(HIRATE);
+  for (int i: std::views::iota(0, idx))
+    state.make_move_unsafe(moves[i]);
+  return state;
+}
+
+std::tuple<osl::BaseState,osl::Move,osl::Move,osl::GameResult, bool>
+osl::SubRecord::make_state_label_of_turn(int idx) const {
+  if ((! (0 <= idx && idx < moves.size())) || result == InGame)
+    throw std::range_error("make_state_label_of_turn: out of range"
+                           " or in game " + std::to_string(idx)
+                           + " < " + std::to_string(moves.size())
+                           + " result " + std::to_string(result));
+  
+  auto state = make_state(idx);
+  auto last_move = idx > 0 ? moves[idx-1] : Move();
+  if (state.turn() == BLACK)
+    return {state, moves[idx], last_move, result, false};
+  
+  return {state.rotate180(), moves[idx].rotate180(), last_move.rotate180(), flip(result), true};
+}
+
+
+void osl::SubRecord::export_feature_labels(int idx, float *input, int& move_label, int& value_label, float *aux_label) const {
+  auto [base, move, last_move, result, flipped] = make_state_label_of_turn(idx);
+  EffectState state{ base };
+  
+  ml::helper::write_np_44ch(state, input);
+  ml::helper::write_np_additional(state, flipped, last_move, input + 9*9*ml::basic_channels);
+
+  move_label = ml::policy_move_label(move);
+  value_label = ml::value_label(result);
+  ml::helper::write_np_aftermove(state, move, aux_label);
+}
+
+int osl::SubRecord::weighted_sampling(int limit, int tid) {
+  // weigted sampling
+  //
+  // for usual cases of limit > 11 (=N)
+  // - move P1, P2: 2^{-10}
+  // - move Pn (3 <= n <= 11): 2*Pn-1
+  // - move Pn (12 <= n): 1
+  //
+  // Rationale: In MZ, the latest 10^6 game records are kept, and
+  // - for each 2048 (bath size) x 1000 (step) positions, a new generation is generated.
+  // - If uniform, there are 10k-20k of the initial position (apparently too much)
+  // - The weight of 2^{-10} reduces the number to about 10-20,
+  //   reasonable for keeping the average win ratio stable.
+  constexpr int N = 11;
+  auto& rng = rngs.at(tid);
+  if (limit-1 > N) {
+    std::uniform_int_distribution<> dist(N, limit-1); // inclusive, move.size()-1 at most
+    int idx = dist(rng);
+    if (idx > N)
+      return idx;
+  }
+  std::uniform_real_distribution<> r01(0, 1);
+  double p = r01(rng);
+  int idx = std::min(N, limit-1);
+  while (idx > 0 && p < 0.5) {
+    --idx;
+    p *= 2;
+  }
+  return idx;  
+}
+
+void osl::SubRecord::sample_feature_labels(float *input, int& move_label, int& value_label, float *aux_label, int tid) const {
+  int idx = weighted_sampling(moves.size());
+  export_feature_labels(idx, input, move_label, value_label, aux_label);
+}
+
+// global variable
 const std::unordered_map<std::string, int> osl::ml::channel_id = osl::make_channel_id();

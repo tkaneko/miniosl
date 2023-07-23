@@ -92,11 +92,30 @@ void test_policy_move_label() {
   }
 }
 
+void test_make_move_unsafe() {
+  const auto& data = test_record_set();
+  int count = 0;
+  MoveVector legal_moves;
+  for (const auto& record: data.records) {
+    if (++count > limit)
+      break;
+    auto state(record.initial_state);
+    BaseState base {state};
+    for (auto move: record.moves) {
+      state.makeMove(move);
+      base.make_move_unsafe(move);
+      TEST_CHECK(state == base);
+      TEST_CHECK(state.check_internal_consistency());
+      TEST_CHECK(base.check_internal_consistency());
+    }
+  }
+}
 
 TEST_LIST = {
   { "japanese", test_japanese },
   { "pack_position", test_pack_position },
   { "hash", test_hash },
   { "policy_move_label", test_policy_move_label },
+  { "make_move_unsafe", test_make_move_unsafe },
   { nullptr, nullptr }
 };

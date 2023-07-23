@@ -275,6 +275,59 @@ bool osl::BaseState::move_is_consistent(Move move) const {
   return true;
 }
 
+void osl::BaseState::make_move_unsafe(Move move) {
+  if (turn() != move.player() || ! move.is_ordinary_valid())
+    throw std::logic_error("unacceptable move in unsafe method");
+
+  const Square from=move.from(), to=move.to();
+  const auto side_to_move = this->turn();
+  int num;                      /* to be initilized in both branches of drop and non-drop */
+  if (from.isPieceStand()) {
+    auto ptype = move.ptype();
+    const mask_t mochigoma= standMask(side_to_move).to_ullong() & piece_id_set(ptype);
+    assert(mochigoma);
+    int num = std::countr_zero(mochigoma);
+    mask_t num_one_hot=lowest_bit(mochigoma);
+    Piece new_piece=pieceOf(num).drop(to);
+    assert(0 <= num && num < 40 && num_one_hot == one_hot(num) && new_piece.id() == num);
+    const auto ptypeO=new_piece.ptypeO();
+    pieces[num] = new_piece;
+    setBoard(to, new_piece);
+    stand_mask[side_to_move] ^= PieceMask(num_one_hot);
+    stand_count[side_to_move][basic_idx(ptype)]--;
+    if (ptype==PAWN)
+      setPawn(turn(),to);
+  }
+  else { // onboard
+    Piece old_piece = pieceAt(from);
+    num=old_piece.id();
+    const Piece captured = pieceOnBoard(to);
+    int move_promote_mask = move.promoteMask();
+    Piece new_piece=old_piece.move((to-from), move_promote_mask);
+    pieces[num] = new_piece;
+    const auto old_ptypeo=old_piece.ptypeO(), new_ptypeo=new_piece.ptypeO();
+    setBoard(from, Piece::EMPTY());
+    setBoard(to, new_piece);
+    if (captured != Piece::EMPTY()) {
+      const int cid = captured.id();
+      pieces[cid] = captured.captured();
+      const mask_t cid_mask=one_hot(cid);
+      stand_mask[side_to_move] ^= PieceMask(cid_mask);
+      
+      const auto capturePtypeO=captured.ptypeO();
+      stand_count[side_to_move][basic_idx(unpromote(ptype(capturePtypeO)))]++;
+
+      if (captured.ptype() == PAWN)
+        clearPawn(alt(turn()),to);
+    }
+    // onboard moves reach here
+    if (move_promote_mask && num < ptype_piece_id[Int(PAWN)].second)
+      clearPawn(turn(),from);
+  }
+  changeTurn();  
+}
+
+
 bool osl::operator==(const BaseState& st1,const BaseState& st2) {
   assert(st1.check_internal_consistency());
   assert(st2.check_internal_consistency());

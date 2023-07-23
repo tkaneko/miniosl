@@ -4,3 +4,6 @@
 [submodule "acutest"]
 	path = minioslcc/acutest
 	url = https://github.com/mity/acutest.git
+[submodule "minioslcc/plog"]
+	path = minioslcc/plog
+	url = https://github.com/SergiusTheBest/plog

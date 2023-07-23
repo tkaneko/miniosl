@@ -10,30 +10,37 @@ namespace osl
 {
   /**
    * A game record.
-   * 
+   *
+   * @internal
    * Incrementally constructed by the following sequence of method calls:
    * - set_initial_state(), 
-   * - add_move() (x #moves)
+   * - append_move() (x #moves)
    * - guess_result() (optional)
    * - settle_repetition()
    */
   struct MiniRecord {
+    /** initial state */
     EffectState initial_state;
+    /** moves */
     std::vector<Move> moves;
-    /** history status of moves.size()+1 */
+    /** history status of moves.size()+1 to detect repetition */
     std::vector<HashStatus> history;
-    /** to distinguish resign or DeclareWin if game has the winner */
-    Move final_move;
+    /** resign or DeclareWin if game has the winner, PASS in InGame or end by repetition  */
+    Move final_move = Move::PASS(BLACK);
+    /** result of the game or `InGame` unless completed */
     GameResult result = InGame;
 
     int state_size() const { return history.size(); }
+    /** numebr of moves */
     int move_size() const { return moves.size(); }
+    /** test game is completed */
     bool has_winner() const { return osl::has_winner(result); }
     std::vector<std::array<uint64_t,4>> export_all(bool flip_if_white_to_move=true) const;
     std::vector<std::array<uint64_t,5>> export_all320(bool flip_if_white_to_move=true) const;
-    /** export latest state */
+    /** @internal export latest state */
     std::array<uint64_t,5> export320(bool flip_if_white_to_move=true) const;
-    /** inquiry on state
+    /**
+     * return number of occurrence of the specified state. 
      * @param id = index if positive otherwise rollback from current (the last item), i.e., 0 for current
      */
     int repeat_count(int id=0) const {
@@ -62,9 +69,15 @@ namespace osl
       *this = MiniRecord { EffectState(state) };
       history.emplace_back(HashStatus(initial_state));
     }
-    /** @param in_check status after make_move */
-    void add_move(Move moved, bool in_check);
+    /**
+     * @internal
+     * append a new move to the record
+     * @param moved move to append
+     * @param in_check status after make_move
+     */
+    void append_move(Move moved, bool in_check);
     MiniRecord branch_at(int idx);
+    /** set `state` as `idx`-th state */
     void replay(EffectState& state, int idx);
     
     friend inline bool operator==(const MiniRecord&, const MiniRecord&) = default;
@@ -77,7 +90,7 @@ namespace osl
 
     static constexpr int draw_limit = 320;
   };
-  /** a set of MiniRecord-s */
+  /** a set of `MiniRecord` s */
   struct RecordSet {
     RecordSet() {}
     RecordSet(const std::vector<MiniRecord>& v) : records(v) {}
@@ -116,6 +129,7 @@ namespace osl
     Ptype to_ptype(const std::string& s);
 
     MiniRecord read_record(const std::filesystem::path& filename);
+    /** read record from csa file */
     MiniRecord read_record(std::istream& is);
     namespace detail {
       bool parse_state_line(BaseState&, MiniRecord&, std::string element, CArray<bool,9>&);
@@ -125,6 +139,7 @@ namespace osl
       std::istringstream is(str);
       return read_record(is);
     }
+    /** read state from csa file */
     inline EffectState read_board(const std::string& str) { return read_record(str).initial_state; }
     struct ParseError : public std::domain_error {
       ParseError(const std::string& w) : std::domain_error(w) {}
@@ -150,11 +165,13 @@ namespace osl
      * @param board USIの文字列
      * @param state boardの解析結果が出力される
      */
-    void parse_board(const std::string& board, BaseState&);
-    /**  [sfen <sfenstring> | startpos ] moves <move1> ... <movei> */
+    void parse_board(const std::string& board, BaseState& state);
+    /**  parse string with usi syntax `[sfen <sfenstring> | startpos ] moves <move1> ... <movei>` */
     void parse(const std::string& line, EffectState&);
 
+    /** read usi record */
     MiniRecord read_record(std::string line);
+    /** read state in usi */
     EffectState to_state(const std::string& line);
 
     class ParseError : public std::domain_error {
@@ -185,13 +202,15 @@ namespace osl
   std::string to_psn_extended(Move);
 
   // ki2
-  std::u8string to_ki2(Move, const EffectState&, Square prev=Square());
+  /** return japanese representation of `move` */
+  std::u8string to_ki2(Move move, const EffectState&, Square prev=Square());
   std::u8string to_ki2(Square);
   std::u8string to_ki2(Square cur, Square prev);
   std::u8string to_ki2(Player);
   std::u8string to_ki2(Ptype);
   namespace kanji {
-    Move to_move(std::u8string, const EffectState& state, Square last_to=Square());
+    /** read japanese representation of move */
+    Move to_move(std::u8string, const EffectState&, Square last_to=Square());
     Square to_square(std::u8string);
     Ptype to_ptype(std::u8string);
     Player to_player(std::u8string);

@@ -7,7 +7,7 @@ def test_draw_basestate():
     array = r.export_all()
     assert len(array) == len(r)
     assert len(array[0]) == 4
-    t = miniosl.to_state_label_tuple(array[0])
+    t = miniosl.to_state_label_tuple256(array[0])
     assert isinstance(t.state, miniosl.BaseState)
     assert t.state.to_png()
     assert t.state.to_png(id=3)

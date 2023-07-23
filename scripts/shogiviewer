@@ -1,0 +1,6 @@
+#!/usr/bin/env python3
+"""curses ui for miniosl"""
+import miniosl.curses_viewer
+
+if __name__ == '__main__':
+    miniosl.curses_viewer.main()

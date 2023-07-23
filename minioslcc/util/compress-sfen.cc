@@ -71,9 +71,10 @@ void decompress(std::filesystem::path bin) {
 
 
 int main(int argc, char *argv[]) {
+  using namespace std::string_literals;
   if (argc != 2 || argv[1][0] == '-') {
     std::cout << "usage: argv[0] sfen-file-name\n";
-    return (argc >= 2 && std::string(argv[1]) == "--help") ? 0 : 1;
+    return (argc >= 2 && argv[1] == "--help"s) ? 0 : 1;
   }
 
   auto sfen = std::filesystem::path(argv[1]);

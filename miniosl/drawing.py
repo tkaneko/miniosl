@@ -1,3 +1,4 @@
+"""visualize state and channels"""
 from __future__ import annotations
 import miniosl
 import numpy as np
@@ -27,6 +28,20 @@ w_property = {'fill': 'blue', 'fill_opacity': 0.2, 'stroke_width': 0}
 in_check_property = {'fill': 'red', 'fill_opacity': 0.5, 'stroke_width': 0}
 last_move_property = {'fill': 'yellow', 'fill_opacity': 0.2, 'stroke_width': 0}
 scale = 20
+
+
+def ptype_to_ja(ptype: miniosl.Ptype) -> str:
+    return csadict[miniosl.to_csa(ptype)]
+
+
+def hand_pieces_to_ja(state, player):
+    ret = ''
+    for ptype in miniosl.piece_stand_order:
+        cnt = state.count_hand(player, ptype)
+        if cnt == 0:
+            continue
+        ret += csadict[miniosl.to_csa(ptype)] * cnt
+    return ret
 
 
 def gx(x):
@@ -112,7 +127,7 @@ class ShogiSVG:
         piece = self.state.piece_at(miniosl.Square(x, y))
         if not piece.is_piece():
             return
-        kanji = csadict[miniosl.to_csa(piece.ptype())]
+        kanji = ptype_to_ja(piece.ptype())
         if piece.color() == miniosl.black:
             self.add(dw.Text(kanji, font_size=scale*.875,
                              x=gx(x)+scale*.05, y=gy(y)-scale*.125,
@@ -157,13 +172,7 @@ class ShogiSVG:
                              x=gx(2)+scale*.05, y=gy(11), **sub_property))
 
     def hand_pieces_str(self, player: miniosl.Player) -> str:
-        ret = ''
-        for ptype in miniosl.piece_stand_order:
-            cnt = self.state.count_hand(player, ptype)
-            if cnt == 0:
-                continue
-            ret += csadict[miniosl.to_csa(ptype)] * cnt
-        return ret
+        return hand_pieces_to_ja(self.state, player)
 
     def show_hand(self):
         # i: [0,4] label+space
@@ -215,7 +224,19 @@ def state_to_svg(state: miniosl.BaseState, id: int = 0, *,
                  repeat_count: int = 0,
                  flip_if_white: bool = False,
                  ) -> dw.drawing.Drawing:
-    """make a picture of state as svg"""
+    """make a picture of state as svg
+
+    :param state: state,
+    :param id: id for svg if given,
+    :param decorate: highlight king location and piece covers for each color,
+    :param plane: 9x9 numpy array to make a mark on squares,
+    :param last_move_ja: last move in japanese,
+    :param last_to: the destination square of the last move,
+    :param move_number: ply in a game record,
+    :param repeat_distance: distance to the latest same position,
+    :param repeat_count: number of the occurrence of this state,
+    :param flip_if_white: `rotate180()` if white to move
+    """
     flipped = False
     if flip_if_white and state.turn() == miniosl.white:
         state = miniosl.State(state.rotate180())
@@ -267,23 +288,28 @@ def save_png(png: dw.raster.Raster, filename: str) -> None:
 
 
 def state_to_png(*args, filename='', **kwargs) -> dw.drawing.Drawing | None:
+    """make a picture of state as svg, save to file if given `filename`
+
+    parameters are the same as :py:func:`state_to_svg` except for `filename`
+    """
     png = state_to_svg(*args, **kwargs).rasterize()
     return png if not filename else miniosl.drawing.save_png(png, filename)
 
 
-def show_channels(channels, nrows, ncols, flip=False):
+def show_channels(channels, nrows, ncols, flip=False, *, japanese=False):
     import matplotlib.pyplot as plt
     from mpl_toolkits.axes_grid1 import ImageGrid
     fig = plt.figure(figsize=(ncols*2.5, nrows*2))
     grid = ImageGrid(fig, 111, nrows_ncols=(nrows, ncols),
                      axes_pad=0.3, label_mode='all')
+    dan = kanjirow[1:] if japanese else np.arange(1, 10)
     for i, ax in enumerate(grid):
         if flip:
             ax.set_xticks(np.arange(9), np.arange(9, 0, -1))
-            ax.set_yticks(np.arange(9), np.arange(9, 0, -1))
+            ax.set_yticks(np.arange(9), reversed(dan))
         else:
             ax.set_xticks(np.arange(9), np.arange(1, 10))
-            ax.set_yticks(np.arange(9), np.arange(1, 10))
+            ax.set_yticks(np.arange(9), dan)
         ax.xaxis.tick_top()
         ax.yaxis.tick_right()
         ax.imshow(channels[i], cmap='Oranges', vmin=0, vmax=1,

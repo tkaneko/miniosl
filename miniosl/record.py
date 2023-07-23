@@ -1,18 +1,44 @@
 import miniosl
 import apng
-import base64
 import numpy as np
+from collections import Counter
 
 
 def minirecord_replay(self: miniosl.MiniRecord, n: int) -> miniosl.State:
-    """return state after n-th move"""
+    """return state after n-th move
+
+    :param n: number of moves from initial state or the last state if negative
+
+    >>> record = miniosl.usi_record('startpos moves 7g7f')
+    >>> s = record.replay(-1)
+    >>> s.piece_at(miniosl.Square(7, 6)).ptype() == miniosl.pawn
+    True
+    """
     if n < 0:
-        n = len(self.moves) - n
+        n = len(self.moves) + n + 1
     s = miniosl.State(self.initial_state)
     for i, move in enumerate(self.moves):
         if i >= n:
             break
         s.make_move(move)
+    return s
+
+
+def subrecord_replay(self: miniosl.SubRecord, n: int) -> miniosl.State:
+    """return state after n-th move
+
+    :param n: number of moves from initial state or the last state if negative
+
+    >>> record = miniosl.usi_record('startpos moves 7g7f')
+    >>> s = record.replay(-1)
+    >>> s.piece_at(miniosl.Square(7, 6)).ptype() == miniosl.pawn
+    True
+    """
+    if len(self.moves) < n:
+        n = len(self.moves)
+    if n < 0:
+        n = len(self.moves) + n + 1
+    s = self.make_state(n)
     return s
 
 
@@ -53,13 +79,16 @@ def sfen_file_to_np_array(filename: str) -> (np.ndarray, int):
 
 
 def sfen_file_to_training_np_array(filename: str, *,
-                                   with_history: bool = True) -> np.ndarray:
+                                   with_history: bool = True,
+                                   ignore_in_game: bool = True) -> np.ndarray:
     """return training data expanding positions in sfen file"""
     data = []
     with open(filename, 'r') as f:
         for line in f:
             line = line.strip()
             record = miniosl.usi_record(line)
+            if ignore_in_game and record.result == miniosl.InGame:
+                continue
             data += record.export_all320() if with_history else record.export_all()
     return np.array(data, dtype=np.uint64)
 
@@ -80,8 +109,8 @@ def np_array_to_sfen_file(data: np.ndarray, filename: str) -> int:
 
 
 def save_record_set(records: miniosl.RecordSet, filename: str,
-                    name: str = '') -> (np.ndarray):
-    """save recordset to npz"""
+                    name: str = '') -> None:
+    """save recordset to npz by `np.savez_compressed`"""
     filename = filename if filename.endswith('.npz') else filename+'.npz'
     if name == '':
         name = 'record_set'
@@ -97,7 +126,7 @@ def save_record_set(records: miniosl.RecordSet, filename: str,
 
 
 def load_record_set(path: str, name: str = '', *, limit: int | None = None):
-    """load RecordSet from npz file"""
+    """load :py:class:`miniosl.RecordSet` from npz file"""
     path = path if path.endswith('.npz') else path+'.npz'
     dict = np.load(path)
     for key in dict.keys():
@@ -107,12 +136,16 @@ def load_record_set(path: str, name: str = '', *, limit: int | None = None):
         code_count = 0
         record_set = []
         while code_count < len(data):
-            record, n = miniosl.unpack_record(data[code_count:])
+            try:
+                record, n = miniosl.unpack_record(data[code_count:])
+            except Exception:
+                print(f'after {len(record_set)} records, code_count {code_count}')
+                raise
             record_set.append(record)
             code_count += n
             if n == 0:
                 raise ValueError("malformed data")
-            if len(record_set) >= limit:
+            if limit and len(record_set) >= limit:
                 break
         return miniosl.RecordSet(record_set)
     raise ValueError("data not found")
@@ -120,7 +153,7 @@ def load_record_set(path: str, name: str = '', *, limit: int | None = None):
 
 def save_opening_tree(tree: miniosl.OpeningTree,
                       filename: str) -> (np.ndarray):
-    """save OpeningTree to npz"""
+    """save :py:class:`OpeningTree` to npz"""
     filename = filename if filename.endswith('.npz') else filename+'.npz'
     key_board, key_stand, node = tree.export_all()
     dict = {}
@@ -131,7 +164,7 @@ def save_opening_tree(tree: miniosl.OpeningTree,
 
 
 def load_opening_tree(filename: str) -> miniosl.OpeningTree:
-    """load OpeningTree from npz file"""
+    """load :py:class:`OpeningTree` from npz file"""
     filename = filename if filename.endswith('.npz') else filename+'.npz'
     dict = np.load(filename)
     return miniosl.OpeningTree.restore_from(dict['board'], dict['stand'],
@@ -147,3 +180,44 @@ def retrieve_children(tree: miniosl.OpeningTree, state: miniosl.BaseState
                 for new_code, move in code_list if new_code in tree]
     children.sort(key=lambda node: -node[0].count())
     return children
+
+
+class SfenBlockStat:
+    def __init__(self):
+        self.counts = np.zeros(4, dtype=np.int32)
+        self.length = []
+        self.total, self.declare, self.short_draw = 0, 0, 0
+        self.uniq20, self.uniq40 = Counter(), Counter()
+
+    def add(self, record: miniosl.MiniRecord | miniosl.SubRecord) -> None:
+        self.counts[int(record.result)] += 1
+        if record.result == miniosl.Draw and len(record.moves) < miniosl.draw_limit:
+            self.short_draw += 1
+        self.total += 1
+        if record.final_move == miniosl.Move.declare_win():
+            self.declare += 1
+        self.length.append(len(record.moves))
+        code20 = record.replay(20).hash_code()
+        code40 = record.replay(40).hash_code()
+        self.uniq20[code20] += 1
+        self.uniq40[code40] += 1
+
+    def declare_ratio(self) -> float:
+        return self.declare / self.total
+
+    def draw_ratio(self) -> float:
+        return self.counts[int(miniosl.Draw)] / self.total
+
+    def short_draw_ratio(self) -> float:
+        return self.short_draw / self.total
+
+    def black_win_ratio(self) -> float:
+        b = self.counts[int(miniosl.BlackWin)]
+        w = self.counts[int(miniosl.WhiteWin)]
+        return  b / (b + w)
+
+    def uniq20_ratio(self) -> float:
+        return len(self.uniq20) / self.total
+
+    def uniq40_ratio(self) -> float:
+        return len(self.uniq40) / self.total

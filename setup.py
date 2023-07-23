@@ -174,8 +174,8 @@ this_directory = Path(__file__).parent
 # logic and declaration, and simpler if you include description/version in a file.
 setup(
     name="miniosl",
-    version="0.0.8",
-    author="Tomoyuki Kaneko",
+    version="0.0.9",
+    author="T. Kaneko",
     author_email="kaneko@graco.c.u-tokyo.ac.jp",
     description="A python interface to miniosl (shogi library)",
     long_description=(this_directory / "README.md").read_text(),
@@ -194,4 +194,5 @@ setup(
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
     python_requires=">=3.10",
+    scripts=['scripts/shogiviewer'],
 )

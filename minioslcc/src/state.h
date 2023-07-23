@@ -23,6 +23,8 @@ namespace osl
   bool operator==(const EffectState& st1, const EffectState& st2);
 
   /**
+   * Standard state exported as `minioslcc.State`
+   *
    * 利きを持つ局面
    * - effects (EffectSummary) 利き
    * - pieces_onboard (PieceMask) 盤上にある駒
@@ -44,19 +46,22 @@ namespace osl
     // ----------------------------------------------------------------------
     explicit EffectState(const BaseState& st=BaseState(HIRATE));
     ~EffectState();
-    /** 主要部分を高速にコピーする. 盤の外はコピーされない*/
+    /** @internal 主要部分を高速にコピーする. 盤の外はコピーされない*/
     void copyFrom(const EffectState& src);
     bool check_internal_consistency() const;
 
     // ----------------------------------------------------------------------
     // 1. 盤面全体の情報
     // ----------------------------------------------------------------------
+    /** return a set of piece IDs on board */
     PieceMask piecesOnBoard(Player p) const { return pieces_onboard[p]; }
+    /** return a set of piece IDs promoted */
     PieceMask promotedPieces() const { return promoted; }
+    /** return a set of piece IDs pinned */
     PieceMask pin(Player king) const {
       return pin_or_open[king]&piecesOnBoard(king);
     }
-    /** attack の駒で動くと開き王手になる可能性がある集合 */
+    /** @internal attack の駒で動くと開き王手になる可能性がある集合 */
     PieceMask checkShadow(Player attack) const {
       return pin_or_open[alt(attack)] & piecesOnBoard(attack);
     }
@@ -73,7 +78,10 @@ namespace osl
     bool inCheck() const { return inCheck(turn()); }
     /** 手番の玉が詰み (負け) */
     bool inCheckmate() const;
+    /** another loss condition for turn */
+    bool inNoLegalMoves() const;
     /**
+     * @internal
      * target の王に合駒可能でない王手がかかっているかどうか.
      * - 両王手 => 真
      * - unblockable な利きだけ => 真
@@ -97,7 +105,8 @@ namespace osl
     const PPLongState& ppLongState() const { return effects.pp_long_state; }
     /** pl からの利きが(1つ以上)ある駒一覧 */
     PieceMask effectedPieces(Player pl) const { return effects.e_pieces[pl]; }
-    /** 前の指手でeffectedPieces(pl)が変化したか.
+    /** @internal
+     * 前の指手でeffectedPieces(pl)が変化したか.
      * 取られた駒は現在の実装ではリストされないようだ.
      */
     PieceMask effectedChanged(Player pl) const { return effects.e_pieces_modified[pl]; }
@@ -115,7 +124,7 @@ namespace osl
       return changedSource().hasAny<PTYPE>();
     }
     /** 取られそうなPの駒で価値が最大のもの */
-    const Piece findThreatenedPiece(Player P) const;
+    Piece findThreatenedPiece(Player P) const;
 
     template<Player P>
     BoardMask kingArea3x3() { return BoardMaskTable3x3[kingSquare<P>()]; };
@@ -125,6 +134,7 @@ namespace osl
     Square pieceReach(Direction d, int num) const {
       return effects.long_piece_reach.get(d,num);
     }
+    /** return the furthest square of piece p for direction d. */
     Square pieceReach(Direction d, Piece p) const  {
       return pieceReach(d, p.id());
     }
@@ -132,7 +142,7 @@ namespace osl
       return Square::makeDirect(king_visibility[p][d]);
     }
     /** 
-     * 玉がd方向にどこまで動けるかを返す
+     * return the furthest square visible p's King for direction d
      * @param p 注目する玉のプレイヤ
      * @param d piece からみた向き
      */
@@ -142,6 +152,7 @@ namespace osl
       return kingVisibilityBlackView(p, d);
     }
     /**
+     * @internal
      * pinされた駒がPのKingから見てどの方向か?
      * Pから見たdirectionを返す
      */
@@ -158,6 +169,7 @@ namespace osl
         return pinnedDir<WHITE>(p);
     }
     /**
+     * @internal
      * pinされた駒pがtoに動けるか?
      * pinに関係がなければtoへ動けるという前提
      */
@@ -178,6 +190,7 @@ namespace osl
     // 3. あるSquareへの利き
     // ----------------------------------------------------------------------
     EffectPieceMask effectAt(Square sq) const { return effects.effectAt(sq); }
+    /** return a set of piece IDs of color `P` cover the square `sq` */
     PieceMask effectAt(Player P, Square sq) const { return effectAt(sq) & piecesOnBoard(P); }
     /**
      * 利きの数を数える. 
@@ -221,9 +234,9 @@ namespace osl
     // ----------------------------------------------------------------------
     // 3.2 bool を返す
     // ----------------------------------------------------------------------
-    /** 
-     * 対象とするマスにあるプレイヤーの利きがあるかどうか.
-     * @param player 攻撃側
+    /**
+     * @internal 対象とするマスにあるプレイヤーの利きがあるかどうか.
+     * @tparam player 攻撃側
      * @param target 対象のマス
      */
     template<Player P>
@@ -261,7 +274,7 @@ namespace osl
     }
 
     /** 
-     * 対象とするマスにあるプレイヤーの(ただしある駒以外)利きがあるかどうか.
+     * @internal 対象とするマスにあるプレイヤーの(ただしある駒以外)利きがあるかどうか.
      * @param player 攻撃側
      * @param piece 攻撃側の駒
      * @param target 対象のマス
@@ -273,7 +286,7 @@ namespace osl
       return (pieces_onboard&effectAt(target)).any();
     }
     /**
-     * pinされている駒以外からの利きがある.
+     * @internal pinされている駒以外からの利きがある.
      */
     bool hasEffectByNotPinned(Player pl,Square target) const {
       assert(target.isOnBoard());
@@ -282,6 +295,7 @@ namespace osl
     }
 
     /**
+     * @internal
      * attackerにptypeoの駒がいると仮定した場合にtargetに利きがあるかどうか
      * を stateをupdateしないで確かめる.
      * targetSquareは空白でも良い
@@ -299,7 +313,7 @@ namespace osl
       return this->isEmptyBetween(attacker,target,to_offset(effect));
     }
     /**
-     * 
+     * @internal
      */
     template<Player P>
     bool hasEffectByWithRemove(Square target,Square removed) const;
@@ -319,7 +333,7 @@ namespace osl
      * @param attack_piece
      * 一つの駒による王手の場合はattck_pieceにその駒を入れる
      * 複数の駒による王手の場合はPiece::EMPTY()を入れる
-     * @param P(template) 玉
+     * @tparam P(template) 玉
      */
     template<Player P>
     bool findCheckPiece(Piece& attack_piece) const {
@@ -332,7 +346,8 @@ namespace osl
         return hasEffectAt<WHITE>(target, attackerPiece);
     }
     /**
-     * @param P(template) - 利きをつけている側のプレイヤ
+     * @internal
+     * @tparam P - 利きをつけている側のプレイヤ
      * @param target - 利きをつけられた場所
      * @param attackerPiece - multiple attackの場合はPiece::EMPTY()
      *        そうでないなら利きをつけている駒を返す
@@ -367,10 +382,11 @@ namespace osl
       return findLongAttackAt(owner, p.id(), d);
     }
     /**
-     * 利きの中から安そうな駒を選ぶ
+     * @internal 利きの中から安そうな駒を選ぶ
      */
     Piece selectCheapPiece(PieceMask effect) const;
     /**
+     * @internal
      * @param P - 利きをつけている側のプレイヤ
      * @param square - 調査する場所
      * @return 利きを付けている中で安そうな駒 (複数の場合でもEMPTYにはしない)
@@ -379,6 +395,7 @@ namespace osl
       return selectCheapPiece(piecesOnBoard(P) & effectAt(square));
     }
     /**
+     * @internal 
      * @param P - 利きをつけている側のプレイヤ
      * @param square - 調査する場所
      * @return 利きを付けている中で安そうな駒 (複数の場合でもEMPTYにはしない)
@@ -401,22 +418,28 @@ namespace osl
     // 4. 指手の検査・生成・適用
     // ----------------------------------------------------------------------
     /**
-     * legal move
+     * test legal move
      * - valide win declaration, or
-     * - move.is_ordinary_valid + isLegalLight + isSafe + !isPawnDropCheckmate
-     * todo
+     * - move.is_ordinary_valid() + isAcceptable() + isSafeMove() + ! isPawnDropCheckmate()
+     *
+     * not implemented
      * - evasion in check
      * - repetition of states
      */
     bool isLegal(Move move) const;
+    /** a part of legal move conditions  */
     bool isSafeMove(Move move) const;
+    /** classify move property */
     bool isCheck(Move move) const;
+    /** a part of illegal move conditions  */
     bool isPawnDropCheckmate(Move move) const;
+    /** classify move property */
     bool isDirectCheck(Move move) const;
+    /** classify move property */
     bool isOpenCheck(Move move) const;
 
     /**
-     * moves accepted by makeMove(), a bit different from isLegal
+     * moves accepted by makeMove(), similar but a bit different from isLegal()
      * - allowed: pass, ordinary moves consistent with state (regardless of king safety)
      * - not allowed: win declaration, resign, 
      */
@@ -441,13 +464,22 @@ namespace osl
     /** 自玉の詰めろを見つけられれば生成 */
     Move findThreatmate1ply() const;
 
+    /** make a move to update the state */
     void makeMove(Move move);
     void makeMovePass() {
       changeTurn();
     }
 
     // sugars for reduce typing
+    /** interpret string representation of move in usi or csa */
     Move to_move(std::string) const;
+    /** make a move given in string, to update the state
+     *
+     * @code
+     * osl::EffectState state;
+     * state.make_move("+7776FU");
+     * @endcode
+     */
     void make_move(std::string csa_or_usi);
     
     // ----------------------------------------------------------------------
@@ -461,7 +493,8 @@ namespace osl
       }
     }      
   public:
-    /** 
+    /**
+     * @internal
      * sq への利きを持つ各駒に関して処理を行う.
      */
     template<Player P,class Action>
@@ -470,6 +503,7 @@ namespace osl
       forEachEffect<Action>(pieceMask, sq, action);
     }
     /** 
+     * @internal
      * sq にある駒を取る move を生成して action の member を呼び出す.
      * @param pin 無視する駒
      */
@@ -481,6 +515,7 @@ namespace osl
     }
 
     /** 
+     * @internal
      * sq に移動する move を生成して action の member を呼び出す
      * @param action たとえば AlwayMoveAction
      * @param piece  これ以外の駒を使う
@@ -494,6 +529,7 @@ namespace osl
 
   public:
     /**
+     * @internal
      * 玉の素抜きなしに合法手でtargetに移動可能かを判定
      * @param king 玉 (玉で取る手は考えない)
      * @return 移動可能な駒があれば，安全な駒を一つ．なければ Piece::EMPTY()
@@ -509,6 +545,7 @@ namespace osl
         return this->safeCaptureNotByKing<WHITE>(target, king);
     }
     /**
+     * @internal
      * forEachEffect の Player のtemplate 引数を通常の引数にしたバージョン
      * @param P 探す対象の駒の所有者
      * @param pos に利きのある駒を探す

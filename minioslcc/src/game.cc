@@ -1,7 +1,9 @@
 #include "game.h"
 #include "feature.h"
 #include "impl/range-parallel.h"
-#include <random>
+#include "impl/rng.h"
+#include "impl/checkmate.h"
+#include <iostream>
 
 osl::GameManager::GameManager() {
   record.set_initial_state(BaseState(HIRATE));
@@ -11,21 +13,30 @@ osl::GameManager::GameManager() {
 osl::GameManager::~GameManager() {
 }
 
-osl::GameResult osl::GameManager::add_move(Move move) {
+osl::GameResult osl::GameManager::make_move(Move move) {
   if (record.result != InGame)
     throw std::logic_error("not in game");
 
+  if (move.isSpecial())
+    throw std::logic_error("win or resign is not implemented yet"); // to accept, check declaration, set final move
+
   state.makeMove(move);
-  record.add_move(move, state.inCheck());
+  record.append_move(move, state.inCheck());
   auto result = table.add(record.state_size()-1, record.history.back(), record.history);
-  if (result == InGame && state.inCheckmate())
+  if (result == InGame && state.inCheckmate()) {
     result = (move.player() == BLACK) ? BlackWin : WhiteWin;
+    record.final_move = Move::Resign();
+  }
   if (result == InGame && record.move_size() >= MiniRecord::draw_limit)
     result = Draw;
   if (result == InGame) {
     state.generateLegal(legal_moves);
-    if (legal_moves.empty())    // wcsc (csa) 27-1
+    if (legal_moves.empty())
+      state.generateWithFullUnpromotions(legal_moves);
+    if (legal_moves.empty()) {   // wcsc (csa) 27-1
       result = loss_result(state.turn());
+      record.final_move = Move::Resign();
+    }
   }
   else
     legal_moves.clear();
@@ -46,28 +57,42 @@ void osl::GameManager::export_heuristic_feature(const EffectState& given, Move g
   ml::helper::write_np_additional(state, flip, last_move, ptr + 9*9*44);  
 }
 
-void osl::GameManager::export_heuristic_feature_after(Move move, float *ptr) const {
-  EffectState state {this->state};
-  if (! state.isAcceptable(move))
-    throw std::range_error("move");
-  state.makeMove(move);
-  export_heuristic_feature(state, move, ptr);  
+osl::GameResult osl::GameManager::export_heuristic_feature_after(Move move, float *ptr) const {
+  return export_heuristic_feature_after(move, {this->state}, ptr);
 }
 
-osl::ParallelGameManager::ParallelGameManager(int N, bool force) : games(N), force_declare(force) {
+osl::GameResult osl::GameManager::export_heuristic_feature_after(Move move, EffectState state, float *ptr) {
+  if (! state.isAcceptable(move))
+    throw std::domain_error("move");
+  state.makeMove(move);
+  export_heuristic_feature(state, move, ptr);
+  auto ret = InGame;
+  if (state.inCheckmate() || state.inNoLegalMoves())
+    ret = loss_result(state.turn());
+  else {
+    auto move = state.tryCheckmate1ply();
+    if (move.isNormal() || win_if_declare(state))
+      ret = win_result(state.turn());
+  }
+  return ret;
+}
+
+osl::ParallelGameManager::ParallelGameManager(int N, bool force, bool idraw)
+  : games(N), force_declare(force), ignore_draw(idraw) {
 }
 
 osl::ParallelGameManager::~ParallelGameManager() {
 }
 
-std::vector<osl::GameResult> osl::ParallelGameManager::add_move_parallel(const std::vector<osl::Move>& moves) {
+std::vector<osl::GameResult> osl::ParallelGameManager::make_move_parallel(const std::vector<osl::Move>& moves) {
   if (moves.size() != n_parallel())
     throw std::invalid_argument("size");
+  // std::cerr << to_csa(moves[0]) << '\n';
   const int N = n_parallel();
   std::vector<GameResult> ret(N);
   auto add = [&](int l, int r) {
     for (int i=l; i<r; ++i) {
-      ret[i] = games[i].add_move(moves[i]);
+      ret[i] = games[i].make_move(moves[i]);
       if (force_declare && ret[i] == InGame) {
         games[i].record.guess_result(games[i].state);
         ret[i] = games[i].record.result;
@@ -77,15 +102,212 @@ std::vector<osl::GameResult> osl::ParallelGameManager::add_move_parallel(const s
   run_range_parallel(N, add);
   for (int i=0; i<n_parallel(); ++i) {
     if (ret[i] != InGame) {
-      completed_games.push_back(std::move(games[i].record));
-      games[i] = GameManager();
+      if (! ignore_draw || ret[i] != Draw)
+        completed_games.push_back(std::move(games[i].record));
+      reset(i);
     }
   }
   return ret;
 }
 
-void osl::ParallelGameManager::export_heuristic_feature_parallel(float *ptr) const {
-  const auto N = n_parallel();
+template <bool with_noise>
+std::vector<std::pair<double,osl::Move>>
+osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t& logits, int top_n, int tid) {
+  if (rngs.size() < range_parallel_threads)
+    throw std::logic_error("parallel threads");
+  std::extreme_value_distribution<> gumbel {0, 1};
+  
+  std::vector<std::pair<double,Move>> pmv; // probability-move vector
+  pmv.reserve(moves.size()); 
+  for (auto move: moves) {
+    auto p = logits[ml::policy_move_label(move)];
+    if constexpr (with_noise)
+      p += gumbel(rngs[tid]);
+    pmv.emplace_back(p, move);
+  }
+  std::partial_sort(pmv.begin(), pmv.begin()+std::min((int)pmv.size(), top_n), pmv.end(),
+                    [](auto l, auto r){ return l.first > r.first; } );
+  return pmv;
+}
+
+void osl::PlayerArray::new_series(const std::vector<GameManager>& games) {
+  _games = &games;
+  _decision.resize(games.size());
+  check_size(games.size());
+}
+
+void osl::PlayerArray::check_ready() const {
+  if (_games == nullptr)
+    throw std::logic_error("not initialized");
+}
+
+void osl::PlayerArray::check_size(int n, int scale, std::string where) const {
+  check_ready();
+  if (n != n_parallel()*scale)
+    throw std::invalid_argument("size mismatch "+where+" "+std::to_string(n)
+                                + " != " + std::to_string(n_parallel())
+                                + " * " + std::to_string(scale));
+}
+
+osl::PolicyPlayer::PolicyPlayer(bool greedy) : PlayerArray(greedy) {
+}
+
+osl::PolicyPlayer::~PolicyPlayer() {
+}
+
+std::string osl::PolicyPlayer::name() const {
+  using namespace std::string_literals;
+  return "policy-"s + (greedy ? "greedy" : "stochastic");
+}
+
+int osl::PolicyPlayer::make_request(float *ptr) {
+  check_ready();
+  // request for root
+  GameArray::export_root_features(*_games, ptr);
+  return 1;
+}
+
+bool osl::PolicyPlayer::recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>&) {
+  // always make a decision in a single inference
+  check_size(logits.size());
+  auto run = [&](int l, int r, int tid) {
+    for (int g=l; g<r; ++g) {
+      auto ret = greedy
+        ? sort_moves((*_games)[g].legal_moves, logits[g], 1)
+        : sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], 1, tid);
+      _decision[g] = ret[0].second;
+    }
+  };
+  run_range_parallel_tid(n_parallel(), run);
+  return true;
+}
+
+osl::FlatGumbelPlayer::FlatGumbelPlayer(int width) : PlayerArray(false), root_width(width) {
+}
+
+osl::FlatGumbelPlayer::~FlatGumbelPlayer() {
+}
+
+std::string osl::FlatGumbelPlayer::name() const {
+  return "gumbel-flat-" + std::to_string(root_width);
+}
+
+int osl::FlatGumbelPlayer::make_request(float *ptr) {
+  check_ready();
+  // phase 1: sort moves by policy
+  if (root_children.empty()) {
+    // request for root
+    GameArray::export_root_features(*_games, ptr);
+    return 1;
+  }
+  // phase 2: examine top-n moves
+  auto run = [&](int l, int r) {
+    for (int g=l; g<r; ++g) {
+      int plane_unit = ml::channel_id.size()*81;
+      for (int i=0; i<root_width; ++i) {
+        int idx = g*root_width + i;
+        auto terminated_by_move
+          = (*_games)[g].export_heuristic_feature_after(root_children[idx].second, ptr + idx*plane_unit);
+        root_children_terminal[idx] = terminated_by_move;
+      }
+    }
+  };
+  run_range_parallel(n_parallel(), run);
+  return root_width;
+}
+
+bool osl::FlatGumbelPlayer::recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>& values) {
+  // phase 1
+  if (root_children.empty()) {
+    check_size(logits.size(), 1, "FlatGumbelPlayer recv phase1");
+    root_children.resize(root_width * n_parallel());
+    root_children_terminal.resize(root_width * n_parallel());
+
+    auto run = [&](int l, int r, int tid) {
+      for (int g=l; g<r; ++g) {
+        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width);
+        while (ret.size() < root_width)
+          ret.push_back(ret[0]);
+        int offset = g*root_width;
+        for (int i=0; i<root_width; ++i)
+          root_children[offset + i] = ret[i];
+      }
+    };
+    run_range_parallel_tid(n_parallel(), run);
+    return false;
+  }
+  // phase 2
+  check_size(values.size(), root_width, "FlatGumbelPlayer recv phase2");
+
+  auto turn = root_children[0].second.player();
+  auto run = [&](int l, int r) {
+    for (int g=l; g<r; ++g) {
+      int offset = g*root_width;
+      for (int i=0; i<root_width; ++i) {
+        auto value = /* negamax */ -values[offset + i][0];
+        auto terminal = root_children_terminal[offset + i];
+        if (terminal != InGame) {
+          if (! has_winner(terminal))
+            value = 0;
+          else
+            value = (terminal == win_result(turn)) ? 1.0 : -1.0;
+        }
+        root_children[offset + i].first += transformQ(value);
+      }
+      auto best = std::max_element(&root_children[offset], &root_children[offset+root_width]);
+      _decision[g] = best->second;      
+    }
+  };
+  run_range_parallel(n_parallel(), run);
+  root_children.clear();
+  root_children_terminal.clear(); // 
+  return true;
+}
+
+osl::SingleCPUPlayer::~SingleCPUPlayer() {
+}
+
+osl::CPUPlayer::CPUPlayer(std::shared_ptr<SingleCPUPlayer> pl, bool greedy) : PlayerArray(greedy), player(pl) {
+}
+
+osl::CPUPlayer::~CPUPlayer() {
+}
+
+int osl::CPUPlayer::make_request(float *) {
+  check_ready();
+  for (int g=0; g<n_parallel(); ++g) {
+    std::string usi = to_usi((*_games)[g].record);
+    _decision[g] = player->think(usi); // future
+  }
+  return 0;
+}
+
+bool osl::CPUPlayer::recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>& values) {
+  return true;
+}
+
+osl::RandomPlayer::RandomPlayer() : SingleCPUPlayer() {
+}
+
+osl::RandomPlayer::~RandomPlayer() {
+}
+
+osl::Move osl::RandomPlayer::think(std::string line) {
+  EffectState state;
+  usi::parse(line, state);
+  MoveVector moves;
+  state.generateLegal(moves);
+  int id = rngs[0]() % moves.size();
+  return moves.at(id);
+}
+
+std::string osl::RandomPlayer::name() {
+  return "random-player";
+}
+
+
+void osl::GameArray::export_root_features(const std::vector<GameManager>& games, float *ptr) {
+  const auto N = games.size();
   const auto offset = ml::channel_id.size()*81;
   auto run = [&](int l, int r) {
     for (int i=l; i<r; ++i) {
@@ -95,35 +317,77 @@ void osl::ParallelGameManager::export_heuristic_feature_parallel(float *ptr) con
   run_range_parallel(N, run);
 }
 
-void osl::ParallelGameManager::
-export_heuristic_feature_for_children_parallel(const std::vector<Move>& moves, int n_branch, float *ptr) const {
-  const auto N = n_parallel();
-  if (moves.size() != n_branch*N)
-    throw std::invalid_argument("inconsistent n_branch");
-  const auto offset = ml::channel_id.size()*81;
-  auto run = [&](int l, int r) {
-    for (int i=l; i<r; ++i)
-      for (int j=0; j<n_branch; ++j) {
-        int idx = i*n_branch+j;
-        games[i].export_heuristic_feature_after(moves[idx], ptr + idx*offset);
-      }
-  };
-  run_range_parallel(N, run);
+osl::GameArray::GameArray(int N, PlayerArray& a, PlayerArray& b, InferenceModel& m,
+                          bool ignore_draw)
+  : mgrs(N, true, ignore_draw), players{&a, &b}, model(m),
+    input_buf(N), policy_buf(N), value_buf(N), skip_one_turn(N),
+    max_width(std::max(players[0]->max_width(), players[1]->max_width())) {
+  players[0]->new_series(mgrs.games);
+  if (players[0] != players[1])
+    players[1]->new_series(mgrs.games);
 }
 
-std::vector<std::pair<double,osl::Move>>
-osl::add_gumbel_noise(const MoveVector& moves, const std::array<float,2187>& logits, int top_n) {
-  static std::default_random_engine rng; // todo thread local
-  std::extreme_value_distribution<> gumbel {0, 1};
-  
-  std::vector<std::pair<double,Move>> pmv; // probability-move vector
-  pmv.reserve(moves.size());
-  for (auto move: moves) {
-    auto p = logits[osl::ml::policy_move_label(move)];
-    p += gumbel(rng);
-    pmv.emplace_back(p, move);
-  }
-  std::partial_sort(pmv.begin(), pmv.begin()+std::min((int)pmv.size(), top_n), pmv.end(),
-                    [](auto l, auto r){ return l.first > r.first; } );
-  return pmv;
+osl::GameArray::~GameArray() {
 }
+
+void osl::GameArray::warmup(int n) {
+  input_buf.reserve(mgrs.n_parallel() * max_width);
+  policy_buf.reserve(mgrs.n_parallel() * max_width);
+  value_buf.reserve(mgrs.n_parallel() * max_width);
+  for (int i=0; i<n; ++i)
+    model.test_run(input_buf, policy_buf, value_buf);
+}
+
+void osl::GameArray::resize_buffer(int width) {
+  int sz = width * mgrs.n_parallel();
+  input_buf.resize(sz);
+  policy_buf.resize(sz);
+  value_buf.resize(sz);
+}
+
+void osl::GameArray::step() {
+  // (1) thinking
+  int safety_limit = 16, cnt=0;
+  bool ready = false;
+  do {
+    // std::cerr << mgrs.games[0].state;
+    
+    resize_buffer(players[side]->max_width());
+    int req_size = players[side]->make_request(&input_buf[0][0]);
+    resize_buffer(req_size);
+
+    if (req_size > 0)
+      model.batch_infer(input_buf, policy_buf, value_buf);
+
+    ready = players[side]->recv_result(policy_buf, value_buf);
+    if (++cnt > safety_limit)
+      throw std::runtime_error("step too long");
+  } while (! ready);
+
+  // (2) make move
+  auto ret = mgrs.make_move_parallel(players[side]->decision());
+  //std::cerr << to_csa(players[side]->decision()[0]) << '\n';
+
+  // (2') misc to force player_a as the first player after completing odd-length game
+  for (int g=0; g<mgrs.n_parallel(); ++g) {
+    if (skip_one_turn[g]) {
+      mgrs.reset(g);
+      skip_one_turn[g] = 0;
+    }
+    else if (ret[g] != InGame && side == 0)
+      skip_one_turn[g] = 1;     // will reset at next step
+  }
+
+  // (3) switch side to move
+  side ^= 1;
+}
+
+osl::InferenceModel::~InferenceModel() {
+}
+
+void osl::InferenceModel::test_run(std::vector<nn_input_t>& in,
+                                   std::vector<policy_logits_t>& out,
+                                   std::vector<std::array<float,1>>& vout) {
+  batch_infer(in, out, vout);
+}
+

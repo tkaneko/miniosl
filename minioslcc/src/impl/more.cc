@@ -779,6 +779,9 @@ namespace osl
       template<Player P,Ptype Type>
       void generateDrop(const EffectState& state,Square to,MoveStore& action) {
 	if (! state.hasPieceOnStand<Type>(P)) return;
+        if constexpr (Type==PAWN)
+          if (is_pawn_drop_checkmate(state, Move(to,Type,P)))
+            return;
         if ((Type!=PAWN || !state.pawnInFile(P,to.x()))
             && legal_drop_at(P, Type, to))
           action(to, Move(to,Type,P));

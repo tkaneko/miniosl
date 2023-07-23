@@ -63,7 +63,8 @@ osl::HashStatus osl::HashStatus::new_zero_history(Move moved, bool new_in_check)
   HashStatus ret = *this;
   ret.board_hash = board;
   ret.black_stand = PieceStand(stand);
-  // supp
+  ret.history = HistoryStatus();
+  // supp --- incremental update
   auto color = moved.player();
   if (moved.ptype() == KING) {
     auto dst = moved.to();

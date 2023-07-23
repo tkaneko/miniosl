@@ -38,7 +38,7 @@ namespace osl
     // public継承させるので，virtual destructorを定義する．
     virtual ~BaseState();
 
-    const Piece pieceOf(int num) const { return pieces[num]; }
+    Piece pieceOf(int num) const { return pieces[num]; }
     inline auto all_pieces() const {
       return std::views::iota(0, Piece::SIZE)
         | std::views::transform([this](int n) { return this->pieceOf(n); });
@@ -48,8 +48,8 @@ namespace osl
         | std::views::transform([this](int n) { return this->pieceOf(n); });
     }
     /**
-     * @param sq は isOnboardを満たす Square の12近傍(8近傍+桂馬の利き)
-     * ! isOnBoard(sq) の場合は Piece_EDGE を返す
+     * @param sq は isOnboardを満たす Square の12 近傍(8近傍+桂馬の利き)
+     * ! sq.isOnBoard() の場合は `Piece_EDGE` を返す
      */
     Piece pieceAt(Square sq) const { return board[sq]; }
     Piece operator[](Square sq) const { return pieceAt(sq); }
@@ -60,19 +60,23 @@ namespace osl
     bool isOnBoard(int id) const { return pieceOf(id).isOnBoard(); }
 
     template<Player P>
-    const Piece kingPiece() const { return pieceOf(king_piece_id(P)); }
-    const Piece kingPiece(Player P) const { return pieceOf(king_piece_id(P)); }
+    Piece kingPiece() const { return pieceOf(king_piece_id(P)); }
+    /** return piece of P's King */
+    Piece kingPiece(Player P) const { return pieceOf(king_piece_id(P)); }
     template<Player P>
     Square kingSquare() const { return kingPiece<P>().square(); }
     Square kingSquare(Player P) const { return kingPiece(P).square(); }
 
+    /** return a set of piece IDs on stand */
     const PieceMask& standMask(Player p) const { return stand_mask[p]; }
     const PieceMask& usedMask() const {return used_mask;}
 
+    /** return whether player's pawn is on file x */
     bool pawnInFile(Player player, int x) const { return bittest(pawnMask[player], x); }
     template<Player P>
     bool pawnInFile(int x) const { return pawnInFile(P,x); }
 
+    /** side to move */
     Player turn() const { return side_to_move; }
     /**
      * 手番を変更する
@@ -80,10 +84,10 @@ namespace osl
     void changeTurn() { side_to_move = alt(side_to_move); }
     void setTurn(Player player) { side_to_move=player; }
 
-    /** (internal) */
+    /** @internal */
     const Piece* getPiecePtr(Square sq) const { return &board[sq]; }
     /** lightweight validation of ordinary moves, primary intended for game record parsing.
-     * @see EffectState::isLegalLight for piece reachability. */
+     * @see EffectState::isAcceptable for piece reachability. */
     bool move_is_consistent(Move move) const;
     /**
      * 持駒の枚数を数える
@@ -97,6 +101,7 @@ namespace osl
     bool hasPieceOnStand(Player P) const { return countPiecesOnStand(P, T); }
 
     /**
+     * @internal
      * @param from - マスの位置
      * @param to - マスの位置
      * @param offset - fromからtoへのshort offset
@@ -117,9 +122,10 @@ namespace osl
       
     }
     // edit board
-    /** set predefined initial state */
+    /** @internal set predefined initial state */
     void init(Handicap h);
-    /** make empty board for incremental initialization, typically consists of
+    /** @internal
+     * make empty board for incremental initialization, typically consists of
      *  - setPiece() x40, and then
      *  - initFinalize()
      */
@@ -129,9 +135,16 @@ namespace osl
     void setPiece(Player player,Square sq,Ptype ptype);
     void setPieceAll(Player player);
 
+    /** make a new rotated state */
     BaseState rotate180() const;
 
     bool check_internal_consistency() const;
+
+    /** @internal
+     * make a move assuming `this` is not an object of a derived class but a pure BaseState object. 
+     * @warning result in undefined behavior if called in derived class or move is not acceptable.
+     */
+    void make_move_unsafe(Move);
   protected:
     void setBoard(Square sq,Piece piece) { board[sq]=piece; }
     void clearPawn(Player pl,Square sq) { clear_x(pawnMask[pl], sq); }

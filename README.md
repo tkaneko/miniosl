@@ -10,7 +10,7 @@ WIP.
 
 | `shogi.go(50)`            | `value, moves = shogi.eval()` |
 |:-------------------------:|:-----------------------------:|
-| ![](doc/board-sample.png) | ![](doc/eval-sample.png)      |
+| ![](https://github.com/tkaneko/miniosl/raw/main/doc/board-sample.png) | ![](https://github.com/tkaneko/miniosl/raw/main/doc/eval-sample.png)      |
 
 ## pip wheel
 
@@ -27,3 +27,14 @@ typical commands
 - `cd miniosl`
 - `pip3 install -e .`
   - example for envvar: `CMAKE_BUILD_PARALLEL_LEVEL=4` `CXX=g++-12`
+
+### samples
+
+- supervised training [train.py](https://github.com/tkaneko/miniosl/blob/main/sample/train.py)
+- curses terminal [curses_viewer.py](https://github.com/tkaneko/miniosl/blob/main/miniosl/curses_viewer.py.py)
+
+## api doc
+
+[api 0.0.9](https://game.c.u-tokyo.ac.jp/miniosl-api/0-0-9/)
+
+tentative, the location will be subject to change in future.

@@ -1,3 +1,4 @@
+"""neural networks in pytorch"""
 from __future__ import annotations
 import torch
 from torch import nn
@@ -98,6 +99,14 @@ class BasicNetwork(nn.Module):
 
 
 class StandardNetwork(nn.Module):
+    """Standard residual networks with bottleneck architecture in torch
+
+    :param in_channels: number of channels in input features,
+    :param channels: number of channels in main body,
+    :param out_channels: number of channels in policy_head,
+    :param auxout_channels: number of channels in miscellaneous output,
+    :param value_head_hidden: hidden units in the last layer in the value head
+    """
     def __init__(self, *, in_channels: int, channels: int, out_channels: int,
                  auxout_channels: int, num_blocks: int, make_bottleneck: bool,
                  value_head_hidden: int = 256):
@@ -105,11 +114,16 @@ class StandardNetwork(nn.Module):
         self.body = BasicBody(in_channels=in_channels, channels=channels,
                               num_blocks=num_blocks)
         self.head = PolicyHead(channels=channels, out_channels=out_channels)
-        self.value_head = ValueHead(channels=channels, hidden_layer_size=value_head_hidden)
+        self.value_head = ValueHead(channels=channels,
+                                    hidden_layer_size=value_head_hidden)
         self.aux_head = PolicyHead(channels=channels,
                                    out_channels=auxout_channels)
 
-    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor,
+                                                torch.Tensor]:
+        """take a batch of input features
+        and return a batch of [policies, values, misc].
+        """
         x = self.body(x)
         return self.head(x), self.value_head(x), self.aux_head(x)
 

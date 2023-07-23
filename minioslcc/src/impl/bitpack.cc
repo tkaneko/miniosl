@@ -109,7 +109,9 @@ uint32_t osl::bitpack::encode12(const BaseState& state, Move move) {
   if (move == Move::Resign())      
     return move12_resign; // 0 --- inconsistent as a normal move to (1,1) by moving UL .. outside from the board
   if (move == Move::DeclareWin())
-    return move12_win_declare;  // 127 --- is consistent as a normal move due to outside booard
+    return move12_win_declare;  // 127 --- different from normal moves due to promotion scheme
+  if (move.isPass())
+    return move12_pass;  // 126 --- different from normal moves due to promotion scheme
   
   auto to = move.to().blackView(state.turn());
   auto code_to = (to.x()-1)+(to.y()-1)*9; // 7bit
@@ -143,6 +145,8 @@ osl::Move osl::bitpack::decode_move12(const BaseState& state, uint32_t code) {
     return Move::Resign();
   if (code == move12_win_declare)
     return Move::DeclareWin();
+  if (code == move12_pass)
+    return Move::PASS(state.turn());
 
   auto code_to = code%128, code_dir_or_ptype = code/128;
   auto x = (code_to%9)+1, y = code_to/9 + 1;
@@ -150,6 +154,8 @@ osl::Move osl::bitpack::decode_move12(const BaseState& state, uint32_t code) {
   if (y > 9) {
     promote = true;
     y -= 9;
+    if (y > 4)
+      throw std::domain_error("decode inconsistent promotion y " + std::to_string(code));
   } 
   Square to(x,y);
   if (state.turn() == WHITE)
@@ -157,12 +163,13 @@ osl::Move osl::bitpack::decode_move12(const BaseState& state, uint32_t code) {
     
   if (code_dir_or_ptype >= move12_dir_size) { // drop
     auto ptype = basic_ptype[code_dir_or_ptype-move12_dir_size+1]; // 0 is for KING
-    assert(state.pieceAt(to).isEmpty());
+    if (! state.pieceAt(to).isEmpty())
+      throw std::domain_error("decode inconsistent dropto " + std::to_string(code));
     return Move(to, ptype, state.turn());
   }
   // move on board
   if (! state.pieceAt(to).canMoveOn(state.turn()))
-    throw std::domain_error("decode inconsistent to" + std::to_string(code));
+    throw std::domain_error("decode inconsistent to " + std::to_string(code));
   Direction dir = Direction(code_dir_or_ptype);
   if (! is_basic(dir)) {
     dir = Direction(code_dir_or_ptype-move12_unpromote_offset);
@@ -172,8 +179,12 @@ osl::Move osl::bitpack::decode_move12(const BaseState& state, uint32_t code) {
   Square from = to - step;
   while (state.pieceAt(from).isEmpty())
     from -= step;
-  if (! state.pieceAt(from).isOnBoardByOwner(state.turn()))
-    throw std::domain_error("decode inconsistent from" + std::to_string(code));
+  if (! state.pieceAt(from).isOnBoardByOwner(state.turn())) {
+    if (code == 493 || code == 611)          // backward compatibility for a while :-(
+      return Move::PASS(state.turn());
+    throw std::domain_error("decode inconsistent from " + std::to_string(code)
+                            +" "+to_usi(state));
+  }
   auto ptype = state.pieceAt(from).ptype();
   if (promote)
     ptype = osl::promote(ptype);
@@ -446,7 +457,7 @@ int osl::bitpack::read_binary_record(const uint64_t *&in, MiniRecord& record) {
     uint16_t code = retrieve();
     auto move = decode_move12(state, code);
     state.makeMove(move);
-    record.add_move(move, state.inCheck());
+    record.append_move(move, state.inCheck());
   }
   if (record.has_winner())
     record.final_move = decode_move12(state, retrieve());

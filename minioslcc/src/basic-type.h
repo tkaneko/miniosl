@@ -27,16 +27,37 @@ namespace osl {
   inline bool bittest(IntLike value, SmallIntLike n) { return any(value & one_hot(n)); }
   
   enum class Player {
-    BLACK=0, WHITE= -1
+    /** the first player */ BLACK=0, /** the second player */ WHITE= -1
   };
   using enum Player;
   constexpr Player players[2] = { BLACK, WHITE };
   constexpr int Int(Player pl) { return static_cast<int>(pl); }
-  
+
+  /** return the opponent player of `player`
+   *
+   * @code
+   * assert(alt(osl::BLACK) == osl::WHITE);
+   * assert(alt(osl::WHITE) == osl::BLACK);
+   * @endcode
+   */
   constexpr Player alt(Player player) {
     return Player{-1-Int(player)};
   }
+  /** return index of `player`
+   *
+   * @code
+   * assert(alt(osl::BLACK) == 0);
+   * assert(alt(osl::WHITE) == 1);
+   * @endcode
+   */
   constexpr int idx(Player player) { return -Int(player); }
+  /** return sign of `player` for minimax search
+   *
+   * @code
+   * assert(alt(osl::BLACK) ==  1);
+   * assert(alt(osl::WHITE) == -1);
+   * @endcode
+   */
   constexpr int sign(Player player) { return 1+(Int(player)<<1); } // +1 or -1
   constexpr int mask(Player player) { return Int(player); }
   constexpr bool is_valid(Player player) { return player == BLACK || player == WHITE; }
@@ -94,6 +115,11 @@ namespace osl {
   constexpr bool is_piece(Ptype ptype) { return Int(ptype) >= Ptype_Piece_MIN; }
   /**
    * ptypeが基本型 (promoteしていない)
+   * 
+   * @code
+   * assert(is_basic(osl::ROOK));
+   * assert(! is_basic(osl::PROOK));
+   * @endcode
    */
   constexpr bool is_basic(Ptype ptype) { return Int(ptype) > Int(PROOK); }
   constexpr bool is_promoted(Ptype ptype) { return Int(ptype) < Int(KING);  }
@@ -105,6 +131,11 @@ namespace osl {
   
   /** 
    * promote前の型.  promoteしていない型の時はそのまま
+   *
+   * @code
+   * assert(unpromote(osl::PROOK) == osl::ROOK);
+   * assert(unpromote(osl::ROOK)  == osl::ROOK);
+   * @endcode   
    */
   constexpr Ptype unpromote(Ptype ptype) {
     return (! is_piece(ptype)) ? ptype : Ptype{Int(ptype)|8}; 
@@ -212,7 +243,23 @@ namespace osl {
   }
   constexpr auto knight_directions = {UUL, UUR};
   
+  /** test `d` presents a direct move direction (not unblockable)
+   *
+   * @code
+   * assert(is_base8(osl::U));
+   * assert(is_base8(osl::UUL));
+   * assert(! is_base8(osl::LONG_U));
+   * @endcode
+   */
   constexpr bool is_basic(Direction d) { return Int(d) <= Base_Direction_MAX; }
+  /** test `d` is eight neighbors 
+   *
+   * @code
+   * assert(is_base8(osl::U));
+   * assert(! is_base8(osl::UUL));
+   * assert(! is_base8(osl::LONG_U));
+   * @endcode
+   */
   constexpr bool is_base8(Direction d) { return Int(d) <= Base8_Direction_MAX; }
   constexpr bool is_long(Direction d) { return Int(d) >= Long_Direction_MIN; }
   constexpr Direction inverse(Direction d) {
@@ -423,6 +470,10 @@ namespace osl
     return std::views::iota(1, 10) | std::views::reverse;
   }
   constexpr bool promote_area_y(Player P, int y) { return P == BLACK ? y <= 3 : y >= 7; }
+  /**
+   * location in a board with valid ranges in between [1,1] and [9,9],
+   * and with some invalid ranges outside the board for sentinels and piece stand.
+   */
   class Square
   {
     unsigned int square;
@@ -430,19 +481,37 @@ namespace osl
     {
     }
   public:
-    static const Square makeDirect(int value) { return Square(value); }
+    static Square makeDirect(int value) { return Square(value); }
     unsigned int uintValue() const { return square; }
     enum {
       Piece_STAND=0,
       MIN=0,
       SIZE=0x100
     };
+    /** make a square for piece stand (color is not included)
+     * @code
+     * osl::Square sq;
+     * assert(! sq.isOnBoard());
+     * assert(! sq.isPieceStand());
+     * @endcode
+     */
     Square() : square(Piece_STAND) {
     }
-    static const Square STAND() { return Square(Piece_STAND); }
+    static Square STAND() { return Square(Piece_STAND); }
+    /** make a square
+     * @param x [1, 9]
+     * @param y [1, 9]
+     *
+     * @code
+     * osl::Square sq(2, 6);
+     * assert(sq.x() == 2);
+     * assert(sq.y() == 6);
+     * assert(sq.isOnBoard());
+     * @endcode
+     */
     Square(int x, int y) : square((x*BOARD_HEIGHT)+y+1) {
     }
-    static const Square nth(unsigned int i) { return Square(i+MIN); }
+    static Square nth(unsigned int i) { return Square(i+MIN); }
     /**
      * 将棋としてのX座標を返す. 
      */
@@ -452,6 +521,7 @@ namespace osl
      */
     int y() const { return (square&0xf)-1; }
     /**
+     * @internal
      * y+1を返す
      */
     int y1() const { return square&0xf; }
@@ -459,6 +529,7 @@ namespace osl
     static unsigned int indexMax() { return SIZE - MIN; }
     int indexForOffset32() const { return square + (square&0xf0); }
 
+    /** test this is for piece stand */
     bool isPieceStand() const { return square == Piece_STAND; }
     /**
      * 盤面上を表すかどうかの判定．
@@ -470,6 +541,7 @@ namespace osl
 	      ((unsigned int)((square&0x77)^0x12)+0xffffff77))==0;
     }
     /**
+     * @internal
      * onBoardから8近傍のオフセットを足した点がedgeかどうかの判定
      * そこそこ速くなった．
      */
@@ -488,6 +560,7 @@ namespace osl
 	? *this
 	: makeDirect(Square(9,9).uintValue()+Square(1,1).uintValue()-uintValue());
     }
+    /** make a new Square after rotation */
     Square rotate180() const {
       if (isPieceStand())
 	return *this;
@@ -495,17 +568,21 @@ namespace osl
       return ret;
     }
 
-    bool isPromoteArea(Player player) const { // promoteArea
+    /** test this is promote area for `player` */
+    bool isPromoteArea(Player player) const {
       if (player==BLACK) 
 	return (uintValue()&0xf)<=4;
       else 
 	return (uintValue()&0x8)!=0;
     }
     constexpr static int index81(int x, int y) { return (y-1)*9+x-1; }
+    /** return index in [0,80] */
     int index81() const { return index81(x(), y()); }
+    /** make a square of index `n` in [0,80] */
     static Square from_index81(int n) { return Square(n % 9 + 1, n / 9 + 1); }
   public:
     /**
+     * @internal
      * 2つのSquare(onBoardであることが前提)が，
      * xが等しいかyが等しい
      */
@@ -515,6 +592,7 @@ namespace osl
       return (((v+0xefull)^v)&0x110ull)!=0x110ull;
     }
     /**
+     * @internal
      * 2つのSquare(onBoardであることが前提)のxが等しい
      */
     bool isUD(Square sq) const {
@@ -523,6 +601,7 @@ namespace osl
       return (v&0xf0)==0;
     }
     /**
+     * @internal
      * sqがPlayer Pにとって上
      */
     bool isU(Player P, Square sq) const {
@@ -534,6 +613,7 @@ namespace osl
 	return ((v|(sq.uintValue()-uintValue()))&0xf0)==0;
     }
     /**
+     * @internal
      * 2つのSquare(onBoardであることが前提)のyが等しい
      */
     bool isLR(Square sq) const {
@@ -549,15 +629,15 @@ namespace osl
       square -= Int(offset);
       return *this;
     }
-    const Square operator+(Offset offset) const {
+    Square operator+(Offset offset) const {
       Square result(*this);
       return result+=offset;
     }
-    const Square operator-(Offset offset) const {
+    Square operator-(Offset offset) const {
       Square result(*this);
       return result-=offset;
     }
-    const Offset operator-(Square other) const {
+    Offset operator-(Square other) const {
       return Offset(square - other.square);
     }
     template<int Y>
@@ -590,7 +670,9 @@ namespace osl
   constexpr int Piece_ID_EMPTY=0x80;
   constexpr int Piece_ID_EDGE=0x40;
   /**
-   * 駒.
+   * state dependent piece.
+   *
+   * @internal
    * 駒はptypeo(-15 - 15), 番号(0-39), Square (0-0xff)からなる 
    * 上位16 bitでptypeo, 8bitで番号, 8bitで Square とする．
    * 空きマスは 黒，Ptype_EMPTY, 番号 0x80, Square 0
@@ -621,16 +703,20 @@ namespace osl
     Piece() : packed(EMPTY().packed)
     {
     }
+    /** type of a piece */
     Ptype ptype() const {
       return Ptype{(packed>>BitOffsetPtype)&0xf};
     }
+    /** type and owner of a piece */
     PtypeO ptypeO() const {
       return PtypeO(packed>>BitOffsetPtype);
     }
 
+    /** state dependent internal id of a piece */
     int id() const { return ((packed&0xff00)>>8); }
 
-    const Square square() const {
+    /** location of a piece */ 
+    Square square() const {
       return Square::makeDirect(packed&0xff);
     }
     void setSquare(Square square) {
@@ -638,14 +724,15 @@ namespace osl
     }
   public:
     /**
+     * @internal
      * piece がプレイヤーPの持ち物でかつボード上にある駒の場合は true.
      * 敵の駒だったり，駒台の駒だったり，Piece::EMPTY(), Piece_EDGEの場合は false
-     * @param P(template) - プレイヤー
-     * @param piece - 
+     * @tparam P(template) プレイヤー
      */
     template<Player P>
     bool isOnBoardByOwner() const { return isOnBoardByOwner(P); }
     /**
+     * @internal
      * isOnBoardByOwner の通常関数のバージョン.
      */
     bool isOnBoardByOwner(Player owner) const
@@ -656,18 +743,19 @@ namespace osl
 	return static_cast<int>((-packed)&0x800000ff)>0;
     }
 
-    /* 成る.  PROMOTE不可なpieceに適用不可 */
-    const Piece promote() const {
+    /** 成る.  PROMOTE不可なpieceに適用不可 */
+    Piece promote() const {
       assert(can_promote(ptype()));
       return Piece(packed-0x80000);
     }
 
-    /* 成りを戻す.  PROMOTE不可なpieceに適用可  */
-    const Piece unpromote() const {
+    /** 成りを戻す.  PROMOTE不可なpieceに適用可  */
+    Piece unpromote() const {
       return Piece((int)packed|0x80000);
     }
 
     /**
+     * @internal
      * 取られたpieceを作成. unpromoteして，Squareは0に
      * 相手の持ちものにする
      */
@@ -676,12 +764,16 @@ namespace osl
       // をoptimizeする
       return Piece((packed&0xfff7ff00)^0xfff80000);
     }
+    /** @internal */
     Piece drop(Square to) const {
       assert(! isOnBoard());
       return Piece(packed + Int(to-Square::STAND()));
     }
     /**
+     * @internal
+     * make a pice after move, designed for internal use
      * @param diff Offset(to-from) from がint で手に入るところで呼ぶので、呼び出し元で計算する設計
+     * @param promote_mask 0 or an appropriate mask
      */
     Piece move(Offset diff, int promote_mask) const {
       assert(! (isPromoted() && promote_mask));
@@ -705,22 +797,26 @@ namespace osl
     bool isPiece() const {
       return (packed&0xc000)==0;
     }
+    /** color of a piece */
     Player owner() const {
       assert(isPiece());
       return Player{packed>>20};
     }
+    /** test is on board */
     bool isOnBoard() const {
       assert(square().isValid());
       return ! square().isPieceStand();
     }
 
-    /** Player Pの駒が，thisの上に移動できるか?
+    /**
+     * @internal
+     * Player Pの駒が，thisの上に移動できるか?
      * Piece_EMPTY 0x00008000
      * BLACK_PIECE 0x000XxxYY X>=2, YY>0
      * Piece_EDGE  0xfff14000
      * WHITE_PIECE 0xfffXxxYY X>=2, YY>0
      * @return thisが相手の駒かEMPTYならtrue
-     * @param P 手番
+     * @tparam P 手番
      */
     template<Player P>
     bool canMoveOn() const {
@@ -731,6 +827,7 @@ namespace osl
     }
     bool canMoveOn(Player pl) const { return pl == BLACK ? canMoveOn<BLACK>() : packed>=0; }
     /**
+     * @internal
      * pieceである前提で，更にBlackかどうかをチェックする．
      */
     bool pieceIsBlack() const {
@@ -760,9 +857,9 @@ namespace osl
    * - to       : 8 bit 
    * - from     : 8 bit 
    * - capture ptype    : 4 bit 
-   * - dummy    : 3 bit 
+   * - reserved : 3 bit 
    * - promote? : 1 bit  
-   * - ptype    : 4 bit --- promote moveの場合はpromote後のもの
+   * - ptype    : 4 bit promote moveの場合はpromote後のもの
    * - owner    : signed 
    */
   class Move
@@ -779,7 +876,9 @@ namespace osl
     };
   public:
     int intValue() const { return move; }
-    /** 一局面辺りの合法手の最大値 
+    /**
+     * @internal
+     * 一局面辺りの合法手の最大値 
      * 重複して手を生成することがある場合は，600では不足かもしれない
      */
     static const unsigned int MaxUniqMoves=600;
@@ -804,37 +903,35 @@ namespace osl
       return move & 0x00ff; 
     }
     bool isPass() const { return (move & 0xffff) == 0; }
-    static const Move makeDirect(int value) { return Move(value); }
-    static const Move PASS(Player P) { return Move(Int(P)<<28); }
-    static const Move Resign() { return Move(Resign_VALUE); }
-    static const Move DeclareWin() { return Move(Declare_WIN); }
+    static Move makeDirect(int value) { return Move(value); }
+    static Move PASS(Player P) { return Move(Int(P)<<28); }
+    static Move Resign() { return Move(Resign_VALUE); }
+    static Move DeclareWin() { return Move(Declare_WIN); }
     /**
-     * 移動
+     * make a move on board 
      */
     Move(Square from, Square to, Ptype ptype,
-	 Ptype capture_ptype, bool is_promote, Player player)
-    {
+	 Ptype capture_ptype, bool is_promote, Player player) {
       init(from, to, ptype, capture_ptype, is_promote, player);
     }
     /**
-     * drop
+     * make a drop from piece stand
      */
-    Move(Square to, Ptype ptype, Player player)
-    {
+    Move(Square to, Ptype ptype, Player player) {
       init(Square::STAND(), to, ptype, Ptype_EMPTY, false, player);
     }
-    const Square from() const 
-    {
-      assert(! isInvalid());
+    Square from() const  {
+      assert(! isSpecial());
       const Square result = Square::makeDirect((move>>8) & 0xff);
       return result;
     }
-    const Square to() const {
-      assert(! isInvalid());
+    Square to() const {
+      assert(! isSpecial());
       const Square result = Square::makeDirect(move & 0xff);
       return result;
     }
     /**
+     * @internal
      * pieceに使うためのmaskなので
      */
     int promoteMask() const {
@@ -846,25 +943,25 @@ namespace osl
     bool isDrop() const { assert(isNormal()); return from().isPieceStand(); }
       
     Ptype ptype() const {
-      assert(! isInvalid());
+      assert(! isSpecial());
       const Ptype result = Ptype{(move >> 24) & 0xf};
       return result;
     }
     /** 移動後のPtype, i.e., 成る手だった場合成った後 */
     PtypeO ptypeO() const {
-      assert(! isInvalid());
+      assert(! isSpecial());
       const PtypeO result = PtypeO(move >> 24);
       return result;
     }
     /** 移動前のPtypeO, i.e., 成る手だった場合成る前 */
     PtypeO oldPtypeO() const {
-      assert(! isInvalid());
+      assert(! isSpecial());
       const PtypeO result = PtypeO((move>>24)+((move >> (BitOffsetPromote-3))&8));
       return result;
     }
     /** 移動前のPtype, i.e., 成る手だった場合成る前 */
     Ptype oldPtype() const { 
-      assert(! isInvalid());
+      assert(! isSpecial());
       const PtypeO old_ptypeo = PtypeO((move>>24)+((move >> (BitOffsetPromote-3))&8));
       return osl::ptype(old_ptypeo); 
     }
@@ -883,21 +980,23 @@ namespace osl
     }
 
     Player player() const {
-      assert(! isInvalid());
+      assert(! isSpecial());
       return Player{move>>28};
     }
+    /** test of legality (not sufficient) */
     bool isValid() const;
-    /** state に apply 可能でない場合にtrue */
-    bool isInvalid() const { 
+    /** true if `Resigen` or `Declare_WIN`, false for `PASS` or usual moves */
+    bool isSpecial() const { 
       return static_cast<unsigned int>(move-1) < Declare_WIN; 
     }
     bool isValidOrPass() const { return isPass() || isValid(); }
     /** isNormal() and no violation with the shogi rules */
     bool is_ordinary_valid() const;
     /**
+     * @internal
      * no capture moveからcapture moveを作る
      */
-    const Move newAddCapture(Piece capture) const
+    Move newAddCapture(Piece capture) const
     {
       assert(! isCapture());
       return makeDirect(intValue()+(capture.intValue()&0xf0000));
@@ -905,14 +1004,14 @@ namespace osl
     /**
      * promote moveからunpromote moveを作る
      */
-    const Move unpromote() const {
+    Move unpromote() const {
       assert(isNormal());
       return makeDirect(intValue()^((1<<BitOffsetPromote)^(1<<27)));
     }
     /**
      * unpromote moveからpromote moveを作る
      */
-    const Move promote() const {
+    Move promote() const {
       assert(isNormal());
       return makeDirect(intValue()^((1<<BitOffsetPromote)^(1<<27)));
     }
@@ -939,9 +1038,6 @@ namespace osl
     bool ignoreUnpromote() const {
       return ignoreUnpromote(player());
     }
-    /**
-     * MoveをunpromoteするとcutUnpromoteなMoveになる
-     */
     template<Player P>
     bool hasIgnoredUnpromote() const {
       assert(player()==P);
@@ -964,19 +1060,24 @@ namespace osl
     friend inline bool operator==(Move, Move) = default;
     friend inline bool operator!=(Move, Move) = default;
   };
+  inline bool operator<(Move l, Move r) { return l.intValue() < r.intValue(); }
   std::ostream& operator<<(std::ostream& os, Move move);
 }
 
 namespace osl
 {
+  /** status at the endgame */
   enum GameResult { BlackWin, WhiteWin, Draw, InGame };
   constexpr int GameResultTypes = 4;
+  /** test win for `P` */
   constexpr GameResult win_result(Player P) { return P == BLACK ? BlackWin : WhiteWin; }
   constexpr GameResult loss_result(Player P) { return P == BLACK ? WhiteWin : BlackWin; }
+  /** test whether `BlackWin` or `WhiteWin` */
   constexpr bool has_winner(GameResult r) { return r == BlackWin || r == WhiteWin; }
-  constexpr GameResult flip(GameResult r) {
-    if (! has_winner(r)) return r;
-    return (r == BlackWin) ? WhiteWin : BlackWin;
+  /** return a new status inverting the winner  */
+  constexpr GameResult flip(GameResult original) {
+    if (! has_winner(original)) return original;
+    return (original == BlackWin) ? WhiteWin : BlackWin;
   }
 }
 #endif

@@ -88,7 +88,7 @@ std::string osl::to_csa(Move move, std::string& buf) {
   buf.resize(7);
   if (move == Move::DeclareWin())
     return buf = "%KACHI";
-  if (move.isInvalid())
+  if (move.isSpecial())
     return buf = "%TORYO";
   if (move.isPass())
     return buf = "%PASS";		// FIXME: not in CSA protocol
@@ -169,7 +169,7 @@ std::string osl::to_csa(Piece piece) {
 std::string osl::to_csa(const Move *first, const Move *last) {
   std::ostringstream out;
   for (; first != last; ++first) {
-    if (first->isInvalid())
+    if (first->isSpecial())
       break;
     out << to_csa(*first);
   }
@@ -237,15 +237,21 @@ std::vector<std::array<uint64_t,5>> osl::MiniRecord::export_all320(bool flip_if_
 }
 
 void osl::MiniRecord::guess_result(const EffectState& state) {
-  if (state.inCheckmate())
+  if (state.inCheckmate()) {
     result = loss_result(state.turn());
+    final_move = Move::Resign();
+  }
   else if (win_if_declare(state)) {
     result = win_result(state.turn());
     final_move = Move::DeclareWin();
   }
+  else if (state.inNoLegalMoves()) {
+    result = loss_result(state.turn());
+    final_move = Move::Resign();
+  }
 }        
 
-void osl::MiniRecord::add_move(Move moved, bool in_check) {
+void osl::MiniRecord::append_move(Move moved, bool in_check) {
   assert(history.size()>0);
   moves.push_back(moved);
   history.push_back(history.back().new_zero_history(moved, in_check));
@@ -270,6 +276,9 @@ void osl::MiniRecord::settle_repetition() {
     std::cerr << "game terminated at " << interrupt_number
               << " by " << moves[interrupt_number-1]
               << " before " << history.size() << "\n";
+
+  if (this->result == InGame && move_size() >= MiniRecord::draw_limit)
+    this->result = Draw;
 }
 
 osl::MiniRecord osl::csa::read_record(const std::filesystem::path& filename) {
@@ -373,7 +382,7 @@ osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord
   case '-':{
     const Move m = csa::to_move(s,state);
     state.makeMove(m);
-    record.add_move(m, state.inCheck());
+    record.append_move(m, state.inCheck());
     break;
   }
   case '%': {
@@ -520,7 +529,7 @@ std::string osl::to_psn(Move m) {
 }
 
 std::string osl::to_psn_extended(Move m) {
-  if (m.isInvalid())
+  if (m.isSpecial())
     return "resign";  
   if (m.isPass())
     return "pass";
@@ -678,8 +687,11 @@ std::string osl::to_usi(const MiniRecord& record) {
   ret += " moves";
   for (auto move: record.moves)
     ret += " " + to_usi(move);
-  if (record.has_winner())
+  if (!record.final_move.isPass()) {
+    if (! record.has_winner())
+      throw std::logic_error("record.final_move without winner");
     ret += " " + to_usi(record.final_move);
+  }
   return ret;
 }
 
@@ -823,7 +835,7 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
       break;
     }
     uptodate.makeMove(m);
-    record.add_move(m, uptodate.inCheck());
+    record.append_move(m, uptodate.inCheck());
   }
   if (record.moves.size()>0) {
     auto turn = uptodate.turn();

@@ -132,7 +132,7 @@ std::ostream& osl::operator<<(std::ostream& os,const Move move)
 {
   if (move == Move::DeclareWin())
     return os << "Move_Declare_WIN";
-  if (move.isInvalid())
+  if (move.isSpecial())
     return os << "Move_Resign";
   if (move.isPass())
     return os << "Move_Pass";

@@ -5,14 +5,15 @@
 #include <iostream>
 
 // ki2
+const std::u8string osl::kanji::suji[] = {
+  u8"", u8"１", u8"２", u8"３", u8"４", u8"５", u8"６", u8"７", u8"８", u8"９", };
+const std::u8string osl::kanji::dan[] = {
+      u8"", u8"一", u8"二", u8"三", u8"四", u8"五", u8"六", u8"七", u8"八", u8"九", };
+
 namespace osl
 {
   namespace kanji
   {
-    const std::u8string suji[] = {
-      u8"", u8"１", u8"２", u8"３", u8"４", u8"５", u8"６", u8"７", u8"８", u8"９", };
-    const std::u8string dan[] = {
-      u8"", u8"一", u8"二", u8"三", u8"四", u8"五", u8"六", u8"七", u8"八", u8"九", };
     const std::u8string K_NARU = u8"成", K_FUNARI = u8"不成", K_ONAZI = u8"同",
       K_PASS = u8"(パス)", K_UTSU = u8"打",
       K_YORU = u8"寄", K_HIKU = u8"引", K_UE = u8"上", K_HIDARI = u8"左", K_MIGI = u8"右", K_SUGU = u8"直";
