@@ -368,6 +368,14 @@ namespace osl
   std::ostream& operator<<(std::ostream&,const BitXmask);
 } // namespace osl
 
+namespace osl 
+{
+  /** thread id */
+  enum class TID { TID_ZERO=0 };
+  using enum TID;
+  constexpr int Int(TID tid) { return static_cast<int>(tid); }
+  constexpr int idx(TID tid) { return Int(tid); }
+}
 
 #endif
 // MINIOSL_DETAILS_H

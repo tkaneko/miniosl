@@ -57,8 +57,6 @@ def test_np():
     assert isinstance(t.state, minioslcc.BaseState)
     assert isinstance(t.move, minioslcc.Move)
     assert isinstance(t.result, minioslcc.GameResult)
-    feature = t.state.to_np()
-    assert feature.shape == (9, 9)
     code = t.state.to_np_pack()
     assert code.shape == (4,)
 

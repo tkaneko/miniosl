@@ -4,9 +4,16 @@ import torch
 import numpy as np
 import logging
 import abc
+import math
 from typing import Tuple
 
 feature_channels = len(miniosl.channel_id)
+
+
+def p2elo(p):
+    if p < 0.5:
+        return -p2elo(1-p)
+    return -400 * math.log10(1/p-1)
 
 
 def sort_moves(moves, policy):
@@ -53,8 +60,10 @@ class OnnxInfer(InferenceModel):
     def __init__(self, path: str, device: str):
         super().__init__()
         import onnxruntime as ort
-        if device == 'cpu' or not device:
+        if device == 'cpu':
             provider = ['CPUExecutionProvider']
+        elif device == 'cuda':
+            provider = ['CUDAExecutionProvider', 'CPUExecutionProvider']
         else:
             provider = ort.get_available_providers()
         self.ort_session = ort.InferenceSession(path, providers=provider)
@@ -158,8 +167,9 @@ def export_onnx(model, *, device, filename):
     torch.onnx.export(model, dummy_input, filename,
                       dynamic_axes={'input': {0: 'batch_size'},
                                     'move': {0: 'batch_size'},
+                                    'value': {0: 'batch_size'},
                                     'aux': {0: 'batch_size'}},
-                      verbose=True, input_names=['input'],
+                      verbose=False, input_names=['input'],
                       output_names=['move', 'value', 'aux'])
 
 

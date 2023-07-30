@@ -1,3 +1,4 @@
+"""primary user interface of miniosl"""
 from __future__ import annotations
 import miniosl
 from minioslcc import MiniRecord, BaseState, State, Square, Move
@@ -6,6 +7,8 @@ import numpy as np
 import os.path
 import copy
 import urllib
+import logging
+import math
 from typing import Tuple
 
 Value_Scale = 1000
@@ -104,7 +107,7 @@ class UI:
         :param src: :py:class:`BaseState` or :py:class:`MiniRecord` \
         or URL or filepath containing `.csa` or usi.
         """
-        self._record = MiniRecord()
+        self._record = None
         if isinstance(src, MiniRecord):
             self._record = copy.copy(src)
         else:
@@ -304,17 +307,18 @@ class UI:
         """side to move"""
         return self._state.turn()
 
-    def to_np(self) -> np.array:
-        """make tensor of piece placement in the board.
+    def to_np_state_feature(self) -> np.array:
+        """make tensor of feature for the current state (w/o history).
 
-           each 9x9 channel is responsible for a specific piece type and color,
-           where each element is 1 (0) for existence (absent) of the piece
+        - 44ch each 9x9 channel is responsible \
+          for a specific piece type and color
+          - where each element is 1 (0) for existence (absent) of the piece \
+            for the first 30ch
+          - filled by the same value indicating number of hand pieces \
+            for the latter 14ch
+        - 13ch for heuristic features
         """
-        return self._state.to_np()
-
-    def to_np_hand(self) -> np.array:
-        """make tensor of pieces in hand for both player"""
-        return self._state.to_np_hand()
+        return self._state.to_np_state_feature()
 
     def to_np_cover(self) -> np.array:
         """make planes to show a square is covered (1) or not (0)"""
@@ -355,6 +359,7 @@ class UI:
     def load_opening_tree(self, filename):
         """load opening db"""
         self.opening_tree = miniosl.load_opening_tree(filename)
+        logging.info(f'load opening of size {self.opening_tree.size()}')
 
     def opening_moves(self):
         """retrieve or show opening moves.
@@ -397,10 +402,8 @@ class UI:
 
     def update_features(self):
         if self._features is None:
-            if last_move := self.last_move():
-                f = miniosl.export_heuristic_feature(self._state, last_move)
-            else:
-                f = miniosl.export_heuristic_feature(self._state)
+            history = self._record.moves[:self.cur]
+            f = self._record.initial_state.export_features(history)
             self._features = f
 
     def show_channels(self, *args, **kwargs):
@@ -481,12 +484,13 @@ class UI:
     def gumbel_one(self, width: int = 4):
         if self._features is None or self._infer_result is None:
             self.eval(verbose=False)
+        history = self._record.moves[:self.cur]
         mp = self._infer_result['mp']
         logits = self._infer_result['logits'].reshape(-1)
         values = []
         for i in range(min(len(mp), width)):
             move = mp[i][1]
-            f, terminal = miniosl.export_heuristic_feature_after_move(move, self._state)
+            f, terminal = self._record.initial_state.export_features_after_move(history, move)
             _, v, _ = self.model.infer_one(f)
             logit = logits[move.policy_move_label()]
             v = -v.item()       # negamax
@@ -501,6 +505,22 @@ class UI:
         self._infer_result[f'gumbel{width}'] = values
         return values
 
+    def mcts(self, budget: int = 4):
+        logging.info(f'ui.record {self._record.initial_state}')
+        record = self._record
+        if self.cur < record.move_size():
+            record = record.branch_at(self.cur)
+        mgr = miniosl.GameManager.from_record(record)
+        logging.info(f'mgr.state {mgr.state}')
+        # logging.info(f'root {mgr.legal_moves}')
+        root = miniosl.run_mcts(mgr, budget, self.model)
+        clist = sorted(root.children.items(), key=lambda e: -e[1].visit_count)
+        for move, c in clist:
+            if c.visit_count > math.log(budget)-1:
+                print(f'{move.to_csa()}, {c.policy_probability*100:.1f}%,'
+                      + f' {1-c.value():.2f}, {c.visit_count}')
+        return root
+
     def analyze(self):
         """evaluate all positions in the current game"""
         import matplotlib.pyplot as plt
@@ -510,6 +530,7 @@ class UI:
         for i in range(self._record.state_size()):
             if i > 0:
                 self._do_make_move(self._record.moves[i-1])
+            self.cur = i
             value, *_ = self.eval(False)
             evals.append(value * miniosl.sign(self._state.turn()))
         self.replay(now)

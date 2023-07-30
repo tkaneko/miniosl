@@ -1,4 +1,4 @@
-"""sample for supervised training"""
+"""model operation --- supervised training, validation, and exporting"""
 import miniosl
 import miniosl.network
 import numpy as np
@@ -8,8 +8,9 @@ import logging
 import torch
 import json
 import sys
+import os
 
-coloredlogs.install(level='DEBUG')
+coloredlogs.install(level='INFO')
 logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser(description="training with extended features")
@@ -44,6 +45,7 @@ if args.train and not args.savefile:
 
 feature_channels = len(miniosl.channel_id)
 loader_class = torch.utils.data.DataLoader
+deterministic_mode = "MINIOSL_DETERMINISTIC" in os.environ
 
 
 def np_mse(a, b):
@@ -93,6 +95,8 @@ def at_the_end_of_interval(i, interval):
 def train(model, cfg):
     from torch.utils.tensorboard import SummaryWriter
     logging.info('start training')
+    with open(f'{cfg.savefile}.json', 'w') as file:
+        json.dump(cfg.__dict__, file)
     logging.info(f'loading {args.train}')
     dataset = miniosl.load_torch_dataset(args.train)
 
@@ -109,7 +113,7 @@ def train(model, cfg):
         logging.info(f'loading {args.validate_data} for validation')
         v_dataset = miniosl.load_torch_dataset(args.validate_data)
         validate_loader = loader_class(v_dataset, batch_size=cfg.batch_size,
-                                       shuffle=True, num_workers=0)
+                                       shuffle=not deterministic_mode, num_workers=0)
     writer = SummaryWriter()
     vsize = cfg.validation_size
 
@@ -171,10 +175,7 @@ def train(model, cfg):
     torch.save(model.state_dict(), f'{args.savefile}.pt')
 
 
-if __name__ == "__main__":
-    with open(f'{args.savefile}.json', 'w') as file:
-        json.dump(args.__dict__, file)
-
+def main():
     network_cfg = {'in_channels': len(miniosl.channel_id),
                    'channels': args.n_channel, 'out_channels': 27,
                    'auxout_channels': 12, 'num_blocks': args.n_block,
@@ -203,9 +204,14 @@ if __name__ == "__main__":
                 raise ValueError('validate_data not specified')
             v_dataset = miniosl.load_torch_dataset(args.validate_data)
             v_loader = loader_class(v_dataset, batch_size=args.batch_size,
-                                    shuffle=True, num_workers=0)
+                                    shuffle=not deterministic_mode,
+                                    num_workers=0)
             logging.info(f'validation with {args.validate_data}')
             validate(model, v_loader, args)
+
+
+if __name__ == "__main__":
+    main()
 
 # Local Variables:
 # python-indent-offset: 4

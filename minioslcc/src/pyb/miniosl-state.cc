@@ -9,6 +9,7 @@
 #include "game.h"
 #include "impl/bitpack.h"
 #include "impl/more.h"
+#include "impl/checkmate.h"
 #include <sstream>
 #include <iostream>
 #include <fstream>
@@ -20,19 +21,12 @@ namespace pyosl {
   using namespace osl;
   Move read_japanese_move(const EffectState& state, std::u8string move, Square last_to=Square());
     
-  /** pieces on board as numpy array */
-  py::array_t<int8_t> to_np(const BaseState& state);
-  /** hand pieces as numpy array */
-  py::array_t<int8_t> to_np_hand(const BaseState& state);
   /** squares covered by pieces as numpy array */
   py::array_t<int8_t> to_np_cover(const EffectState& state);
 
   /** a simple set of state features including board and hands */
   py::array_t<float> to_np_44ch(const BaseState& state);
-  /** batch version of to_np_44ch */
-  std::pair<py::array_t<float>, py::array_t<int8_t>>
-  to_np_batch_44ch(const std::vector<std::array<uint64_t,4>>& batch);
-  py::array_t<float> to_np_heuristic(const EffectState& state, bool flipped=false, Move last_move=Move());
+  py::array_t<float> to_np_state_feature(const EffectState& state, bool flipped=false);
   std::tuple<py::array_t<float>, int, int, py::array_t<float>>
   to_np_feature_labels(const StateRecord320& record);
 
@@ -43,8 +37,8 @@ namespace pyosl {
   py::array_t<uint64_t> to_np_pack(const BaseState& state);
   std::pair<MiniRecord, int> unpack_record(py::array_t<uint64_t> code_seq);
 
-  py::array_t<float> export_heuristic_feature_static(const EffectState&, Move=Move());
-  std::pair<py::array_t<float>,osl::GameResult> export_heuristic_feature_after_move_static(Move, const EffectState&);
+  py::array_t<float> export_features(BaseState initial, const MoveVector& moves);
+  std::pair<py::array_t<float>,osl::GameResult> export_features_after_move(BaseState initial, const MoveVector& moves, Move);
 }
 
 
@@ -98,9 +92,12 @@ void pyosl::init_state_np(py::module_& m) {
          "P9+KY+KE+GI+KI+OU+KI+GI+KE+KY\n"
          "+\n")
     .def("hash_code", &osl::hash_code, "64bit int for board and 32bit for (black) hand pieces")
-    .def("to_np", &pyosl::to_np, "pieces on board as numpy array")
-    .def("to_np_hand", &pyosl::to_np_hand, "pieces on hand as numpy array")
     .def("to_np_44ch", &pyosl::to_np_44ch, "a simple set of state features including board and hands")
+    .def("export_features", &pyosl::export_features, "moves"_a,
+         "return np array of the standard set of features after moves are played")
+    .def("export_features_after_move", &pyosl::export_features_after_move, "moves"_a, "lookahead"_a,
+         "return pair of (1) np array of the standard set of features after moves and lookahead are played"
+         " and (2) GameResult indicating game termination by the move")
     .def("to_np_pack", &pyosl::to_np_pack, "pack into 256bits")
     .def("decode_move_label", [](const base_t &s, int code) { return osl::ml::decode_move_label(code, s); },
          "code"_a,
@@ -167,7 +164,9 @@ void pyosl::init_state_np(py::module_& m) {
       return (s.piecesOnBoard(P)&s.effectAt(target)).to_ullong();
     }, "color"_a, "square"_a, "the bitset of piece-ids reachable to given square")
     .def("in_check", py::overload_cast<>(&state_t::inCheck, py::const_))
-    .def("in_checkmate", py::overload_cast<>(&state_t::inCheckmate, py::const_))
+    .def("in_checkmate", &state_t::inCheckmate)
+    .def("in_no_legalmoves", &state_t::inNoLegalMoves)
+    .def("win_if_declare", &win_if_declare)
     .def("to_move", &state_t::to_move, "move_string"_a, "parse and return move\n\n"
          ">>> s = miniosl.State()\n"
          ">>> s.to_move('+2726FU') == s.to_move('2g2f')\n"
@@ -187,8 +186,8 @@ void pyosl::init_state_np(py::module_& m) {
     .def("try_checkmate_1ply", &state_t::tryCheckmate1ply, "try to find a checkmate move")
     .def("__copy__",  [](const state_t& s) { return state_t(s);})
     .def("__deepcopy__",  [](const state_t& s) { return state_t(s);})
-    .def("to_np_heuristic", &pyosl::to_np_heuristic, "flipped"_a=false, "last_move"_a=osl::Move(), 
-         "standard set of features")
+    .def("to_np_state_feature", &pyosl::to_np_state_feature, "flipped"_a=false, 
+         "a subset of features without history information")
     ;
 
   py::class_<osl::StateRecord256>(m, "StateRecord256", py::dynamic_attr(),
@@ -202,10 +201,10 @@ void pyosl::init_state_np(py::module_& m) {
     .def("to_np_44ch", [](const osl::StateRecord256& obj) {
       return pyosl::to_np_44ch(obj.state);
     })
-    .def("to_np_heuristic", [](const osl::StateRecord256& obj) {
+    .def("to_np_state_feature", [](const osl::StateRecord256& obj) {
       osl::EffectState state(obj.state);
-      return pyosl::to_np_heuristic(state, obj.flipped);
-    }, "standard set of features")
+      return pyosl::to_np_state_feature(state, obj.flipped);
+    }, "a subset set of features without history")
     .def("__copy__",  [](const osl::StateRecord256& r) { return osl::StateRecord256(r);})
     .def("__deepcopy__",  [](const osl::StateRecord256& r) { return osl::StateRecord256(r);})
     ;  
@@ -217,10 +216,10 @@ void pyosl::init_state_np(py::module_& m) {
     .def("restore", &osl::StateRecord320::restore, "code"_a)
     .def("make_state", &osl::StateRecord320::make_state, "target state to learn")
     .def("last_move", &osl::StateRecord320::last_move, "last :py:class:`Move` played")
-    .def("to_np_heuristic", [](const osl::StateRecord320& obj) {
+    .def("to_np_state_feature", [](const osl::StateRecord320& obj) {
       osl::EffectState state(obj.make_state());
-      return pyosl::to_np_heuristic(state, obj.base.flipped, obj.last_move());
-    }, "standard set of features")
+      return pyosl::to_np_state_feature(state, obj.base.flipped);
+    }, "a subset of features without history")
     .def("to_np_feature_labels", &pyosl::to_np_feature_labels,
          "tuple of standard set of features, move label, value label, and others")
     .def("__copy__",  [](const osl::StateRecord320& r) { return osl::StateRecord320(r);})
@@ -238,7 +237,6 @@ void pyosl::init_state_np(py::module_& m) {
   
   // functions depends on np
   m.def("unpack_record", &pyosl::unpack_record, "read record from np.array encoded by MiniRecord.pack_record");
-  m.def("to_np_batch_44ch", &pyosl::to_np_batch_44ch, "batch conversion of to_np_44ch");
   m.def("to_state_label_tuple256", [](std::array<uint64_t,4> binary){
     osl::StateRecord256 obj;
     obj.restore(binary);
@@ -249,10 +247,6 @@ void pyosl::init_state_np(py::module_& m) {
     obj.restore(binary);
     return obj;
   }, "code"_a, "unpack five uint64s to get StateRecord320");
-  m.def("export_heuristic_feature", &pyosl::export_heuristic_feature_static,
-        "state"_a, "last_move"_a=osl::Move());
-  m.def("export_heuristic_feature_after_move", &pyosl::export_heuristic_feature_after_move_static,
-        "move"_a, "state"_a);
 }
 
 osl::Move pyosl::read_japanese_move(const EffectState& state, std::u8string move, Square last_to) {
@@ -262,25 +256,6 @@ osl::Move pyosl::read_japanese_move(const EffectState& state, std::u8string move
   catch (std::exception& e) {
   }
   return Move::PASS(state.turn());
-}
-
-py::array_t<int8_t> pyosl::to_np(const BaseState& state) {
-  auto feature = py::array_t<int8_t>(9*9);
-  auto buffer = feature.request();
-  auto ptr = static_cast<int8_t*>(buffer.ptr);
-  auto board = ml::board_dense_feature(state);
-  std::ranges::copy(board, ptr);
-  return feature.reshape({9, 9});
-}
-
-py::array_t<int8_t> pyosl::to_np_hand(const BaseState& state) {
-  const int N = piece_stand_order.size();
-  auto feature = py::array_t<int8_t>(N*2);
-  auto buffer = feature.request();
-  auto ptr = static_cast<int8_t*>(buffer.ptr);
-  auto hand = ml::hand_dense_feature(state);
-  std::ranges::copy(hand, ptr);
-  return feature.reshape({2, 7});
 }
 
 py::array_t<int8_t> pyosl::to_np_cover(const EffectState& state) {
@@ -327,75 +302,30 @@ py::array_t<float> pyosl::to_np_44ch(const osl::BaseState& state) {
   return feature;
 }
 
-std::pair<py::array_t<float>, py::array_t<int8_t>>
-pyosl::to_np_batch_44ch(const std::vector<std::array<uint64_t,4>>& batch) {
-  auto batch_feature = py::array_t<float_t>(batch.size()*9*9*ml::basic_channels);
-  auto buffer = batch_feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-  auto batch_label = py::array_t<int8_t>(batch.size());
-  auto label_buffer = batch_label.request();
-  auto label_ptr = static_cast<int8_t*>(label_buffer.ptr);
-
-  auto convert = [&](int l, int r) {
-    for (int i=l; i<r; ++i) {
-      const auto& binary = batch[i];
-      osl::StateRecord256 obj;
-      obj.restore(binary);
-      ml::helper::write_np_44ch(obj.state, &ptr[i*9*9*ml::basic_channels]);
-      label_ptr[i] = obj.next.to().index81();
-    }
-  };
-  int c = batch.size() / 2;
-  std::thread t1(convert, 0, c);
-  std::thread t2(convert, c, batch.size());
-  t1.join();
-  t2.join();
-    
-  return {batch_feature.reshape({-1, ml::basic_channels, 9, 9}), batch_label};
-}
-
-py::array_t<float> pyosl::to_np_heuristic(const EffectState& state, bool flipped, Move last_move) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
+py::array_t<float> pyosl::to_np_state_feature(const EffectState& state, bool flipped) {
+  auto feature = py::array_t<float>(9*9*ml::board_channels);
   auto buffer = feature.request();
   auto ptr = static_cast<float_t*>(buffer.ptr);
 
-  ml::helper::write_np_44ch(state, ptr);
-  ml::helper::write_np_additional(state, flipped, last_move, ptr + 9*9*ml::basic_channels);
+  ml::helper::write_state_features(state, flipped, ptr);
 
   return feature.reshape({-1, 9, 9});
 }
 
 std::tuple<py::array_t<float>, int, int, py::array_t<float>>
 pyosl::to_np_feature_labels(const StateRecord320& record) {
+  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
+  auto buffer = feature.request();
+  auto ptr = static_cast<float_t*>(buffer.ptr);
+
   auto aux_feature = py::array_t<float>(9*9*12);
   auto aux_buffer = aux_feature.request();
   auto aux_ptr = static_cast<float_t*>(aux_buffer.ptr);
 
-  osl::EffectState state(record.make_state());
-  ml::helper::write_np_aftermove(state, record.base.next, aux_ptr);
-
-  return {pyosl::to_np_heuristic(state, record.base.flipped, record.last_move()),
-          ml::policy_move_label(record.base.next), ml::value_label(record.base.result),
-          aux_feature.reshape({-1, 9, 9})};
+  int move_label, value_label;
+  record.export_feature_labels(ptr, move_label, value_label, aux_ptr);
+  return {feature.reshape({-1, 9, 9}), move_label, value_label, aux_feature.reshape({-1, 9, 9})};
 }
-
-py::array_t<float> pyosl::export_heuristic_feature_static(const EffectState& state, Move last_move) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-  GameManager::export_heuristic_feature(state, last_move, ptr);
-  return feature.reshape({-1, 9, 9});
-}
-
-std::pair<py::array_t<float>,osl::GameResult>
-pyosl::export_heuristic_feature_after_move_static(Move move, const EffectState& state) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-  auto terminal = GameManager::export_heuristic_feature_after(move, state, ptr);
-  return std::make_pair(feature.reshape({-1, 9, 9}), terminal);
-}
-
 
 std::tuple<py::array_t<float>, int, int, py::array_t<float>>
 pyosl::sample_np_feature_labels(const SubRecord& record) {
@@ -412,4 +342,22 @@ pyosl::sample_np_feature_labels(const SubRecord& record) {
   return {feature.reshape({-1, 9, 9}), move_label, value_label, aux_feature.reshape({-1, 9, 9})};
 }
 
+py::array_t<float> pyosl::export_features(BaseState initial, const MoveVector& moves) {
+  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
+  auto buffer = feature.request();
+  auto ptr = static_cast<float_t*>(buffer.ptr);
+
+  ml::export_features(initial, moves, ptr);
+  return feature.reshape({-1, 9, 9});
+}
+
+std::pair<py::array_t<float>,osl::GameResult>
+pyosl::export_features_after_move(BaseState initial, const MoveVector& moves, Move latest) {
+  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
+  auto buffer = feature.request();
+  auto ptr = static_cast<float_t*>(buffer.ptr);
+
+  auto ret = GameManager::export_heuristic_feature_after(latest, initial, moves, ptr);
+  return {feature.reshape({-1, 9, 9}), ret};
+}
 

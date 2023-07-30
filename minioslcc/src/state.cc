@@ -5,12 +5,18 @@
 #include "impl/rng.h"
 #include <iostream>
 #include <algorithm>
+#include <cstdlib>
 
 std::ostream& osl::operator<<(std::ostream& os, const MoveVector& moves) {
   os << "MoveVector(" << moves.size() << ") ";
   for (auto m: moves)
     os << to_csa(m);
   return os << "\n";
+}
+
+void osl::rotate180(MoveVector& moves) {
+  for (auto& e: moves)
+    e = e.rotate180();
 }
 
 // numEffectState.cc
@@ -759,14 +765,16 @@ namespace osl {
 
 namespace osl {
   auto make_rng() {
+    static const auto env = std::getenv("MINIOSL_DETERMINISTIC");
+    static int cnt = 0;
     static std::random_device rdev;
-    return std::default_random_engine(rdev());
+    return std::default_random_engine(env ? (cnt++) : rdev());
   }
 }
 
 namespace osl
 {
-  std::array<std::default_random_engine,4> rngs = {make_rng(), make_rng(), make_rng(), make_rng() };
+  std::array<std::default_random_engine,4> rng::rngs = {make_rng(), make_rng(), make_rng(), make_rng() };
   // NOTE: the order matters here
   const CArray<Direction,Offset32_SIZE> board::Long_Directions = make_Long_Directions();
   const CArray<Offset, Offset32_SIZE> board::Basic10_Offsets = make_Basic10_Offsets();

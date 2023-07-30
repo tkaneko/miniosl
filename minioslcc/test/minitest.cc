@@ -5064,7 +5064,7 @@ void test_feature() {
       }
     std::vector<float> work(ml::channel_id.size()*81);
     ml::helper::write_np_44ch(state, &work[0]);
-    ml::helper::write_np_additional(state, false, Move(), &work[0]+81*44);
+    ml::helper::write_np_additional(state, false, &work[0]+81*ml::basic_channels);
 
     state.make_move("+7776FU");
   
@@ -5341,6 +5341,33 @@ void test_make_move_unsafe() {
   }
 }
 
+void test_make_feature() {
+  std::vector<float> work(ml::channel_id.size()*81);
+  auto record = usi::read_record(long_sfen);
+  auto initial = record.initial_state;
+  
+  auto [state, flipped] = ml::export_features(initial, record.moves, &work[0]);
+  {
+    EffectState state2;
+    record.replay(state2, record.moves.size());
+    if (state2.turn() == WHITE) {
+      TEST_CHECK(state.rotate180() == state2);
+      TEST_CHECK(flipped);
+    }
+    else {
+      TEST_CHECK(state == state2);
+      TEST_CHECK(! flipped);
+    }    
+  }
+  bool prev = false;
+  for (int i=0; i<=record.moves.size(); ++i) {
+    auto [state, flipped] = ml::export_features(initial, record.moves, &work[0], i);
+    if (i > 0)
+      TEST_CHECK(prev != flipped);
+    prev = flipped;
+  }
+}
+
 void test_pawn_drop_checkmate() {
   {
     EffectState state
@@ -5389,6 +5416,33 @@ void test_subrecord_sample() {
   TEST_CHECK(*std::ranges::min_element(count) > 0);
 }
 
+void test_win_loss_after_move() {
+  std::string sfen = "sfen ln1gk3l/2s3g2/p1p1psnp1/3p1p2p/6rP1/5P3/PPPPP1P1P/1BG1K+sR2/LNS4NL b Bg2p 1";
+  {
+    EffectState state;
+    usi::parse(sfen, state);
+    MoveVector history;
+
+    std::vector<float> work(ml::channel_id.size()*81);
+    auto move = state.to_move("+5868OU");
+    auto result = GameManager::export_heuristic_feature_after(move, state, history, &work[0]);
+    TEST_CHECK(result == win_result(WHITE));
+  }
+  {
+    EffectState state_b;
+    usi::parse(sfen, state_b);
+    EffectState state(state_b.rotate180());
+    MoveVector history;
+
+    TEST_CHECK(state.turn() == WHITE);
+
+    std::vector<float> work(ml::channel_id.size()*81);
+    auto move = state.to_move("-5242OU");
+    auto result = GameManager::export_heuristic_feature_after(move, state, history, &work[0]);
+    TEST_CHECK(result == win_result(BLACK));
+  }
+}
+
 
 TEST_LIST = {
   { "player", test_player },
@@ -5423,5 +5477,7 @@ TEST_LIST = {
   { "make_move_unsafe", test_make_move_unsafe },
   { "pawn_drop_checkmate", test_pawn_drop_checkmate },
   { "subrecord_sumple", test_subrecord_sample },
+  { "make_feature", test_make_feature },
+  { "win-loss-after-move", test_win_loss_after_move},
   { nullptr, nullptr }
 };

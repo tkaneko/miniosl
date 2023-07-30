@@ -61,26 +61,22 @@ def test_genmove():
     assert len(moves) == len(moves_ja)
 
 
-def test_to_np():
+def test_to_state_feature():
     board = miniosl.UI()
-    feature = board.to_np()
+    feature = board.to_np_state_feature()
     assert isinstance(feature, np.ndarray)
-    assert feature.shape == (9, 9)
-
-
-def test_to_np_hand():
-    board = miniosl.UI()
-    feature = board.to_np_hand()
-    assert isinstance(feature, np.ndarray)
-    assert feature.shape == (2, 7)
+    assert feature.shape == (57, 9, 9)
 
     board = miniosl.UI("sfen l5SSl/3g5/3sp+P+Np1/p5g1p/1n1pB1k2/P2PP3P/B+r2gGN2/9/L3K2RL b 5Psn3p 1")
     assert board.count_hand(miniosl.black, miniosl.pawn) == 5
     assert board.count_hand(miniosl.white, miniosl.pawn) == 3
-    # ROOK, BISHOP, GOLD, SILVER, KNIGHT, LANCE, PAWN
-    assert np.array_equal(board.to_np_hand(),
-                          np.array([[0, 0, 0, 0, 0, 0, 5],
-                                    [0, 0, 0, 1, 1, 0, 3]]))
+    feature = board.to_np_state_feature()
+    tbl = miniosl.channel_id
+    assert pytest.approx(feature[tbl['black-hand-pawn']][0][0]) == 5 / 18
+    assert pytest.approx(feature[tbl['white-hand-pawn']][0][0]) == 3 / 18
+    assert pytest.approx(feature[tbl['white-hand-silver']][0][0]) == 1 / 4
+    assert pytest.approx(feature[tbl['white-hand-knight']][0][0]) == 1 / 4
+    assert pytest.approx(feature[tbl['white-hand-lance']][0][0]) == 0
 
 
 def test_to_np_cover():

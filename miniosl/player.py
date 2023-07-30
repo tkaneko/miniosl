@@ -3,6 +3,7 @@
 import miniosl
 import logging
 import json
+import re
 
 
 class MyRandomPlayer(miniosl.SingleCPUPlayer):
@@ -59,12 +60,12 @@ def make_usi_player(cfg_path: str) -> UsiPlayer:
     return miniosl.CPUPlayer(pl, False)
 
 
-def make_player(name: str) -> miniosl.PlayerArray:
+def make_player(name: str, *, noise_scale=1.0) -> miniosl.PlayerArray:
     """factory method"""
-    if name == "gumbel8":
-        return miniosl.FlatGumbelPlayer(8)
-    elif name == "gumbel4":
-        return miniosl.FlatGumbelPlayer(4)
+    gumbel_pattern = r'^gumbel([1-9][0-9]*)$'
+
+    if match := re.match(gumbel_pattern, name):
+        return miniosl.FlatGumbelPlayer(int(match.group(1)), noise_scale)
     elif name == "greedy-policy":
         return miniosl.PolicyPlayer(True)
     elif name == "random":
@@ -73,7 +74,7 @@ def make_player(name: str) -> miniosl.PlayerArray:
         """
         return miniosl.CPUPlayer(miniosl.RandomPlayer(), False)
     elif name == "myrandom":
-        """save befor return to keep its lifetime
+        """save before return to keep its lifetime
         """
         make_player.random = MyRandomPlayer()
         return miniosl.CPUPlayer(make_player.random, False)

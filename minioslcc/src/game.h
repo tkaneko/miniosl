@@ -29,9 +29,10 @@ namespace osl {
      */
     osl::GameResult export_heuristic_feature_after(Move, float*) const;
     /** @internal this interface will subject to change along with optimization/enhancements */
-    static void export_heuristic_feature(const EffectState& cur, Move last_move, float *ptr);
-    /** @internal this interface will subject to change along with optimization/enhancements */
-    static GameResult export_heuristic_feature_after(Move, EffectState before_move, float*);
+    static GameResult export_heuristic_feature_after(Move latest,
+                                                     BaseState initial, MoveVector history,
+                                                     float*);
+    static GameManager from_record(const MiniRecord& record);
   };
 
   /**
@@ -67,11 +68,13 @@ namespace osl {
       return sort_moves_impl<false>(moves, logits, top_n);
     }
     static std::vector<std::pair<double,Move>>
-    sort_moves_with_gumbel(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n, int tid=0) {
-      return sort_moves_impl<true>(moves, logits, top_n, tid);
+    sort_moves_with_gumbel(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n, TID tid=TID_ZERO,
+                           double noise_scale=1.0) {
+      return sort_moves_impl<true>(moves, logits, top_n, tid, noise_scale);
     }
     template <bool with_noise> static std::vector<std::pair<double,Move>>
-    sort_moves_impl(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n, int tid=0);
+    sort_moves_impl(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n, TID tid=TID_ZERO,
+                    double noise_scale=1.0);
   };
   
   struct PolicyPlayer : public PlayerArray {
@@ -83,7 +86,7 @@ namespace osl {
   };
 
   struct FlatGumbelPlayer : public PlayerArray {
-    FlatGumbelPlayer(int width);
+    FlatGumbelPlayer(int width, double noise_scale=1.0);
     ~FlatGumbelPlayer();
 
     int make_request(float *) override;
@@ -101,6 +104,7 @@ namespace osl {
     std::vector<std::pair<double,Move>> root_children;
     std::vector<GameResult> root_children_terminal;
     const int root_width;
+    const double noise_scale;
   };
 
   struct SingleCPUPlayer {

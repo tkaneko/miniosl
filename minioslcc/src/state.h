@@ -15,6 +15,9 @@ namespace osl
   // need to replace when we enable game-tree search again.
   typedef std::vector<Move> MoveVector;
   std::ostream& operator<<(std::ostream&, const MoveVector&);
+  /** rotate180 each element in place */
+  void rotate180(MoveVector&);
+  
   typedef std::vector<Piece> PieceVector;
   class EffectState;
   /**

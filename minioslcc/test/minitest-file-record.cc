@@ -1,5 +1,6 @@
 #include "filepath.h"
 #include "feature.h"
+#include "game.h"
 #include "impl/bitpack.h"
 
 using namespace osl;
@@ -86,8 +87,14 @@ void test_policy_move_label() {
       for (auto m: legal_moves) {
         int code = ml::policy_move_label(m);
         TEST_CHECK(0 <= code && code < 27*81);
-        TEST_CHECK(ml::decode_move_label(code, state) == m);
+        if (ml::decode_move_label(code, state) != m) {
+          std::cerr << m << " != " << ml::decode_move_label(code, state)
+                    << '\n' << state ;
+        }
+        TEST_ASSERT(ml::decode_move_label(code, state) == m);
       }
+
+      state.makeMove(move);
     }
   }
 }
@@ -111,7 +118,29 @@ void test_make_move_unsafe() {
   }
 }
 
+void test_export_features() {
+  std::vector<float> work(ml::channel_id.size()*81);
+  
+  const auto& data = test_record_set();
+  int count = 0;
+  for (const auto& record: data.records) {
+    if (++count > limit)
+      break;
+    
+    GameManager mgr;
+    
+    for (auto move: record.moves) {
+      mgr.export_heuristic_feature(&work[0]);
+      auto ret = mgr.make_move(move);
+      if (ret != InGame)
+        break;
+    }
+  }
+}
+
+
 TEST_LIST = {
+  { "export_features", test_export_features },
   { "japanese", test_japanese },
   { "pack_position", test_pack_position },
   { "hash", test_hash },

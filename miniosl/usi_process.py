@@ -3,6 +3,7 @@ import subprocess
 import re
 import logging
 import copy
+import weakref
 
 
 info_string = re.compile(r'^info\s+string.*$')
@@ -11,6 +12,18 @@ depth_regexp = re.compile(r'^info.*\s+depth\s+([0-9]+)')
 nodes_regexp = re.compile(r'^info.*\s+nodes\s+([0-9]+)')
 bestmove_regexp = re.compile(r'^bestmove\s+([A-Za-z0-9+*]+)\s*(ponder\s.*)*$')
 idname_regexp = re.compile(r'^id\s+name\s+(.*)\s*$')
+
+
+def close_session(proc):
+    if not proc:
+        return False
+    logging.debug('closing process')
+    proc.stdin.write("quit\n")
+    proc.stdin.close()
+    if proc.wait() != 0:
+        logging.error("close error")
+        return False
+    return True
 
 
 class UsiProcess:
@@ -56,6 +69,9 @@ class UsiProcess:
             err = f'readyok != {ready}'
             logging.critical(err)
             raise ValueError(err)
+        # for graceful exit
+        # https://docs.python.org/3/library/weakref.html#finalizer-objects
+        self._finalizer = weakref.finalize(self, close_session, self.usi)
 
     def readline(self) -> str:
         line = self.usi.stdout.readline().rstrip()
@@ -70,12 +86,9 @@ class UsiProcess:
 
     def close(self) -> bool:
         """finish process"""
-        self.writeline("quit")
-        self.usi.stdin.close()
-        if self.usi.wait() != 0:
-            print("close error")
-            return False
-        return True
+        ret = self._finalizer().alive()
+        self._finalizer()
+        return ret
 
     def search(self, position: str, limit: str) -> dict:
         """search: give position with go commands, and wait ``bestmove``

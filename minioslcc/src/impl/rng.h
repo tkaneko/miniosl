@@ -4,7 +4,15 @@
 #include <random>
 
 namespace osl {
-  extern std::array<std::default_random_engine,4> rngs;
+  /** thread local random number generators.
+   *
+   * initialized by the standard random device unless `std::getenv("MINIOSL_DETERMINISTIC")`
+   */
+  namespace rng {
+    constexpr int available_instances = 4;
+    extern std::array<std::default_random_engine, available_instances> rngs;
+  }
+  using rng::rngs;
 }
 
 #endif

@@ -147,7 +147,7 @@ class GameDataset(torch.utils.data.Dataset):
         return self.blocks[p].sample(s)
 
     def __len__(self):
-        """epoch should go beyond #records and #positions"""
+        """epoch should go beyond #records to cover #positions"""
         return self.stored_game_records() * 100
 
     def __getitem__(self, idx):
@@ -164,6 +164,7 @@ def load_torch_dataset(path: str) -> torch.utils.data.Dataset:
     if path.endswith('.sfen') or path.endswith('.txt') or path.endswith('sfen.npz'):
         # use entire file as a single block
         seq = load_sfen_from_file(path, compress_and_rm=False, strict=False)
+        logging.info(f'load {len(seq)} data')
         block = GameRecordBlock(seq)
         n = len(block.data)
         set = GameDataset(n, n)

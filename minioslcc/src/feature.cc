@@ -123,7 +123,8 @@ void osl::ml::impl::fill_ptypeo(const BaseState& state, Square sq, PtypeO ptypeo
   if (ptype == KNIGHT) {
     for (auto dir: { UUL, UUR }) {
       auto dst = sq + to_offset(color, dir);
-      out[dst.index81()] = 1;
+      if (dst.isOnBoard())
+        out[dst.index81()] = 1;
     }
     return;
   }
@@ -183,7 +184,7 @@ void osl::ml::helper::write_np_44ch(const BaseState& state, float *ptr) {
   std::ranges::copy(hand, ptr+30*81);
 }
 
-void osl::ml::helper::write_np_additional(const osl::EffectState& state, bool flipped, Move last_move, float *ptr) {
+void osl::ml::helper::write_np_additional(const osl::EffectState& state, bool flipped, float *ptr) {
   // reach LBR+K 8ch
   {
     std::array<int8_t,81*2> lance_plane = ml::lance_cover(state), bishop_plane = ml::bishop_cover(state),
@@ -208,7 +209,16 @@ void osl::ml::helper::write_np_additional(const osl::EffectState& state, bool fl
   // flip
   std::fill(ptr+c*81, ptr+(c+1)*81, flipped);
   ++c;
-  assert(c == 13);
+  assert(c == heuristic_channels);
+}
+
+void osl::ml::helper::write_state_features(const EffectState& state, bool flipped, float *ptr) {
+  ml::helper::write_np_44ch(state, ptr);
+  ml::helper::write_np_additional(state, flipped, ptr + 9*9*ml::basic_channels);
+}
+
+void osl::ml::helper::write_np_history(const BaseState& state, Move last_move, float *ptr) {
+  int c = 0;                    // ptr must be adusted in advance
   // last_move
   {
     std::array<int8_t,81*2> plane = {0};
@@ -225,7 +235,17 @@ void osl::ml::helper::write_np_additional(const osl::EffectState& state, bool fl
     c += 2;
     std::ranges::copy(capture, ptr+c*81);
     ++c;
-  }  
+  }
+#if 0  
+  // king
+  {
+    auto *plane = ptr+c*81;
+    auto sq = state.kingSquare(last_move.player());
+    std::fill(plane, plane+81, 0);
+    plane[sq.index81()] = 1;
+    ++c;
+  }
+#endif  
 }
 
 void osl::ml::helper::write_np_aftermove(EffectState state, Move move, float *ptr) {
@@ -293,28 +313,32 @@ int osl::ml::policy_move_label(Move move) {
 }
 
 osl::Move osl::ml::decode_move_label(int code, const BaseState& state) {
-  if (state.turn() != BLACK)        // todo kachi?
-    throw std::invalid_argument("black to move");
+  auto color = state.turn(); // todo kachi?
   auto dst = Square::from_index81(code % 81);
-  if (code < drop_offset*81) {
+  if (color == WHITE)
+    dst = dst.rotate180();
+  code /= 81;
+  if (code < drop_offset) {
     if (! state.pieceAt(dst).isEmpty())
       throw std::domain_error("drop on piece");
-    auto ptype = Ptype(code / 81 + idx(GOLD));
-    return Move(dst, ptype, BLACK);
+    auto ptype = Ptype(code + idx(GOLD));
+    return Move(dst, ptype, color);
   }
-  code -= drop_offset*81;
-  bool promotion = code >= direction_offset*81;
+  code -= drop_offset;
+  bool promotion = code >= direction_offset;
   if (promotion)
-    code -= direction_offset*81;
-  auto dir = Direction(code / 81);
-  Offset step = to_offset(BLACK, dir);
+    code -= direction_offset;
+  auto dir = Direction(code);
+  Offset step = to_offset(color, dir);
   Square src = dst - step;
   while (state.pieceAt(src).isEmpty())
     src -= step;
-  if (! state.pieceAt(src).isOnBoardByOwner(BLACK))
-    throw std::domain_error("inconsistent move label" + std::to_string(code));
+  if (! state.pieceAt(src).isOnBoardByOwner(color))
+    throw std::domain_error("inconsistent policy move label" + std::to_string(code));
   auto ptype = state.pieceAt(src).ptype();
-  return Move(src, dst, ptype, state.pieceAt(dst).ptype(), promotion, BLACK);  
+  if (promotion)
+    ptype = promote(ptype);
+  return Move(src, dst, ptype, state.pieceAt(dst).ptype(), promotion, color);  
 }
 
 namespace osl {
@@ -354,9 +378,14 @@ namespace osl {
       table["black-pawn4"] = 54;
       table["white-pawn4"] = 55;
       table["flipped"] = 56;
-      table["last_move_to"] = 57;
-      table["last_move_traj"] = 58;
-      table["last_move_capture"] = 59;
+      for (int i=0; i<ml::history_length; ++i) {
+        auto id = std::to_string(i+1);
+        auto offset = i*ml::channels_per_history;
+        table["last_move_to_"+id] = 57 + offset;
+        table["last_move_traj_"+id] = 58 + offset;
+        table["last_move_capture_"+id] = 59 + offset;
+        // table["last_king_"+id] = 60 + offset;
+      }
       return table;
     }
   }
@@ -376,36 +405,75 @@ osl::BaseState osl::SubRecord::make_state(int idx) const {
   return state;
 }
 
-std::tuple<osl::BaseState,osl::Move,osl::Move,osl::GameResult, bool>
-osl::SubRecord::make_state_label_of_turn(int idx) const {
+std::pair<osl::EffectState,bool> osl::ml::export_features(BaseState base, const MoveVector& moves, float *out, int idx) {
+  if (idx < 0)
+    idx = moves.size();
+  if (idx > moves.size())
+    throw std::domain_error("idx out of range");
+  
+  const int H = ml::history_length;
+  MoveVector history(H, Move());
+  const int history_length = std::min(H, idx);
+
+  // fill history if available
+  for (int i: std::views::iota(0, history_length))
+    history.at(history.size()-1-i) = moves.at(idx-1-i);
+
+  // make a base state just before the history
+  for (int i: std::views::iota(0, idx - history_length))
+    base.make_move_unsafe(moves[i]);
+
+  auto turn = (history_length == 0) ? base.turn() : alt(history.back().player());
+  bool flip = (turn == WHITE);
+  if (flip) {
+    base = base.rotate180();
+    rotate180(history);
+  }
+
+  // history features depending on old state
+  const auto offset = 9*9*(ml::basic_channels + ml::heuristic_channels);
+  ml::helper::write_np_histories(base, history, out+offset);
+
+  EffectState state{ base };
+  // features for current state
+  ml::helper::write_state_features(state, flip, out);
+  return {state, flip};
+}
+
+
+void osl::ml::helper::write_np_histories(BaseState& base, const MoveVector& history, float *out) {
+  for (int i=0; i<history.size(); ++i) {
+    auto *ptr = out + i*9*9*ml::channels_per_history;
+    if (! history[i].isNormal()) {
+      std::fill(ptr, ptr + 9*9*ml::channels_per_history, 0);
+      continue;
+    }
+    ml::helper::write_np_history(base, history[i], ptr);
+    base.make_move_unsafe(history[i]);
+  }
+}
+
+void osl::SubRecord::export_feature_labels(int idx, float *input, int& move_label, int& value_label, float *aux_label) const {
   if ((! (0 <= idx && idx < moves.size())) || result == InGame)
     throw std::range_error("make_state_label_of_turn: out of range"
                            " or in game " + std::to_string(idx)
                            + " < " + std::to_string(moves.size())
                            + " result " + std::to_string(result));
-  
-  auto state = make_state(idx);
-  auto last_move = idx > 0 ? moves[idx-1] : Move();
-  if (state.turn() == BLACK)
-    return {state, moves[idx], last_move, result, false};
-  
-  return {state.rotate180(), moves[idx].rotate180(), last_move.rotate180(), flip(result), true};
-}
+  auto [state, flipped] = ml::export_features(BaseState(HIRATE), moves, input, idx);
+  Move move = moves[idx];
+  auto result = this->result;
+  if (flipped) {
+    move = move.rotate180();
+    result = flip(result);
+  }
 
-
-void osl::SubRecord::export_feature_labels(int idx, float *input, int& move_label, int& value_label, float *aux_label) const {
-  auto [base, move, last_move, result, flipped] = make_state_label_of_turn(idx);
-  EffectState state{ base };
-  
-  ml::helper::write_np_44ch(state, input);
-  ml::helper::write_np_additional(state, flipped, last_move, input + 9*9*ml::basic_channels);
-
+  // labels
   move_label = ml::policy_move_label(move);
   value_label = ml::value_label(result);
   ml::helper::write_np_aftermove(state, move, aux_label);
 }
 
-int osl::SubRecord::weighted_sampling(int limit, int tid) {
+int osl::SubRecord::weighted_sampling(int limit, int N, TID tid) {
   // weigted sampling
   //
   // for usual cases of limit > 11 (=N)
@@ -418,8 +486,7 @@ int osl::SubRecord::weighted_sampling(int limit, int tid) {
   // - If uniform, there are 10k-20k of the initial position (apparently too much)
   // - The weight of 2^{-10} reduces the number to about 10-20,
   //   reasonable for keeping the average win ratio stable.
-  constexpr int N = 11;
-  auto& rng = rngs.at(tid);
+  auto& rng = rngs.at(idx(tid));
   if (limit-1 > N) {
     std::uniform_int_distribution<> dist(N, limit-1); // inclusive, move.size()-1 at most
     int idx = dist(rng);
@@ -436,10 +503,12 @@ int osl::SubRecord::weighted_sampling(int limit, int tid) {
   return idx;  
 }
 
-void osl::SubRecord::sample_feature_labels(float *input, int& move_label, int& value_label, float *aux_label, int tid) const {
-  int idx = weighted_sampling(moves.size());
+void osl::SubRecord::sample_feature_labels(float *input, int& move_label, int& value_label, float *aux_label,
+                                           int default_decay, TID tid) const {
+  int idx = weighted_sampling(moves.size(), default_decay, tid);
   export_feature_labels(idx, input, move_label, value_label, aux_label);
 }
 
 // global variable
 const std::unordered_map<std::string, int> osl::ml::channel_id = osl::make_channel_id();
+const int osl::ml::standard_channels = channel_id.size();

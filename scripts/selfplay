@@ -1,0 +1,9 @@
+#!/usr/bin/env python3
+"""run selfplay between players.
+
+Each player need to be defined as a subclass of :py:class:`PlayerArray`
+"""
+import miniosl.utility.selfplay
+
+if __name__ == '__main__':
+    miniosl.utility.selfplay.main()

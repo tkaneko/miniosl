@@ -81,7 +81,7 @@ def sfen_file_to_np_array(filename: str) -> (np.ndarray, int):
 def sfen_file_to_training_np_array(filename: str, *,
                                    with_history: bool = True,
                                    ignore_in_game: bool = True) -> np.ndarray:
-    """return training data expanding positions in sfen file"""
+    """[obsolete] return positionwise training data in sfen file"""
     data = []
     with open(filename, 'r') as f:
         for line in f:
@@ -183,11 +183,14 @@ def retrieve_children(tree: miniosl.OpeningTree, state: miniosl.BaseState
 
 
 class SfenBlockStat:
-    def __init__(self):
+    def __init__(self, record_seq: list = []):
         self.counts = np.zeros(4, dtype=np.int32)
         self.length = []
         self.total, self.declare, self.short_draw = 0, 0, 0
+        self.zero_moves = 0
         self.uniq20, self.uniq40 = Counter(), Counter()
+        for record in record_seq:
+            self.add(record)
 
     def add(self, record: miniosl.MiniRecord | miniosl.SubRecord) -> None:
         self.counts[int(record.result)] += 1
@@ -201,6 +204,8 @@ class SfenBlockStat:
         code40 = record.replay(40).hash_code()
         self.uniq20[code20] += 1
         self.uniq40[code40] += 1
+        if len(record.moves) == 0:
+            self.zero_moves += 1
 
     def declare_ratio(self) -> float:
         return self.declare / self.total
@@ -214,7 +219,7 @@ class SfenBlockStat:
     def black_win_ratio(self) -> float:
         b = self.counts[int(miniosl.BlackWin)]
         w = self.counts[int(miniosl.WhiteWin)]
-        return  b / (b + w)
+        return b / (b + w)
 
     def uniq20_ratio(self) -> float:
         return len(self.uniq20) / self.total

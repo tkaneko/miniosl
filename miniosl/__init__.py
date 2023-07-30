@@ -13,7 +13,9 @@ from .dataset import load_torch_dataset, PositionwiseDataset, GameDataset
 from .network import StandardNetwork
 from .usi_process import UsiProcess
 from .player import UsiPlayer, make_player
-from .inference import export_model, softmax
+from .inference import export_model, softmax, InferenceModel, p2elo
+from .search import run_mcts
+
 
 setattr(MiniRecord, 'replay', record.minirecord_replay)
 setattr(MiniRecord, 'to_apng', record.minirecord_to_apng)

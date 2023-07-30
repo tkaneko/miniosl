@@ -159,9 +159,10 @@ namespace osl
     Move to_move(const std::string&, const EffectState&);
     PtypeO to_ptypeo(char);
     
-    /** 
-     * 盤面を取得する. 
-     * board文字列が不正なときは、ParseErrorがthrowされる. 
+    /**
+     * @internal
+     * 盤面のみを解析する. 持ち駒や手番は読まない
+     * 
      * @param board USIの文字列
      * @param state boardの解析結果が出力される
      */

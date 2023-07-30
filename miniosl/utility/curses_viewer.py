@@ -189,7 +189,7 @@ def main():
         print(curses.can_change_color())
         print(curses.COLORS)
         exit()
-    record_set = miniosl.RecordSet()
+    record_set = miniosl.RecordSet([miniosl.MiniRecord()])
     if args.sfen:
         if args.sfen.endswith('.npz'):
             record_set = miniosl.RecordSet.from_npz(args.sfen)

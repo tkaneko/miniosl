@@ -96,8 +96,12 @@ void pyosl::init_game(py::module_& m) {
     .def(py::init<>())
     .def_readonly("record", &osl::GameManager::record)
     .def_readonly("state", &osl::GameManager::state)
+    .def_readonly("legal_moves", &osl::GameManager::legal_moves)
     .def("make_move", &osl::GameManager::make_move)
     .def("export_heuristic_feature", &pyosl::export_heuristic_feature)
+    .def_static("from_record", &osl::GameManager::from_record)
+    .def("__copy__",  [](const osl::GameManager& g) { return osl::GameManager(g);})
+    .def("__deepcopy__",  [](const osl::GameManager& g) { return osl::GameManager(g);})
     ;
   py::class_<osl::ParallelGameManager>(m, "ParallelGameManager", py::dynamic_attr())
     .def(py::init<int,bool,bool>(), "N"_a, "force_declare"_a, "ignore_draw"_a=false)
@@ -121,7 +125,7 @@ void pyosl::init_game(py::module_& m) {
     ;
 
   py::class_<osl::FlatGumbelPlayer, osl::PlayerArray>(m, "FlatGumbelPlayer", py::dynamic_attr())
-    .def(py::init<int>(), "width"_a)
+    .def(py::init<int,double>(), "width"_a, "noise_scale"_a=1.0)
     .def("name", &osl::FlatGumbelPlayer::name)
     ;
 

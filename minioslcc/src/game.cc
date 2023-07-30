@@ -45,36 +45,50 @@ osl::GameResult osl::GameManager::make_move(Move move) {
 }
 
 void osl::GameManager::export_heuristic_feature(float *ptr) const {
-  export_heuristic_feature(state, record.moves.empty() ? Move() : record.moves.back(), ptr);
-}
-
-void osl::GameManager::export_heuristic_feature(const EffectState& given, Move given_move, float *ptr) {
-  bool flip = given.turn() == WHITE;
-  EffectState state(flip ? EffectState(given.rotate180()) : given);
-  auto last_move = flip ? given_move.rotate180() : given_move;
-
-  ml::helper::write_np_44ch(state, ptr);
-  ml::helper::write_np_additional(state, flip, last_move, ptr + 9*9*44);  
+  ml::export_features(record.initial_state, record.moves, ptr);
 }
 
 osl::GameResult osl::GameManager::export_heuristic_feature_after(Move move, float *ptr) const {
-  return export_heuristic_feature_after(move, {this->state}, ptr);
-}
-
-osl::GameResult osl::GameManager::export_heuristic_feature_after(Move move, EffectState state, float *ptr) {
   if (! state.isAcceptable(move))
     throw std::domain_error("move");
-  state.makeMove(move);
-  export_heuristic_feature(state, move, ptr);
+  return export_heuristic_feature_after(move, record.initial_state, record.moves, ptr);
+}
+
+osl::GameResult osl::GameManager::
+export_heuristic_feature_after(Move latest, BaseState initial, MoveVector history,
+                               float* ptr) {
+  Player side = initial.turn();
+  if (history.size() % 2)
+    side = alt(side);
+
+  history.push_back(latest);
+  auto [state, _]  = ml::export_features(initial, history, ptr);
   auto ret = InGame;
+  // Note: states are flipped if white to move to export future
+  // So, the state here is always black to move.
   if (state.inCheckmate() || state.inNoLegalMoves())
-    ret = loss_result(state.turn());
+    ret = win_result(side);
   else {
     auto move = state.tryCheckmate1ply();
     if (move.isNormal() || win_if_declare(state))
-      ret = win_result(state.turn());
+      ret = loss_result(side);
   }
   return ret;
+}
+
+osl::GameManager osl::GameManager::from_record(const MiniRecord& record) {
+  GameManager mgr;
+  mgr.record.set_initial_state(record.initial_state);
+  mgr.state = record.initial_state;
+  auto prev = InGame;
+  for (auto move: record.moves) {
+    if (prev != InGame)
+      throw std::domain_error("terminated game");
+    prev = mgr.make_move(move);
+  }
+  if (record.moves.empty())
+    mgr.state.generateLegal(mgr.legal_moves);
+  return mgr;
 }
 
 osl::ParallelGameManager::ParallelGameManager(int N, bool force, bool idraw)
@@ -112,9 +126,9 @@ std::vector<osl::GameResult> osl::ParallelGameManager::make_move_parallel(const 
 
 template <bool with_noise>
 std::vector<std::pair<double,osl::Move>>
-osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t& logits, int top_n, int tid) {
-  if (rngs.size() < range_parallel_threads)
-    throw std::logic_error("parallel threads");
+osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t& logits, int top_n, TID tid,
+                                  double noise_scale) {
+  static_assert(rng::available_instances >= range_parallel_threads);
   std::extreme_value_distribution<> gumbel {0, 1};
   
   std::vector<std::pair<double,Move>> pmv; // probability-move vector
@@ -122,7 +136,7 @@ osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t
   for (auto move: moves) {
     auto p = logits[ml::policy_move_label(move)];
     if constexpr (with_noise)
-      p += gumbel(rngs[tid]);
+      p += gumbel(rngs[idx(tid)]) * noise_scale;
     pmv.emplace_back(p, move);
   }
   std::partial_sort(pmv.begin(), pmv.begin()+std::min((int)pmv.size(), top_n), pmv.end(),
@@ -170,7 +184,7 @@ int osl::PolicyPlayer::make_request(float *ptr) {
 bool osl::PolicyPlayer::recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>&) {
   // always make a decision in a single inference
   check_size(logits.size());
-  auto run = [&](int l, int r, int tid) {
+  auto run = [&](int l, int r, TID tid) {
     for (int g=l; g<r; ++g) {
       auto ret = greedy
         ? sort_moves((*_games)[g].legal_moves, logits[g], 1)
@@ -182,7 +196,8 @@ bool osl::PolicyPlayer::recv_result(const std::vector<policy_logits_t>& logits, 
   return true;
 }
 
-osl::FlatGumbelPlayer::FlatGumbelPlayer(int width) : PlayerArray(false), root_width(width) {
+osl::FlatGumbelPlayer::FlatGumbelPlayer(int width, double ns)
+  : PlayerArray(/* greedy */ ns == 0), root_width(width), noise_scale(ns) {
 }
 
 osl::FlatGumbelPlayer::~FlatGumbelPlayer() {
@@ -223,9 +238,9 @@ bool osl::FlatGumbelPlayer::recv_result(const std::vector<policy_logits_t>& logi
     root_children.resize(root_width * n_parallel());
     root_children_terminal.resize(root_width * n_parallel());
 
-    auto run = [&](int l, int r, int tid) {
+    auto run = [&](int l, int r, TID tid) {
       for (int g=l; g<r; ++g) {
-        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width);
+        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width, TID(0), noise_scale);
         while (ret.size() < root_width)
           ret.push_back(ret[0]);
         int offset = g*root_width;

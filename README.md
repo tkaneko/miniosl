@@ -28,13 +28,16 @@ typical commands
 - `pip3 install -e .`
   - example for envvar: `CMAKE_BUILD_PARALLEL_LEVEL=4` `CXX=g++-12`
 
-### samples
+### cui samples
 
-- supervised training [train.py](https://github.com/tkaneko/miniosl/blob/main/sample/train.py)
-- curses terminal [curses_viewer.py](https://github.com/tkaneko/miniosl/blob/main/miniosl/curses_viewer.py.py)
+- [shogiconvert](https://github.com/tkaneko/miniosl/blob/main/sample/convert_record.py)
+- [selfplay](https://github.com/tkaneko/miniosl/blob/main/miniosl/utility/selfplay.py)
+- [shogiviewer](https://github.com/tkaneko/miniosl/blob/main/miniosl/utility/curses_viewer.py)
+
+![](https://github.com/tkaneko/miniosl/raw/main/doc/term.svg)
 
 ## api doc
 
-[api 0.0.9](https://game.c.u-tokyo.ac.jp/miniosl-api/0-0-9/)
+[api 0.0.10](https://game.c.u-tokyo.ac.jp/miniosl-api/0-0-10/)
 
 tentative, the location will be subject to change in future.

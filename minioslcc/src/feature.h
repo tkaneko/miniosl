@@ -5,8 +5,16 @@
 #include <unordered_map>
 
 namespace osl {
+  struct MiniRecord;
   namespace ml {
-    const int basic_channels = 44;
+    const int basic_channels = 44, heuristic_channels = 13,
+      board_channels = basic_channels + heuristic_channels;
+    /** board_channels + channels_per_history*history_length */
+    extern const int standard_channels;
+    /** moves included before current position */
+    const int history_length = 1; // 7;
+    const int channels_per_history = 3; // 4;
+    
     std::array<int8_t,81> board_dense_feature(const BaseState& state);
     std::array<int8_t,piece_stand_order.size()*2> hand_dense_feature(const BaseState& state);
 
@@ -34,26 +42,38 @@ namespace osl {
     namespace helper {
       // 44ch
       void write_np_44ch(const BaseState& state, float *);
-      // 10ch
-      void write_np_additional(const EffectState& state, bool flipped, Move last_move, float *);
+      // +13 ch
+      void write_np_additional(const EffectState& state, bool flipped, float *);
+      /** write state features i.e., w/o history (44+13ch) */
+      void write_state_features(const EffectState& state, bool flipped, float *);
+      // 4ch
+      void write_np_history(const BaseState& state, Move last_move, float *ptr);
+      /** @internal write 4*7ch and update state applied after moves in history */ 
+      void write_np_histories(BaseState& state, const MoveVector& history, float *ptr);
       // status after move
       void write_np_aftermove(EffectState state, Move move, float *);
     }
-    /** move label [0,27*81] for cross entropy */
+    /** move label [0, 27*81-1] for cross entropy */
     int policy_move_label(Move move);
     inline int value_label(GameResult result) {
       if (result == BlackWin) return 1;
       if (result == WhiteWin) return -1;
       return 0;
     }
-    /** decode, assume black to move */
+    /** decode, inverse of `policy_move_label`, assume black to move
+     * @param state board to help decode with piece locations, black to move
+     */
     Move decode_move_label(int code, const BaseState& state);
 
     /** name of input features */
     extern const std::unordered_map<std::string, int> channel_id;
+
+    /** @internal export features primary for game playing
+     * @return pair of the current state and the flag for flipped
+     */
+    std::pair<EffectState,bool> export_features(BaseState initial, const MoveVector& moves, float *features, int idx=-1);
   }
 
-  struct MiniRecord;
   /** subset of MiniRecord assuming completed game with the standard initial state */
   struct SubRecord {
     /** moves */
@@ -68,15 +88,17 @@ namespace osl {
 
     /** export features and labels */
     void export_feature_labels(int idx, float *input, int& move_label, int& value_label, float *aux_label) const;
-    /** randomly samle index and call export_feature_labels() */
-    void sample_feature_labels(float *input, int& move_label, int& value_label, float *aux_label, int tid=0) const;
-    /** @internal make state of given `index` with flip if white to move */
-    std::tuple<BaseState,Move,Move,GameResult,bool> make_state_label_of_turn(int index) const;
-    /** @internal make a state after the first `n` moves */
+    /** randomly sample index and call export_feature_labels() */
+    void sample_feature_labels(float *input, int& move_label, int& value_label, float *aux_label,
+                               int decay=default_decay, TID tid=TID_ZERO) const;
+    /** @internal make a state after the first `n` moves
+     * marked as internal due to lack of the safety in make_move
+     */
     BaseState make_state(int n) const;
 
-    /** sample int in range [0, limit-1], with progressive 1/2 weight for the opening moves, 2^{-21} for initial position */
-    static int weighted_sampling(int limit, int tid=0);
+    /** sample int in range [0, limit-1], with progressive 1/2 weight for the opening moves, 2^{-decay} for initial position */
+    static int weighted_sampling(int limit, int N=default_decay, TID tid=TID_ZERO);
+    static constexpr int default_decay=11;
   };
 }
 

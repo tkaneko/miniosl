@@ -59,6 +59,8 @@ namespace osl
       EffectState make_state() const;
       Move last_move() const;
 
+      void export_feature_labels(float *input, int& move_label, int& value_label, float *aux_label) const;
+
       friend inline bool operator==(const StateRecord320&, const StateRecord320&) = default;
       friend inline bool operator!=(const StateRecord320&, const StateRecord320&) = default;
     };

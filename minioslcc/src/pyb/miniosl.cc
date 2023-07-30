@@ -82,8 +82,10 @@ void pyosl::init_basic(py::module_& m) {
     .def("policy_move_label", &osl::ml::policy_move_label, "move index for cross-entropy loss in training")
     .def("__repr__", [](osl::Move m) { return "<Move '"+osl::to_psn(m) + "'>"; })
     .def("__str__", [](osl::Move m) { return osl::to_csa(m); })
+    .def("__hash__", [](osl::Move m) { return m.intValue(); })
     .def(py::self == py::self)
     .def(py::self != py::self)
+    .def(py::self < py::self)
     .def_static("resign", &osl::Move::Resign, "return resign")
     .def_static("declare_win", &osl::Move::DeclareWin, "return win declaration")
     ;

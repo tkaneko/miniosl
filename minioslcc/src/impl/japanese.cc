@@ -61,14 +61,13 @@ std::u8string osl::to_ki2(Square cur, Square prev) {
   return (cur == prev) ? kanji::K_ONAZI : to_ki2(cur);
 }
 std::u8string osl::to_ki2(Move m, const EffectState& state, Square prev) {
+  if (m == Move::Resign()) {
+    return kanji::sign[idx(state.turn())] + kanji::K_RESIGN;
+  }
   const Player player = m.player();
   std::u8string ret = kanji::sign[idx(player)];
   if (m.isPass()) {
     ret += kanji::K_PASS;
-    return ret;
-  }
-  if (m == Move::Resign()) {
-    ret += kanji::K_RESIGN;
     return ret;
   }
   if (! state.isAcceptable(m))
