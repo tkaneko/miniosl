@@ -196,8 +196,8 @@ bool osl::PolicyPlayer::recv_result(const std::vector<policy_logits_t>& logits, 
   return true;
 }
 
-osl::FlatGumbelPlayer::FlatGumbelPlayer(int width, double ns)
-  : PlayerArray(/* greedy */ ns == 0), root_width(width), noise_scale(ns) {
+osl::FlatGumbelPlayer::FlatGumbelPlayer(int width, double ns, int greedy_after)
+  : PlayerArray(/* greedy */ ns == 0), root_width(width), greedy_threshold(greedy_after), noise_scale(ns) {
 }
 
 osl::FlatGumbelPlayer::~FlatGumbelPlayer() {
@@ -236,11 +236,14 @@ bool osl::FlatGumbelPlayer::recv_result(const std::vector<policy_logits_t>& logi
   if (root_children.empty()) {
     check_size(logits.size(), 1, "FlatGumbelPlayer recv phase1");
     root_children.resize(root_width * n_parallel());
-    root_children_terminal.resize(root_width * n_parallel());
+    root_children_terminal.resize(root_width * n_parallel());    
 
     auto run = [&](int l, int r, TID tid) {
       for (int g=l; g<r; ++g) {
-        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width, TID(0), noise_scale);
+        auto ns = noise_scale;
+        if ((*_games)[g].record.move_size() >= greedy_threshold)
+          ns = 0.0;
+        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width, TID(0), ns);
         while (ret.size() < root_width)
           ret.push_back(ret[0]);
         int offset = g*root_width;

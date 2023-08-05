@@ -1,6 +1,7 @@
 import curses
 import miniosl
 import argparse
+import os
 
 parser = argparse.ArgumentParser(
     description="terminal ui for miniosl",
@@ -198,4 +199,9 @@ def main():
     ui = miniosl.UI()
     if args.eval:
         ui.load_eval(args.eval, device=args.device)
-    curses.wrapper(TUI(ui, record_set))
+    try:
+        curses.wrapper(TUI(ui, record_set))
+    except Exception as e:
+        print(f'error: {e}')
+        print('please run in terminals with curses available,'
+              f' (current TERM is {os.environ["TERM"]})')

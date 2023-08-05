@@ -1,6 +1,7 @@
 #include "pyb/miniosl.h"
 #include <pybind11/stl.h>
 #include <pybind11/operators.h>
+#include <pybind11/stl/filesystem.h>
 
 #include "state.h"
 #include "record.h"
@@ -203,6 +204,7 @@ void pyosl::init_basic(py::module_& m) {
     for (int i=0; i<id; ++i) getline(is, line);
     getline(is, line);
     return osl::usi::read_record(line); }, "path"_a, "line_id"_a=0, "load a game record");
+  m.def("kif_file", py::overload_cast<const std::filesystem::path&>(&osl::kifu::read_record), "filepath"_a);
   m.def("to_csa", py::overload_cast<osl::Ptype>(&osl::to_csa));
   m.def("to_csa", py::overload_cast<osl::Player>(&osl::to_csa));
   m.def("to_ja", py::overload_cast<osl::Square>(&osl::to_ki2));

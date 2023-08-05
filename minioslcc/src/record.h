@@ -132,7 +132,7 @@ namespace osl
     /** read record from csa file */
     MiniRecord read_record(std::istream& is);
     namespace detail {
-      bool parse_state_line(BaseState&, MiniRecord&, std::string element, CArray<bool,9>&);
+      bool parse_state_line(BaseState&, std::string element, CArray<bool,9>&);
       GameResult parse_move_line(EffectState&, MiniRecord&, std::string element);
     }
     inline MiniRecord read_record(std::string str)  {
@@ -225,6 +225,19 @@ namespace osl
     };
     // hopefully addressed in c++23
     inline auto debugu8(const std::u8string& s) { return reinterpret_cast<const char*>(s.c_str()); }
+  }
+
+  // kif
+  namespace kifu {
+    Move to_move(const std::u8string&, const BaseState&, Square last_to=Square());
+    std::pair<Player,Ptype> to_piece(const std::u8string&);
+    MiniRecord read_record(const std::filesystem::path& filename);
+    MiniRecord read_record(std::istream& is);
+
+    namespace detail {
+      /** @internal */
+      void parse_line(BaseState& state, MiniRecord& record, std::u8string s, CArray<bool,9>& board_parsed);
+    }
   }
 } // osl
 

@@ -292,18 +292,20 @@ osl::MiniRecord osl::csa::read_record(const std::filesystem::path& filename) {
 }
 
 osl::MiniRecord osl::csa::read_record(std::istream& is) {
-  osl::MiniRecord record;
   BaseState work;
   work.initEmpty();
   std::string line;
   CArray<bool, 9> board_parsed = {{ false }};
   while (std::getline(is, line))  {
-    // quick hack for \r
+    // quick aid for \r
     if ((! line.empty()) && (line[line.size()-1] == 13))
       line.erase(line.size()-1);
-    bool complete = detail::parse_state_line(work, record, line, board_parsed);
+    bool complete = detail::parse_state_line(work, line, board_parsed);
     if (complete) break;
   }
+  osl::MiniRecord record;
+  record.set_initial_state(work);
+
   if (*std::min_element(board_parsed.begin(), board_parsed.end()) == false) {
     if (*std::max_element(board_parsed.begin(), board_parsed.end()) == false)
       throw ParseError("no position in csa game record");
@@ -411,8 +413,7 @@ osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord
   return InGame;
 }
 
-bool osl::csa::detail::parse_state_line(BaseState& state, MiniRecord& record, std::string s,
-                                        CArray<bool,9>& board_parsed) {
+bool osl::csa::detail::parse_state_line(BaseState& state, std::string s, CArray<bool,9>& board_parsed) {
   while (! s.empty() && isspace(s[s.size()-1])) // ignore trailing garbage
     s.resize(s.size()-1);
   if (s.length()==0) 
@@ -463,7 +464,6 @@ bool osl::csa::detail::parse_state_line(BaseState& state, MiniRecord& record, st
     if(s.length()==1){
       state.setTurn(pl);
       state.initFinalize();
-      record.set_initial_state(state);
       return true;
     }
   }

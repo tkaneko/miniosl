@@ -12,6 +12,12 @@ WIP.
 |:-------------------------:|:-----------------------------:|
 | ![](https://github.com/tkaneko/miniosl/raw/main/doc/board-sample.png) | ![](https://github.com/tkaneko/miniosl/raw/main/doc/eval-sample.png)      |
 
+### integration with ipywidgets
+
+(experimental)
+
+![](https://github.com/tkaneko/miniosl/raw/main/doc/slider.png)
+
 ## pip wheel
 
 - [https://pypi.org/project/miniosl/](https://pypi.org/project/miniosl/)
@@ -30,7 +36,7 @@ typical commands
 
 ### cui samples
 
-- [shogiconvert](https://github.com/tkaneko/miniosl/blob/main/sample/convert_record.py)
+- [shogiconvert](https://github.com/tkaneko/miniosl/blob/main/miniosl/utility/convert_record.py)
 - [selfplay](https://github.com/tkaneko/miniosl/blob/main/miniosl/utility/selfplay.py)
 - [shogiviewer](https://github.com/tkaneko/miniosl/blob/main/miniosl/utility/curses_viewer.py)
 
@@ -38,6 +44,6 @@ typical commands
 
 ## api doc
 
-[api 0.0.10](https://game.c.u-tokyo.ac.jp/miniosl-api/0-0-10/)
+[api 0.0.11](https://game.c.u-tokyo.ac.jp/miniosl-api/0-0-11/)
 
 tentative, the location will be subject to change in future.

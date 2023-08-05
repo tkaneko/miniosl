@@ -2,19 +2,12 @@
 #define MINIOSL_FEATURE_H
 
 #include "state.h"
+#include "infer.h"
 #include <unordered_map>
 
 namespace osl {
   struct MiniRecord;
   namespace ml {
-    const int basic_channels = 44, heuristic_channels = 13,
-      board_channels = basic_channels + heuristic_channels;
-    /** board_channels + channels_per_history*history_length */
-    extern const int standard_channels;
-    /** moves included before current position */
-    const int history_length = 1; // 7;
-    const int channels_per_history = 3; // 4;
-    
     std::array<int8_t,81> board_dense_feature(const BaseState& state);
     std::array<int8_t,piece_stand_order.size()*2> hand_dense_feature(const BaseState& state);
 

@@ -243,6 +243,9 @@ class UI:
         """go to the last state in the history"""
         return self.replay(len(self._record))
 
+    def last_move_number(self):
+        return len(self._record)
+
     def go(self, step):
         """make moves (step > 0) or unmake moves (step < 0)"""
         if not (0 <= self.cur + step <= len(self._record)):
@@ -541,3 +544,27 @@ class UI:
         if self._features is None or self._infer_result is None:
             return
         return self.show_channels(self._infer_result['aux'], 2, 6)
+
+    def ipywidget(self):
+        import ipywidgets
+        image = ipywidgets.Image(
+            value=miniosl.to_png_bytes(self.to_png()),
+            format='png',
+            width=290,
+            height=250,
+        )
+        shogi_range = ipywidgets.IntSlider(
+            min=0,
+            max=len(self._record),
+            value=self.cur,
+            description='Move number:',
+        )
+
+        def shogi_value_change(change):
+            id = int(change['new'])
+            self.replay(id)
+            image.value = miniosl.to_png_bytes(self.to_png())
+
+        shogi_range.observe(shogi_value_change, names='value')
+        box = ipywidgets.VBox([image, shogi_range])
+        return box

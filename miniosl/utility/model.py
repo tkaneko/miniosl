@@ -9,11 +9,17 @@ import torch
 import json
 import sys
 import os
+import csv
+import datetime
+import tqdm
 
 coloredlogs.install(level='INFO')
 logger = logging.getLogger(__name__)
 
-parser = argparse.ArgumentParser(description="training with extended features")
+parser = argparse.ArgumentParser(
+    description="training with extended features",
+    formatter_class=argparse.ArgumentDefaultsHelpFormatter
+)
 group = parser.add_mutually_exclusive_group(required=True)
 group.add_argument("--train", help="npz or sfen filename for training")
 group.add_argument("--validate", help="only validation", action='store_true')
@@ -35,6 +41,9 @@ grp_l.add_argument("--step-limit", help="maximum #update, 0 for inf",
 grp_l.add_argument("--report-interval", type=int, default=200)
 grp_l.add_argument("--validation-interval", type=int, default=1000)
 parser.add_argument("--validate-data", help="file for validation", default="")
+parser.add_argument("--validation-csv",
+                    help="file to append validation result",
+                    default="validation.csv")
 parser.add_argument("--validation-size", type=int, help="#batch", default=100)
 args = parser.parse_args()
 
@@ -52,7 +61,7 @@ def np_mse(a, b):
     return ((a-b)**2).mean()
 
 
-def validate(model, loader, cfg):
+def validate(model, loader, cfg, pbar=None):
     import torch.nn.functional as F
     if loader is None:
         return
@@ -80,11 +89,26 @@ def validate(model, loader, cfg):
             count += 1
             if cfg.validation_size > 0 and i >= cfg.validation_size:
                 break
-    logging.info(f'validation loss: {running_vloss_move / count:.3f}, ' +
-                 f'  value: {running_vloss_value / count:.3f}' +
-                 f'  aux: {running_vloss_aux / count * 81 / 2:5.3f}' +
-                 f'  top1: {top1 / count:.3f}')
-
+    if pbar:
+        pbar.set_postfix(ordered_dict={
+            'step': 'v', 'm': running_vloss_move / count,
+            'v': running_vloss_value / count,
+            'x': running_vloss_aux / count * 81 / 2,
+            't': top1 / count})
+    else:
+        logging.info(f'validation loss: {running_vloss_move / count:.3f}, ' +
+                     f'  value: {running_vloss_value / count:.3f}' +
+                     f'  aux: {running_vloss_aux / count * 81 / 2:5.3f}' +
+                     f'  top1: {top1 / count:.3f}')
+    with open(cfg.validation_csv, 'a') as csv_output:
+        csv_writer = csv.writer(csv_output, quoting=csv.QUOTE_NONNUMERIC)
+        now = datetime.datetime.now().isoformat(timespec='seconds')
+        csv_writer.writerow([now,
+                             running_vloss_move / count,
+                             running_vloss_value / count,
+                             running_vloss_aux / count * 81 / 2,
+                             top1 / count,
+                             ])
     return running_vloss_move, running_vloss_value, running_vloss_aux
 
 
@@ -113,61 +137,72 @@ def train(model, cfg):
         logging.info(f'loading {args.validate_data} for validation')
         v_dataset = miniosl.load_torch_dataset(args.validate_data)
         validate_loader = loader_class(v_dataset, batch_size=cfg.batch_size,
-                                       shuffle=not deterministic_mode, num_workers=0)
+                                       shuffle=not deterministic_mode,
+                                       num_workers=0)
     writer = SummaryWriter()
     vsize = cfg.validation_size
 
+    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
     for epoch in range(cfg.epoch_limit):
         logging.info(f'start epoch {epoch}')
-        if validate_loader:
-            vloss = validate(model, validate_loader, args)
-            writer.add_scalars('Validation',
-                               {'move': vloss[0]/vsize, 'value': vloss[1]/vsize,
-                                'aux': vloss[2]*81*2/vsize},
-                               epoch*steps_per_epoch)
-        running_loss_move, running_loss_value, running_loss_aux = 0.0, 0.0, 0.0
-        writer.flush()
-        for i, data in enumerate(trainloader, 0):
-            model.train(True)
-            inputs, move_labels, value_labels, aux_labels = [_.to(cfg.device) for _ in data]
-            optimizer.zero_grad()
+        with tqdm.tqdm(total=min(args.step_limit, steps_per_epoch),
+                       smoothing=0, bar_format=bar_format) as pbar:
+            if validate_loader:
+                vloss = validate(model, validate_loader, args, pbar)
+                writer.add_scalars('Validation',
+                                   {'move': vloss[0]/vsize, 'value': vloss[1]/vsize,
+                                    'aux': vloss[2]*81*2/vsize},
+                                   epoch*steps_per_epoch)
+            running_loss_move, running_loss_value, running_loss_aux = 0.0, 0.0, 0.0
+            writer.flush()
+            for i, data in enumerate(trainloader, 0):
+                if (i+1) % 16 == 0:
+                    pbar.update(16)
+                model.train(True)
+                inputs, move_labels, value_labels, aux_labels = [_.to(cfg.device) for _ in data]
+                optimizer.zero_grad()
 
-            outputs_move, outputs_value, outputs_aux = model(inputs)
-            move_loss = criterion(outputs_move, move_labels)
-            value_loss = criterion_value(outputs_value.flatten(), value_labels)
-            aux_loss = criterion_aux(outputs_aux, aux_labels.reshape((-1, 972)))
-            loss = move_loss + value_loss
-            if not args.ablate_aux_loss:
-                loss += aux_loss
-            loss.backward()
-            optimizer.step()
+                outputs_move, outputs_value, outputs_aux = model(inputs)
+                move_loss = criterion(outputs_move, move_labels)
+                value_loss = criterion_value(outputs_value.flatten(), value_labels)
+                aux_loss = criterion_aux(outputs_aux, aux_labels.reshape((-1, 972)))
+                loss = move_loss + value_loss
+                if not args.ablate_aux_loss:
+                    loss += aux_loss
+                loss.backward()
+                optimizer.step()
 
-            running_loss_move += move_loss.item()
-            running_loss_value += value_loss.item()
-            running_loss_aux += aux_loss.item()
-            if at_the_end_of_interval(i, cfg.report_interval):
-                cnt = cfg.report_interval
-                logging.info(f'[{epoch + 1}, {i + 1:5d}] ' +
-                             f'move: {running_loss_move / cnt:5.3f}' +
-                             f'  value: {running_loss_value / cnt:5.3f}'
-                             f'  aux: {running_loss_aux / cnt * 81 / 2:5.3f}')
-                writer.add_scalars('Train',
-                                   {'move': running_loss_move/cnt,
-                                    'value': running_loss_value/cnt,
-                                    'aux': running_loss_aux*81*2/cnt},
-                                   epoch*steps_per_epoch + i)
-                running_loss_move, running_loss_value, running_loss_aux = 0.0, 0.0, 0.0
-            if at_the_end_of_interval(i, cfg.validation_interval):
-                if validate_loader:
-                    vloss = validate(model, validate_loader, args)
-                    writer.add_scalars('Validation',
-                                       {'move': vloss[0]/vsize, 'value': vloss[1]/vsize,
-                                        'aux': vloss[2]*81*2/vsize},
+                running_loss_move += move_loss.item()
+                running_loss_value += value_loss.item()
+                running_loss_aux += aux_loss.item()
+                if at_the_end_of_interval(i, cfg.report_interval):
+                    cnt = cfg.report_interval
+                    pbar.set_postfix(ordered_dict={
+                        'step': i+1, 'm': running_loss_move / cnt,
+                        'v': running_loss_value / cnt,
+                        'x': running_loss_aux / cnt * 81 / 2})
+                    # logging.info(f'[{epoch + 1}, {i + 1:5d}] ' +
+                    #              f'move: {running_loss_move / cnt:5.3f}' +
+                    #              f'  value: {running_loss_value / cnt:5.3f}'
+                    #              f'  aux: {running_loss_aux / cnt * 81 / 2:5.3f}')
+                    writer.add_scalars('Train',
+                                       {'move': running_loss_move/cnt,
+                                        'value': running_loss_value/cnt,
+                                        'aux': running_loss_aux*81*2/cnt},
                                        epoch*steps_per_epoch + i)
-                torch.save(model.state_dict(), f'interim-{args.savefile}.pt')
-            if cfg.step_limit > 0 and i >= cfg.step_limit:
-                logging.warning('reach step_limit')
-                break
+                    running_loss_move, running_loss_value, running_loss_aux = 0.0, 0.0, 0.0
+                if at_the_end_of_interval(i, cfg.validation_interval):
+                    if validate_loader:
+                        vloss = validate(model, validate_loader, args, pbar)
+                        writer.add_scalars('Validation',
+                                           {'move': vloss[0]/vsize,
+                                            'value': vloss[1]/vsize,
+                                            'aux': vloss[2]*81*2/vsize},
+                                           epoch*steps_per_epoch + i)
+                    torch.save(model.state_dict(), f'interim-{args.savefile}.pt')
+                if cfg.step_limit > 0 and i >= cfg.step_limit:
+                    logging.warning('reach step_limit')
+                    break
         if epoch + 1 < cfg.epoch_limit:
             torch.save(model.state_dict(), f'{args.savefile}-{epoch}.pt')
 

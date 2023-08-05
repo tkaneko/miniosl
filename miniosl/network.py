@@ -23,13 +23,32 @@ class ResBlockAlt(nn.Module):
         return nn.ReLu(self.block(data) + data)
 
 
+class Conv2d(nn.Module):
+    """a variant of `nn.Conv2d` separiting bias terms as BatchNorm2d.
+    The parameters follow the pseudocode in the Gumbel MuZero's paper,
+    except for BN; (1) scaling is fixed in the original but
+    learnable here due to the lack of api in pytorch, and (2) momentum
+    is relaxed than the original of 0.001 to speed up learning.
+    """
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int,
+                 *, padding: int = 0):
+        super().__init__()
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
+                              padding=padding, bias=False)
+        self.bn = nn.BatchNorm2d(out_channels,
+                                 eps=1e-3, momentum=0.01)
+
+    def forward(self, data: torch.Tensor) -> torch.Tensor:
+        return self.bn(self.conv(data))
+
+
 class PolicyHead(nn.Module):
     def __init__(self, *, channels: int, out_channels: int):
         super().__init__()
         self.head = nn.Sequential(
-          nn.Conv2d(channels, channels, 1),
+          Conv2d(channels, channels, 1),
           nn.ReLU(),
-          nn.Conv2d(channels, out_channels, 1),
+          Conv2d(channels, out_channels, 1),
           nn.Flatten()
         )
 
@@ -41,7 +60,7 @@ class ValueHead(nn.Module):
     def __init__(self, channels: int, hidden_layer_size):
         super().__init__()
         self.head = nn.Sequential(
-            nn.Conv2d(channels, 1, 1),
+            Conv2d(channels, 1, 1),
             nn.ReLU(),
             nn.Flatten(),
             nn.Linear(81, hidden_layer_size),
@@ -58,26 +77,26 @@ class BasicBody(nn.Module):
     def __init__(self, *, in_channels: int, channels: int, num_blocks: int = 2,
                  make_bottleneck: bool = False):
         super().__init__()
-        self.conv1 = nn.Conv2d(in_channels, channels, 3, padding=1)
+        self.conv1 = Conv2d(in_channels, channels, 3, padding=1)
         if make_bottleneck:
             self.body = nn.Sequential(
                 *[ResBlockAlt(
                     nn.Sequential(
-                        nn.Conv2d(channels, channels//2, 1),
+                        Conv2d(channels, channels//2, 1),
                         nn.ReLU(),
-                        nn.Conv2d(channels//2, channels//2, 3, padding=1),
+                        Conv2d(channels//2, channels//2, 3, padding=1),
                         nn.ReLU(),
-                        nn.Conv2d(channels//2, channels//2, 3, padding=1),
+                        Conv2d(channels//2, channels//2, 3, padding=1),
                         nn.ReLU(),
-                        nn.Conv2d(channels//2, channels, 1),
+                        Conv2d(channels//2, channels, 1),
                     )) for _ in range(num_blocks)])
         else:
             self.body = nn.Sequential(
                 *[ResBlock(
                     nn.Sequential(
-                        nn.Conv2d(channels, channels, 3, padding=1),
+                        Conv2d(channels, channels, 3, padding=1),
                         nn.ReLU(),
-                        nn.Conv2d(channels, channels, 3, padding=1),
+                        Conv2d(channels, channels, 3, padding=1),
                         nn.ReLU(),
                     )) for _ in range(num_blocks)])
 

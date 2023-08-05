@@ -10,10 +10,10 @@ from typing import Tuple
 feature_channels = len(miniosl.channel_id)
 
 
-def p2elo(p):
+def p2elo(p, eps=1e-4):
     if p < 0.5:
         return -p2elo(1-p)
-    return -400 * math.log10(1/p-1)
+    return -400 * math.log10(1/(p+eps)-1)
 
 
 def sort_moves(moves, policy):
@@ -174,6 +174,7 @@ def export_onnx(model, *, device, filename):
 
 
 def export_tensorrt(model, savefile):
+    logging.debug(f'feature challes {feature_channels}')
     import torch_tensorrt
     model.eval()
     model = model.half()

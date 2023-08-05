@@ -86,7 +86,7 @@ namespace osl {
   };
 
   struct FlatGumbelPlayer : public PlayerArray {
-    FlatGumbelPlayer(int width, double noise_scale=1.0);
+    FlatGumbelPlayer(int width, double noise_scale=1.0, int greedy_after=999);
     ~FlatGumbelPlayer();
 
     int make_request(float *) override;
@@ -103,7 +103,7 @@ namespace osl {
 
     std::vector<std::pair<double,Move>> root_children;
     std::vector<GameResult> root_children_terminal;
-    const int root_width;
+    const int root_width, greedy_threshold;
     const double noise_scale;
   };
 

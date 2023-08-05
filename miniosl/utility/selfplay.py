@@ -13,6 +13,7 @@ import numpy as np
 import os.path
 import csv
 import datetime
+import tqdm
 
 parser = argparse.ArgumentParser(
     description="conduct selfplay between policy players",
@@ -34,9 +35,9 @@ grp_nn.add_argument("--n-channel", help="#channel", type=int, default=128)
 grp_nn.add_argument("--ablate-bottleneck", action='store_true')
 parser.add_argument("--verbose", action='store_true')
 parser.add_argument("--output", help="filename for game records",
-                    default="out-sfen.txt")
+                    default="selfplay-sfen.txt")
 parser.add_argument("--csv-output", help="filename for wins/losses",
-                    default='out.csv')
+                    default='selfplay.csv')
 parser.add_argument("--ignore-draw", action='store_true')
 parser.add_argument("--noise-scale", type=float, default=1.0,
                     help="relative scale of noise, greedy if 0")
@@ -81,11 +82,16 @@ def selfplay_array(nn_for_array: miniosl.inference.InferenceForGameArray,
     welapsed = (wfinish-wstart)/(10**6)  # ms
     logger.debug(f'warmup {welapsed:.1f} ms')
 
+    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
     start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
-    steps = 0
-    while len(mgrs.completed()) < args.n_games:
-        mgrs.step()
-        steps += 1
+    steps, prev = 0, 0
+    with tqdm.tqdm(total=args.n_games,
+                   bar_format=bar_format) as pbar:
+        while len(mgrs.completed()) < args.n_games:
+            mgrs.step()
+            steps += 1
+            pbar.update(len(mgrs.completed())-prev)
+            prev = len(mgrs.completed())
     finish = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     elapsed = (finish-start)/(10**6)  # ms
     N = steps * args.parallel

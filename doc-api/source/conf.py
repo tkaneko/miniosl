@@ -9,7 +9,7 @@
 project = 'miniosl'
 copyright = '2023, T. Kaneko (2003-2014 TeamGPS)'
 author = 'T. Kaneko'
-release = '0.0.10'
+release = '0.0.11'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

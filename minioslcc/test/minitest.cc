@@ -5443,6 +5443,26 @@ void test_win_loss_after_move() {
   }
 }
 
+void test_kifu() {
+  auto kmove = u8"1   ２六歩(27)   (0:3/0:0:3)";
+  BaseState state(HIRATE);
+  auto m26fu = Move(Square(2, 7), Square(2, 6), PAWN, Ptype_EMPTY, false, BLACK);
+  TEST_CHECK(m26fu == kifu::to_move(kmove, state));
+
+  auto kifu = "手数----指手---------消費時間--\n"
+    "1   ２六歩(27)   (0:3/0:0:3)\n"
+    "2   ３四歩(33)   (0:1/0:0:1)\n"
+    ;
+  std::istringstream is(kifu);
+  MiniRecord record = kifu::read_record(is);
+  std::cerr << record.moves.size() << '\n' << record.initial_state;
+
+  TEST_ASSERT(record.moves.size() == 2);
+  TEST_CHECK(record.moves[0] == m26fu);
+  auto m34fu = Move(Square(3, 3), Square(3, 4), PAWN, Ptype_EMPTY, false, WHITE);
+  TEST_CHECK(record.moves[1] == m34fu);
+}
+
 
 TEST_LIST = {
   { "player", test_player },
@@ -5479,5 +5499,6 @@ TEST_LIST = {
   { "subrecord_sumple", test_subrecord_sample },
   { "make_feature", test_make_feature },
   { "win-loss-after-move", test_win_loss_after_move},
+  { "kifu", test_kifu },
   { nullptr, nullptr }
 };

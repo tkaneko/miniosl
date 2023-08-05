@@ -236,16 +236,14 @@ void osl::ml::helper::write_np_history(const BaseState& state, Move last_move, f
     std::ranges::copy(capture, ptr+c*81);
     ++c;
   }
-#if 0  
   // king
-  {
+  if constexpr (ml::channels_per_history == 4) {
     auto *plane = ptr+c*81;
     auto sq = state.kingSquare(last_move.player());
     std::fill(plane, plane+81, 0);
     plane[sq.index81()] = 1;
     ++c;
   }
-#endif  
 }
 
 void osl::ml::helper::write_np_aftermove(EffectState state, Move move, float *ptr) {
@@ -384,8 +382,11 @@ namespace osl {
         table["last_move_to_"+id] = 57 + offset;
         table["last_move_traj_"+id] = 58 + offset;
         table["last_move_capture_"+id] = 59 + offset;
-        // table["last_king_"+id] = 60 + offset;
+        if constexpr (ml::channels_per_history == 4)
+          table["last_king_"+id] = 60 + offset;
       }
+      if (table.size() != ml::input_channels)
+        throw std::logic_error("channel config inconsistency");
       return table;
     }
   }
