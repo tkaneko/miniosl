@@ -20,7 +20,7 @@ class ResBlockAlt(nn.Module):
         self.block = block
 
     def forward(self, data: torch.Tensor) -> torch.Tensor:
-        return nn.ReLu(self.block(data) + data)
+        return nn.functional.relu(self.block(data) + data)
 
 
 class Conv2d(nn.Module):
@@ -36,7 +36,7 @@ class Conv2d(nn.Module):
         self.conv = nn.Conv2d(in_channels, out_channels, kernel_size,
                               padding=padding, bias=False)
         self.bn = nn.BatchNorm2d(out_channels,
-                                 eps=1e-3, momentum=0.01)
+                                 eps=1e-3)  # , momentum=0.01
 
     def forward(self, data: torch.Tensor) -> torch.Tensor:
         return self.bn(self.conv(data))
@@ -73,9 +73,31 @@ class ValueHead(nn.Module):
         return self.head(x)
 
 
+class PoolBias(nn.Module):
+    """an interpretation of Fig. 12 in the Gumbel MuZero paper"""
+    def __init__(self, *, channels: int):
+        super().__init__()
+        self.channels = channels
+        self.conv1x1a = Conv2d(channels, channels, 1)
+        self.conv1x1b = Conv2d(channels, channels, 1)
+        self.conv1x1out = Conv2d(channels, channels, 1)
+        self.linear = nn.Linear(2*channels, channels)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        a = nn.functional.relu(self.conv1x1a(x))
+        b = nn.functional.relu(self.conv1x1b(x))
+        b = b.reshape(-1, self.channels, 81)
+        bmax = torch.max(b, dim=2)
+        bmean = torch.mean(b, dim=2)
+        b = torch.cat((bmax[0], bmean), dim=1)
+        b = self.linear(b)
+        c = a + b[:, :, None, None]
+        return self.conv1x1out(c)
+
+
 class BasicBody(nn.Module):
-    def __init__(self, *, in_channels: int, channels: int, num_blocks: int = 2,
-                 make_bottleneck: bool = False):
+    def __init__(self, *, in_channels: int, channels: int, num_blocks: int,
+                 make_bottleneck: bool = True, broadcast_every: int = 8):
         super().__init__()
         self.conv1 = Conv2d(in_channels, channels, 3, padding=1)
         if make_bottleneck:
@@ -89,7 +111,10 @@ class BasicBody(nn.Module):
                         Conv2d(channels//2, channels//2, 3, padding=1),
                         nn.ReLU(),
                         Conv2d(channels//2, channels, 1),
-                    )) for _ in range(num_blocks)])
+                    ))
+                  if (_ + 1) % broadcast_every != 0
+                  else ResBlockAlt(PoolBias(channels=channels))
+                  for _ in range(num_blocks)])
         else:
             self.body = nn.Sequential(
                 *[ResBlock(
@@ -109,7 +134,8 @@ class BasicBody(nn.Module):
 class BasicNetwork(nn.Module):
     def __init__(self, *, in_channels: int, channels: int, out_channels: int):
         super().__init__()
-        self.body = BasicBody(in_channels=in_channels, channels=channels)
+        self.body = BasicBody(in_channels=in_channels, channels=channels,
+                              num_blocks=2)
         self.head = PolicyHead(channels=channels, out_channels=out_channels)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -128,10 +154,12 @@ class StandardNetwork(nn.Module):
     """
     def __init__(self, *, in_channels: int, channels: int, out_channels: int,
                  auxout_channels: int, num_blocks: int, make_bottleneck: bool,
-                 value_head_hidden: int = 256):
+                 value_head_hidden: int = 256, broadcast_every: int = 8):
         super().__init__()
         self.body = BasicBody(in_channels=in_channels, channels=channels,
-                              num_blocks=num_blocks)
+                              num_blocks=num_blocks,
+                              make_bottleneck=make_bottleneck,
+                              broadcast_every=broadcast_every)
         self.head = PolicyHead(channels=channels, out_channels=out_channels)
         self.value_head = ValueHead(channels=channels,
                                     hidden_layer_size=value_head_hidden)

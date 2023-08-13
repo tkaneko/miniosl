@@ -4,16 +4,13 @@ import torch
 import numpy as np
 import logging
 import abc
-import math
 from typing import Tuple
 
 feature_channels = len(miniosl.channel_id)
 
 
 def p2elo(p, eps=1e-4):
-    if p < 0.5:
-        return -p2elo(1-p)
-    return -400 * math.log10(1/(p+eps)-1)
+    return -400 * np.log10(1/(p+eps)-1)
 
 
 def sort_moves(moves, policy):

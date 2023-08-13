@@ -82,15 +82,16 @@ def selfplay_array(nn_for_array: miniosl.inference.InferenceForGameArray,
     welapsed = (wfinish-wstart)/(10**6)  # ms
     logger.debug(f'warmup {welapsed:.1f} ms')
 
-    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
     start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     steps, prev = 0, 0
+
+    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
     with tqdm.tqdm(total=args.n_games,
                    bar_format=bar_format) as pbar:
         while len(mgrs.completed()) < args.n_games:
             mgrs.step()
             steps += 1
-            pbar.update(len(mgrs.completed())-prev)
+            pbar.update(min(args.n_games, len(mgrs.completed()))-prev)
             prev = len(mgrs.completed())
     finish = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     elapsed = (finish-start)/(10**6)  # ms

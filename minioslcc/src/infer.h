@@ -8,12 +8,16 @@
 
 namespace osl {
   namespace ml {
+    /** minimum coefficient to obtain integer value.
+     * the current value is for hand features as lcm(18,4,2)
+     */
+    constexpr int quantize_scale = 36;
     const int basic_channels = 44, heuristic_channels = 13,
       board_channels = basic_channels + heuristic_channels;
     /** board_channels + channels_per_history*history_length */
     extern const int standard_channels;
     /** moves included before current position */
-    constexpr int history_length = 7; // 1 for comatibility with r0.0.10 >=
+    constexpr int history_length = 7; // for AZ; // 1 for comatibility with r0.0.10 >=
     constexpr int channels_per_history = (history_length > 1) ? 4 : 3;
     const int input_channels = board_channels + history_length*channels_per_history;
   }

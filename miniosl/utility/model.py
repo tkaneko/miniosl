@@ -32,6 +32,8 @@ grp_nn = parser.add_argument_group("nn options")
 grp_nn.add_argument("--n-block", help="#residual block", type=int, default=4)
 grp_nn.add_argument("--n-channel", help="#channel", type=int, default=128)
 grp_nn.add_argument("--ablate-bottleneck", action='store_true')
+grp_nn.add_argument("--broadcast-every", help="insert broadcast periodically",
+                    type=int, default=8)
 grp_l = parser.add_argument_group("training options")
 grp_l.add_argument("--ablate-aux-loss", action='store_true')
 grp_l.add_argument("--batch-size", type=int, default=256)
@@ -45,12 +47,6 @@ parser.add_argument("--validation-csv",
                     help="file to append validation result",
                     default="validation.csv")
 parser.add_argument("--validation-size", type=int, help="#batch", default=100)
-args = parser.parse_args()
-
-if args.train and not args.savefile:
-    args.savefile = (f'model-blk{args.n_block}-ch{args.n_channel}'
-                     + f'{"-nobtl" if args.ablate_bottleneck else ""}'
-                     + f'{"-noaux" if args.ablate_aux_loss else ""}')
 
 feature_channels = len(miniosl.channel_id)
 loader_class = torch.utils.data.DataLoader
@@ -61,7 +57,7 @@ def np_mse(a, b):
     return ((a-b)**2).mean()
 
 
-def validate(model, loader, cfg, pbar=None):
+def validate(model, loader, cfg, *, pbar=None, name=None):
     import torch.nn.functional as F
     if loader is None:
         return
@@ -87,29 +83,29 @@ def validate(model, loader, cfg, pbar=None):
             running_vloss_value += value_loss
             running_vloss_aux += aux_loss
             count += 1
-            if cfg.validation_size > 0 and i >= cfg.validation_size:
+            if cfg.validation_size > 0 and i + 1 >= cfg.validation_size:
                 break
+    running_vloss_move  /= count
+    running_vloss_value /= count
+    running_vloss_aux = running_vloss_aux * 81 / 2 / count
+    top1 /= count
     if pbar:
-        pbar.set_postfix(ordered_dict={
-            'step': 'v', 'm': running_vloss_move / count,
-            'v': running_vloss_value / count,
-            'x': running_vloss_aux / count * 81 / 2,
-            't': top1 / count})
+        pbar.set_postfix(ordered_dict={'step': 'v',
+            'm': running_vloss_move, 'v': running_vloss_value,
+            'x': running_vloss_aux,  't': top1})
     else:
-        logging.info(f'validation loss: {running_vloss_move / count:.3f}, ' +
-                     f'  value: {running_vloss_value / count:.3f}' +
-                     f'  aux: {running_vloss_aux / count * 81 / 2:5.3f}' +
-                     f'  top1: {top1 / count:.3f}')
+        logging.info(f'validation loss: {running_vloss_move:.3f}, '
+                     f'  value: {running_vloss_value:.3f}'
+                     f'  aux: {running_vloss_aux:5.3f}  top1: {top1:.3f}')
     with open(cfg.validation_csv, 'a') as csv_output:
         csv_writer = csv.writer(csv_output, quoting=csv.QUOTE_NONNUMERIC)
         now = datetime.datetime.now().isoformat(timespec='seconds')
+        if not name:
+            name = cfg.loadfile
         csv_writer.writerow([now,
-                             running_vloss_move / count,
-                             running_vloss_value / count,
-                             running_vloss_aux / count * 81 / 2,
-                             top1 / count,
-                             ])
-    return running_vloss_move, running_vloss_value, running_vloss_aux
+                             running_vloss_move, running_vloss_value, running_vloss_aux, top1,
+                             name])
+    return running_vloss_move, running_vloss_value, running_vloss_aux, top1
 
 
 def at_the_end_of_interval(i, interval):
@@ -121,8 +117,8 @@ def train(model, cfg):
     logging.info('start training')
     with open(f'{cfg.savefile}.json', 'w') as file:
         json.dump(cfg.__dict__, file)
-    logging.info(f'loading {args.train}')
-    dataset = miniosl.load_torch_dataset(args.train)
+    logging.info(f'loading {cfg.train}')
+    dataset = miniosl.load_torch_dataset(cfg.train)
 
     criterion = torch.nn.CrossEntropyLoss()
     criterion_value = torch.nn.MSELoss()
@@ -133,9 +129,9 @@ def train(model, cfg):
     trainloader = loader_class(dataset, batch_size=cfg.batch_size,
                                shuffle=True, num_workers=0)
     v_dataset, validate_loader = None, None
-    if args.validate_data:
-        logging.info(f'loading {args.validate_data} for validation')
-        v_dataset = miniosl.load_torch_dataset(args.validate_data)
+    if cfg.validate_data:
+        logging.info(f'loading {cfg.validate_data} for validation')
+        v_dataset = miniosl.load_torch_dataset(cfg.validate_data)
         validate_loader = loader_class(v_dataset, batch_size=cfg.batch_size,
                                        shuffle=not deterministic_mode,
                                        num_workers=0)
@@ -145,10 +141,11 @@ def train(model, cfg):
     bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
     for epoch in range(cfg.epoch_limit):
         logging.info(f'start epoch {epoch}')
-        with tqdm.tqdm(total=min(args.step_limit, steps_per_epoch),
+        with tqdm.tqdm(total=min(cfg.step_limit, steps_per_epoch),
                        smoothing=0, bar_format=bar_format) as pbar:
             if validate_loader:
-                vloss = validate(model, validate_loader, args, pbar)
+                vname = f'{cfg.savefile}-{epoch}-0'
+                vloss = validate(model, validate_loader, cfg, pbar=pbar, name=vname)
                 writer.add_scalars('Validation',
                                    {'move': vloss[0]/vsize, 'value': vloss[1]/vsize,
                                     'aux': vloss[2]*81*2/vsize},
@@ -167,7 +164,7 @@ def train(model, cfg):
                 value_loss = criterion_value(outputs_value.flatten(), value_labels)
                 aux_loss = criterion_aux(outputs_aux, aux_labels.reshape((-1, 972)))
                 loss = move_loss + value_loss
-                if not args.ablate_aux_loss:
+                if not cfg.ablate_aux_loss:
                     loss += aux_loss
                 loss.backward()
                 optimizer.step()
@@ -193,28 +190,36 @@ def train(model, cfg):
                     running_loss_move, running_loss_value, running_loss_aux = 0.0, 0.0, 0.0
                 if at_the_end_of_interval(i, cfg.validation_interval):
                     if validate_loader:
-                        vloss = validate(model, validate_loader, args, pbar)
+                        vname = f'{cfg.savefile}-{epoch}-{i+1}'
+                        vloss = validate(model, validate_loader, cfg, pbar=pbar, name=vname)
                         writer.add_scalars('Validation',
                                            {'move': vloss[0]/vsize,
                                             'value': vloss[1]/vsize,
                                             'aux': vloss[2]*81*2/vsize},
                                            epoch*steps_per_epoch + i)
-                    torch.save(model.state_dict(), f'interim-{args.savefile}.pt')
+                    torch.save(model.state_dict(), f'interim-{cfg.savefile}.pt')
                 if cfg.step_limit > 0 and i >= cfg.step_limit:
                     logging.warning('reach step_limit')
                     break
         if epoch + 1 < cfg.epoch_limit:
-            torch.save(model.state_dict(), f'{args.savefile}-{epoch}.pt')
+            torch.save(model.state_dict(), f'{cfg.savefile}-{epoch}.pt')
 
     logging.info('finish')
-    torch.save(model.state_dict(), f'{args.savefile}.pt')
+    torch.save(model.state_dict(), f'{cfg.savefile}.pt')
 
 
 def main():
+    args = parser.parse_args()
+    if args.train and not args.savefile:
+        args.savefile = (f'model-blk{args.n_block}-ch{args.n_channel}'
+                         + f'{"-nobtl" if args.ablate_bottleneck else ""}'
+                         + f'{"-noaux" if args.ablate_aux_loss else ""}')
+
     network_cfg = {'in_channels': len(miniosl.channel_id),
                    'channels': args.n_channel, 'out_channels': 27,
                    'auxout_channels': 12, 'num_blocks': args.n_block,
-                   'make_bottleneck': not args.ablate_bottleneck}
+                   'make_bottleneck': not args.ablate_bottleneck,
+                   'broadcast_every': args.broadcast_every}
     model = miniosl.StandardNetwork(**network_cfg).to(args.device)
     if args.loadfile:
         logging.info(f'load {args.loadfile}')

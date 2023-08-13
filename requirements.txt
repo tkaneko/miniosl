@@ -4,3 +4,4 @@ drawsvg
 cairosvg
 apng
 coloredlogs
+tqdm
