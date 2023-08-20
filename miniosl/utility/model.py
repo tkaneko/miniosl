@@ -33,7 +33,7 @@ grp_nn.add_argument("--n-block", help="#residual block", type=int, default=4)
 grp_nn.add_argument("--n-channel", help="#channel", type=int, default=128)
 grp_nn.add_argument("--ablate-bottleneck", action='store_true')
 grp_nn.add_argument("--broadcast-every", help="insert broadcast periodically",
-                    type=int, default=8)
+                    type=int, default=4)
 grp_l = parser.add_argument_group("training options")
 grp_l.add_argument("--ablate-aux-loss", action='store_true')
 grp_l.add_argument("--batch-size", type=int, default=256)
@@ -71,14 +71,15 @@ def validate(model, loader, cfg, *, pbar=None, name=None):
     with torch.no_grad():
         for i, data in enumerate(loader):
             inputs, move_labels, value_labels, aux_labels = data
-            inputs = inputs.to(cfg.device)
+            inputs = inputs.to(cfg.device).float()
+            inputs /= miniosl.One
             output_move, output_value, output_aux = model.infer(inputs)
             top1 += (np.sum(np.argmax(output_move, axis=1)
                             == move_labels.to('cpu').numpy())
                      / len(move_labels)).item()
-            move_loss = F.cross_entropy(torch.from_numpy(output_move), move_labels).item()
+            move_loss = F.cross_entropy(torch.from_numpy(output_move), move_labels.long()).item()
             value_loss = np_mse(output_value.flatten(), value_labels.numpy())
-            aux_loss = np_mse(output_aux, aux_labels.numpy().reshape((-1, 972)))
+            aux_loss = np_mse(output_aux, aux_labels.float().numpy().reshape((-1, 972)) / miniosl.One)
             running_vloss_move += move_loss
             running_vloss_value += value_loss
             running_vloss_aux += aux_loss
@@ -127,6 +128,7 @@ def train(model, cfg):
 
     steps_per_epoch = (len(dataset)+cfg.batch_size-1) // cfg.batch_size
     trainloader = loader_class(dataset, batch_size=cfg.batch_size,
+                               collate_fn=lambda indices: dataset.collate(indices),
                                shuffle=True, num_workers=0)
     v_dataset, validate_loader = None, None
     if cfg.validate_data:
@@ -134,11 +136,13 @@ def train(model, cfg):
         v_dataset = miniosl.load_torch_dataset(cfg.validate_data)
         validate_loader = loader_class(v_dataset, batch_size=cfg.batch_size,
                                        shuffle=not deterministic_mode,
+                                       collate_fn=lambda indices: v_dataset.collate(indices),
                                        num_workers=0)
     writer = SummaryWriter()
     vsize = cfg.validation_size
 
     bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
+    pbar_interval = max(1, 4096 / cfg.batch_size)
     for epoch in range(cfg.epoch_limit):
         logging.info(f'start epoch {epoch}')
         with tqdm.tqdm(total=min(cfg.step_limit, steps_per_epoch),
@@ -153,10 +157,17 @@ def train(model, cfg):
             running_loss_move, running_loss_value, running_loss_aux = 0.0, 0.0, 0.0
             writer.flush()
             for i, data in enumerate(trainloader, 0):
-                if (i+1) % 16 == 0:
-                    pbar.update(16)
+                if i >= steps_per_epoch:
+                    break
+                if (i+1) % pbar_interval == 0:
+                    pbar.update(pbar_interval)
                 model.train(True)
                 inputs, move_labels, value_labels, aux_labels = [_.to(cfg.device) for _ in data]
+                inputs, aux_labels = inputs.float(), aux_labels.float()
+                inputs /= miniosl.One
+                aux_labels /= miniosl.One
+                move_labels = move_labels.long()
+
                 optimizer.zero_grad()
 
                 outputs_move, outputs_value, outputs_aux = model(inputs)
@@ -209,6 +220,11 @@ def train(model, cfg):
 
 
 def main():
+    if deterministic_mode:
+        torch.manual_seed(0)
+        np.random.seed(0)
+        #random.seed(0)
+
     args = parser.parse_args()
     if args.train and not args.savefile:
         args.savefile = (f'model-blk{args.n_block}-ch{args.n_channel}'
@@ -245,8 +261,10 @@ def main():
             v_dataset = miniosl.load_torch_dataset(args.validate_data)
             v_loader = loader_class(v_dataset, batch_size=args.batch_size,
                                     shuffle=not deterministic_mode,
+                                    collate_fn=lambda indices: v_dataset.collate(indices),
                                     num_workers=0)
-            logging.info(f'validation with {args.validate_data}')
+            logging.info(f'validation with {args.validate_data},'
+                         f' concurrency {miniosl.parallel_threads()}')
             validate(model, v_loader, args)
 
 

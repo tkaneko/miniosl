@@ -418,7 +418,8 @@ int osl::bitpack::append_binary_record(const MiniRecord& record, std::vector<uin
     }
     else {
       int avail = 64-used;
-      work += (code&(one_hot(avail)-1)) << used;
+      if (avail)
+        work += (code&(one_hot(avail)-1)) << used;
       out.push_back(work);
       work = code >> avail;
       used = 12-avail;
@@ -547,16 +548,25 @@ osl::Move osl::bitpack::StateRecord320::last_move() const {
   return ret;
 }
 
-void osl::bitpack::StateRecord320::export_feature_labels(float *input, int& move_label, int& value_label, float *aux_label) const {
+void osl::bitpack::StateRecord320::
+export_feature_labels(float *input, int& move_label, int& value_label, float *aux_label) const {
   MoveVector moves(history.begin(), history.end());
   while (! moves.empty() && !moves.back().isNormal())
     moves.pop_back();
-  auto [state, flipped] = ml::export_features(base.state, moves, input);
+
+  auto [state, flipped] =
+    ml::write_float_feature([&](auto *out){ return ml::export_features(base.state, moves, out); },
+                            ml::input_unit,
+                            input);
+
   if (flipped)
     throw std::logic_error("StateRecord320 flip consistency"); // must already be flipped if needed
   
   // labels
   move_label = ml::policy_move_label(base.next);
   value_label = ml::value_label(base.result);
-  ml::helper::write_np_aftermove(state, base.next, aux_label);
+
+  ml::write_float_feature([&](auto *out){ ml::helper::write_np_aftermove(state, base.next, out); },
+                          ml::aux_unit,
+                          aux_label);
 }

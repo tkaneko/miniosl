@@ -5046,64 +5046,78 @@ void test_repetition() {
   }
 }
 
+typedef std::array<osl::nn_input_element, 81*2> plane2ch;
 void test_feature() {
   {
     EffectState state;
     auto bd = ml::board_dense_feature(state);
     auto hd = ml::hand_dense_feature(state);
-    auto b = ml::board_feature(state);
-    auto h = ml::hand_feature(state);
+    std::array<nn_input_element, 81*30> b{0};
+    ml::board_feature(state, &b[0]);
+    std::array<nn_input_element, 81*14> h{0};
+    ml::hand_feature(state, &h[0]);
 
     for (int y: board_y_range())
       for (int x: board_x_range()) {
         Square sq(x,y);
         auto ptypeo = state.pieceAt(sq).ptypeO();
         TEST_CHECK(bd[sq.index81()] == Int(ptypeo));
-        for (int c: std::views::iota(0, 30)) 
-          TEST_CHECK(b[c*81+sq.index81()] == ((c == ptypeo+14) || c == Int(Ptype_EDGE)+14));
+        for (int c: std::views::iota(0, 30)) {
+          if (b[c*81+sq.index81()]
+              != ml::One * ((c == ptypeo+14) || c == Int(Ptype_EDGE)+14))
+            std::cerr << sq << ' ' << c << ' ' << b[c*81+sq.index81()] << ' '
+                      << (c == ptypeo+14) << ' '
+                      << (c == Int(Ptype_EDGE)+14) << '\n';
+          TEST_CHECK(b[c*81+sq.index81()]
+                     == ml::One * ((c == ptypeo+14) || c == Int(Ptype_EDGE)+14));
+        }
       }
-    std::vector<float> work(ml::channel_id.size()*81);
+    std::vector<nn_input_element> work(ml::channel_id.size()*81);
     ml::helper::write_np_44ch(state, &work[0]);
     ml::helper::write_np_additional(state, false, &work[0]+81*ml::basic_channels);
 
     state.make_move("+7776FU");
-  
-    auto lance = ml::lance_cover(state);
+
+    plane2ch lance{0};
+    ml::lance_cover(state, &lance[0]);
     std::set lance_covered{Square{9,8}, {9,7}, {1,8}, {1,7}};
     for (int y: board_y_range())
       for (int x: board_x_range()) {
         Square sq(x,y);
-        TEST_CHECK(lance[sq.index81()] == lance_covered.count(sq));
-        TEST_CHECK(lance[sq.index81()+81] == lance_covered.count(sq.rotate180()));
+        TEST_CHECK(lance[sq.index81()] == ml::One*lance_covered.count(sq));
+        TEST_CHECK(lance[sq.index81()+81] == ml::One*lance_covered.count(sq.rotate180()));
       }      
 
-    auto bishop = ml::bishop_cover(state);
+    plane2ch bishop{0};
+    ml::bishop_cover(state, &bishop[0]);
     std::set bishop_covered{Square{9,7}, {9,9}, {7,9}, {7,7}, {6,6}, {5,5}, {4,4}, {3,3}};
     std::set bishop_covered_w{Square{1,3}, {1,1}, {3,1}, {3,3}};
     for (int y: board_y_range())
       for (int x: board_x_range()) {
         Square sq(x,y);
-        TEST_CHECK(bishop[sq.index81()] == bishop_covered.count(sq));
-        TEST_CHECK(bishop[sq.index81()+81] == bishop_covered_w.count(sq));
+        TEST_CHECK(bishop[sq.index81()] == ml::One*bishop_covered.count(sq));
+        TEST_CHECK(bishop[sq.index81()+81] == ml::One*bishop_covered_w.count(sq));
       }      
 
-    auto rook = ml::rook_cover(state);
+    plane2ch rook{0};
+    ml::rook_cover(state, &rook[0]);
     std::set rook_covered{Square{1,8}, {2,7}, {2,9}, {3,8}, {4,8}, {5,8}, {6,8}, {7,8}, {8,8}};
     for (int y: board_y_range())
       for (int x: board_x_range()) {
         Square sq(x,y);
-        TEST_CHECK(rook[sq.index81()] == rook_covered.count(sq));
-        TEST_CHECK(rook[sq.index81()+81] == rook_covered.count(sq.rotate180()));
+        TEST_CHECK(rook[sq.index81()] == ml::One*rook_covered.count(sq));
+        TEST_CHECK(rook[sq.index81()+81] == ml::One*rook_covered.count(sq.rotate180()));
       }      
 
-    auto king = ml::king_visibility(state);
+    plane2ch king{0};
+    ml::king_visibility(state, &king[0]);
     std::set king_visible{Square{4,9}, {4,8}, {3,7}, {5,8}, {5,7}, {6,9}, {6,8}, {7,7}, {8,6}, {9,5}};
     std::set king_visible_w{Square{4,1}, {4,2}, {3,3}, {5,2}, {5,3}, {6,1}, {6,2}, {7,3}};
     for (int y: board_y_range())
       for (int x: board_x_range()) {
         Square sq(x,y);
-        TEST_CHECK(king[sq.index81()] == king_visible.count(sq));
-        TEST_CHECK(king[sq.index81()+81] == king_visible_w.count(sq));
+        TEST_CHECK(king[sq.index81()] == ml::One*king_visible.count(sq));
+        TEST_CHECK(king[sq.index81()+81] == ml::One*king_visible_w.count(sq));
       }
   }
   {
@@ -5121,7 +5135,8 @@ void test_feature() {
                        "P+00FU00KY\n"
                        "P-00AL\n"
                        "+\n"));
-    auto king = ml::king_visibility(state);
+    plane2ch king{0};
+    ml::king_visibility(state, &king[0]);
     TEST_CHECK(king[Square(8,1).index81()]);
     TEST_CHECK(king[Square(1,2).index81()]);
     TEST_CHECK(king[Square(1,9).index81()]);
@@ -5146,7 +5161,8 @@ void test_feature() {
                        "P+00FU00KY\n"
                        "P-00AL\n"
                        "+\n"));
-    auto king = ml::king_visibility(state);
+    plane2ch king{0};
+    ml::king_visibility(state, &king[0]);
     TEST_CHECK(king[Square(1,1).index81()]);
     TEST_CHECK(king[Square(9,1).index81()]);
     TEST_CHECK(king[Square(9,9).index81()]);
@@ -5171,7 +5187,8 @@ void test_feature() {
                        "P+00FU00KY\n"
                        "P-00AL\n"
                        "+\n"));
-    auto king = ml::king_visibility(state);
+    plane2ch king{0};
+    ml::king_visibility(state, &king[0]);
     TEST_CHECK(king[Square(1,9).index81()]);
     TEST_CHECK(king[Square(9,1).index81()]);
     TEST_CHECK(king[Square(9,9).index81()]);
@@ -5196,7 +5213,8 @@ void test_feature() {
                        "P+00FU00KY\n"
                        "P-00AL\n"
                        "+\n"));
-    auto king = ml::king_visibility(state);
+    plane2ch king{0};
+    ml::king_visibility(state, &king[0]);
     TEST_CHECK(king[Square(1,1).index81()]);
     TEST_CHECK(king[Square(1,2).index81()]);
     TEST_CHECK(king[Square(2,9).index81()]);
@@ -5223,7 +5241,8 @@ void test_feature() {
                        "P+00FU00KY\n"
                        "P-00AL\n"
                        "+\n"));
-    auto king = ml::king_visibility(state);
+    plane2ch king{0};
+    ml::king_visibility(state, &king[0]);
     TEST_CHECK(king[Square(1,1).index81()]);
     TEST_CHECK(king[Square(1,9).index81()]);
     TEST_CHECK(king[Square(9,9).index81()]);
@@ -5250,7 +5269,8 @@ void test_feature() {
                        "+\n"));
     auto best_move = state.tryCheckmate1ply();
     TEST_CHECK(best_move.isNormal());
-    auto mate_path = ml::mate_path(state);
+    plane2ch mate_path{0};
+    ml::mate_path(state, &mate_path[0]);
     TEST_CHECK(mate_path[Square(8,2).index81()]);
     TEST_CHECK(mate_path[Square(8,3).index81()]);
     TEST_CHECK(mate_path[Square(8,8).index81()]);
@@ -5342,10 +5362,11 @@ void test_make_move_unsafe() {
 }
 
 void test_make_feature() {
-  std::vector<float> work(ml::channel_id.size()*81);
+  std::vector<nn_input_element> work(ml::channel_id.size()*81);
   auto record = usi::read_record(long_sfen);
   auto initial = record.initial_state;
   
+  std::fill(work.begin(), work.end(), 0);
   auto [state, flipped] = ml::export_features(initial, record.moves, &work[0]);
   {
     EffectState state2;
@@ -5361,6 +5382,7 @@ void test_make_feature() {
   }
   bool prev = false;
   for (int i=0; i<=record.moves.size(); ++i) {
+    std::fill(work.begin(), work.end(), 0);
     auto [state, flipped] = ml::export_features(initial, record.moves, &work[0], i);
     if (i > 0)
       TEST_CHECK(prev != flipped);
@@ -5423,7 +5445,7 @@ void test_win_loss_after_move() {
     usi::parse(sfen, state);
     MoveVector history;
 
-    std::vector<float> work(ml::channel_id.size()*81);
+    std::vector<nn_input_element> work(ml::channel_id.size()*81);
     auto move = state.to_move("+5868OU");
     auto result = GameManager::export_heuristic_feature_after(move, state, history, &work[0]);
     TEST_CHECK(result == win_result(WHITE));
@@ -5436,7 +5458,7 @@ void test_win_loss_after_move() {
 
     TEST_CHECK(state.turn() == WHITE);
 
-    std::vector<float> work(ml::channel_id.size()*81);
+    std::vector<nn_input_element> work(ml::channel_id.size()*81);
     auto move = state.to_move("-5242OU");
     auto result = GameManager::export_heuristic_feature_after(move, state, history, &work[0]);
     TEST_CHECK(result == win_result(BLACK));

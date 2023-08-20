@@ -1,7 +1,8 @@
 #include "pyb/miniosl.h"
+#include "pyb/np.h"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <pybind11/numpy.h>
+#include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
 #include "game.h"
 #include "infer.h"
@@ -19,30 +20,42 @@ namespace pyosl {
   class InferenceModelStub : public InferenceModel {
   public:
     using InferenceModel::InferenceModel;
-    void test_run(std::vector<nn_input_t>& in,
+    void test_run(std::vector<nn_input_element>& in,
                   std::vector<policy_logits_t>& policy_out,
                   std::vector<std::array<float,1>>& vout) override {
       batch_infer(in, policy_out, vout);
     }
     
-    void batch_infer(std::vector<nn_input_t>& in,
+    void batch_infer(std::vector<nn_input_element>& in,
                      std::vector<policy_logits_t>& policy_out,
                      std::vector<std::array<float,1>>& vout) override {
-      py::array_t<float> feature(in.size()*in[0].size());
-      auto buffer = feature.request();
-      auto ptr = static_cast<float_t*>(buffer.ptr);
-      std::copy(&in[0][0], &in[0][0]+in.size()*in[0].size(), ptr);
-      
-      auto [policy, value, aux] = py_infer(feature);
-      auto pb = policy.request();
-      auto pptr = static_cast<float*>(pb.ptr);
-      for (size_t i=0; i<in.size(); ++i)
-        for (size_t j=0; j<policy_out[0].size(); ++j)
-          policy_out[i][j] = pptr[i*policy_out[0].size() + j];
+      const int sz = in.size() / osl::ml::input_unit;
+      if (sz != vout.size() || (!policy_out.empty() && sz != policy_out.size()))
+        throw std::invalid_argument("batch_infer: size mismatch "
+                                    + std::to_string(sz)
+                                    + " " + std::to_string(in.size())
+                                    + " " + std::to_string(policy_out.size())
+                                    + " " + std::to_string(vout.size())
+                                    );
+      nparray<float> feature(in.size());
+      auto ptr = feature.ptr();
+#ifdef MINIOSL_INT8_FEATURES
+      ml::transform(in, ptr);
+#else
+      std::copy(in.begin(), in.end(), ptr);
+#endif
+      auto [policy, value, aux] = py_infer(feature.array);
+      if (! policy_out.empty()) {
+        auto pb = policy.request();
+        auto pptr = static_cast<float*>(pb.ptr);
+        for (size_t i=0; i<sz; ++i)
+          for (size_t j=0; j<policy_out[0].size(); ++j)
+            policy_out[i][j] = pptr[i*policy_out[0].size() + j];
+      }
       
       auto vb = value.request();
       auto vptr = static_cast<float*>(vb.ptr);
-      for (size_t i=0; i<in.size(); ++i)
+      for (size_t i=0; i<sz; ++i)
         for (size_t j=0; j<vout[0].size(); ++j)
           vout[i][j] = vptr[i*vout[0].size() + j];
     }
@@ -167,21 +180,26 @@ void pyosl::init_game(py::module_& m) {
 
   // function
   m.def("transformQ", &osl::FlatGumbelPlayer::transformQ, "q_by_nn"_a);
+
+  py::bind_vector<std::vector<osl::GameManager>>(m, "GameManagerVector");
 }
 
 py::array_t<float> pyosl::export_heuristic_feature(const osl::GameManager& mgr) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-  mgr.export_heuristic_feature(ptr);
-  return feature.reshape({-1, 9, 9});
+  nparray<float> feature(ml::input_unit);
+  ml::write_float_feature([&](auto *out) { mgr.export_heuristic_feature(out); },
+                          ml::input_unit,
+                          feature.ptr()
+                          );
+  return feature.array.reshape({-1, 9, 9});
 }
 
 py::array_t<float> pyosl::export_heuristic_feature_parallel(const osl::ParallelGameManager& mgrs) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size()*mgrs.n_parallel());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-  GameArray::export_root_features(mgrs.games, ptr);
-  return feature.reshape({-1, (int)ml::channel_id.size(), 9, 9});
+  const int sz = ml::input_unit * mgrs.n_parallel();
+  nparray<float> feature(sz);
+  ml::write_float_feature([&](auto *out) { GameArray::export_root_features(mgrs.games, out); },
+                          sz,
+                          feature.ptr()
+                          );  
+  return feature.array.reshape({-1, (int)ml::channel_id.size(), 9, 9});
 }
 

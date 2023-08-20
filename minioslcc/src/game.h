@@ -23,15 +23,18 @@ namespace osl {
      * @return result indicating the game was completed by the move
      */
     GameResult make_move(Move move);
-    void export_heuristic_feature(float*) const;
+    void export_heuristic_feature(nn_input_element*) const;
     /** export features for a state after move
+     * @param ptr must be zero-filled in advance
      * @return InGame (usual cases) or a definite result if identified
      */
-    osl::GameResult export_heuristic_feature_after(Move, float*) const;
-    /** @internal this interface will subject to change along with optimization/enhancements */
+    osl::GameResult export_heuristic_feature_after(Move, nn_input_element *ptr) const;
+    /** @internal this interface will subject to change along with optimization/enhancements 
+     * @param ptr must be zero-filled in advance
+     */
     static GameResult export_heuristic_feature_after(Move latest,
                                                      BaseState initial, MoveVector history,
-                                                     float*);
+                                                     nn_input_element *ptr);
     static GameManager from_record(const MiniRecord& record);
   };
 
@@ -46,7 +49,7 @@ namespace osl {
     virtual ~PlayerArray()=default;
     void new_series(const std::vector<GameManager>& games);
     /** return request size per game */
-    virtual int make_request(float *)=0;
+    virtual std::pair<int,bool> make_request(nn_input_element *)=0;
     /** return decision made */
     virtual bool recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>& values)=0;
     /** maximum number of position each player may request at a time */
@@ -80,7 +83,7 @@ namespace osl {
   struct PolicyPlayer : public PlayerArray {
     PolicyPlayer(bool greedy=false);
     ~PolicyPlayer();
-    int make_request(float *) override;
+    std::pair<int,bool> make_request(nn_input_element *) override;
     bool recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>& values) override;
     std::string name() const override;
   };
@@ -89,7 +92,7 @@ namespace osl {
     FlatGumbelPlayer(int width, double noise_scale=1.0, int greedy_after=999);
     ~FlatGumbelPlayer();
 
-    int make_request(float *) override;
+    std::pair<int,bool> make_request(nn_input_element *) override;
     bool recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>& values) override;
     int max_width() const override { return root_width; }
     std::string name() const override;
@@ -116,7 +119,7 @@ namespace osl {
   struct CPUPlayer : public PlayerArray {
     CPUPlayer(std::shared_ptr<SingleCPUPlayer> player, bool greedy);
     ~CPUPlayer();
-    int make_request(float *) override;
+    std::pair<int,bool> make_request(nn_input_element *) override;
     bool recv_result(const std::vector<policy_logits_t>& logits, const std::vector<std::array<float,1>>& values) override;
     int max_width() const override { return 0; }
     std::string name() const override { return player->name(); }
@@ -149,14 +152,15 @@ namespace osl {
   class GameArray {
   public:
     GameArray(int N, PlayerArray& a, PlayerArray& b, InferenceModel& model,
-              bool ignore_draw=false);
+              bool ignore_draw=false, double random_opening=0.0);
     ~GameArray();
 
     void step();
     const auto& completed() const { return mgrs.completed_games; }
 
     void warmup(int n=4);
-    static void export_root_features(const std::vector<GameManager>& games, float*);
+    /** @param ptr first zero-filled inside this method */
+    static void export_root_features(const std::vector<GameManager>& games, nn_input_element *ptr);
   private:
     void resize_buffer(int width);
 
@@ -164,12 +168,13 @@ namespace osl {
     std::array<PlayerArray*,2> players;
     InferenceModel &model;
     bool side=0;
-    std::vector<nn_input_t> input_buf;
+    std::vector<nn_input_element> input_buf;
     std::vector<policy_logits_t> policy_buf;
     std::vector<std::array<float,1>> value_buf;
     /** player_a should always play first */
     std::vector<int8_t> skip_one_turn;
     int max_width;
+    double random_opening=0.0;
   };
 }
 

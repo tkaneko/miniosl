@@ -1,7 +1,8 @@
 #include "pyb/miniosl.h"
+#include "pyb/np.h"
 #include <pybind11/pybind11.h>
 #include <pybind11/stl.h>
-#include <pybind11/numpy.h>
+#include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
 #include "state.h"
 #include "record.h"
@@ -10,6 +11,7 @@
 #include "impl/bitpack.h"
 #include "impl/more.h"
 #include "impl/checkmate.h"
+#include "impl/range-parallel.h"
 #include <sstream>
 #include <iostream>
 #include <fstream>
@@ -30,8 +32,19 @@ namespace pyosl {
   std::tuple<py::array_t<float>, int, int, py::array_t<float>>
   to_np_feature_labels(const StateRecord320& record);
 
-  std::tuple<py::array_t<float>, int, int, py::array_t<float>>
+  std::tuple<py::array_t<int8_t>, int, int, py::array_t<int8_t>>
   sample_np_feature_labels(const SubRecord& record);
+  void sample_np_feature_labels_to(const SubRecord& record, int offset,
+                                   py::array_t<int8_t> inputs,
+                                   py::array_t<int32_t> policy_labels,
+                                   py::array_t<float> value_labels,
+                                   py::array_t<int8_t> aux_labels);
+  void collate_features(const std::vector<std::vector<SubRecord>>& block_vector,
+                        const py::list& indices,
+                        py::array_t<int8_t> inputs,
+                        py::array_t<int32_t> policy_labels,
+                        py::array_t<float> value_labels,
+                        py::array_t<int8_t> aux_labels);
 
   /** pack into 256bits */
   py::array_t<uint64_t> to_np_pack(const BaseState& state);
@@ -232,6 +245,7 @@ void pyosl::init_state_np(py::module_& m) {
     .def_readonly("result", &osl::SubRecord::result, ":py:class:`GameResult`")
     .def_readonly("final_move", &osl::SubRecord::final_move, "resign or win declaration in :py:class:`Move`")
     .def("sample_feature_labels", &pyosl::sample_np_feature_labels, "randomly samle index and call export_feature_labels()")
+    .def("sample_feature_labels_to", &pyosl::sample_np_feature_labels_to, "randomly samle index and export features to given ndarray (must be zerofilled in advance)")
     .def("make_state", &osl::SubRecord::make_state, "n"_a, "make a state after the first `n` moves")
     ;
   
@@ -247,6 +261,13 @@ void pyosl::init_state_np(py::module_& m) {
     obj.restore(binary);
     return obj;
   }, "code"_a, "unpack five uint64s to get StateRecord320");
+  m.def("collate_features", &pyosl::collate_features, "collate function for `GameDataset`");
+  m.def("parallel_threads", [](){ return osl::range_parallel_threads; },
+        "internal concurrency");
+  
+  py::bind_vector<std::vector<osl::SubRecord>>(m, "GameRecordBlock");
+  py::bind_vector<std::vector<std::vector<osl::SubRecord>>>(m, "GameBlockVector")
+    .def("reserve",  &std::vector<std::vector<osl::SubRecord>>::reserve, "reserves storage");;
 }
 
 osl::Move pyosl::read_japanese_move(const EffectState& state, std::u8string move, Square last_to) {
@@ -259,25 +280,23 @@ osl::Move pyosl::read_japanese_move(const EffectState& state, std::u8string move
 }
 
 py::array_t<int8_t> pyosl::to_np_cover(const EffectState& state) {
-  auto feature = py::array_t<int8_t>(9*9*2);
-  auto buffer = feature.request();
-  auto ptr = static_cast<int8_t*>(buffer.ptr);
+  nparray<int8_t> feature(9*9*2);
+  auto ptr = feature.ptr();
   for (auto pl: players)
     for (int y: board_y_range())
       for (int x: board_x_range())
         ptr[(y-1)*9+(x-1)+81*idx(pl)] = state.countEffect(pl, Square(x,y));
-  return feature.reshape({-1, 9, 9});
+  return feature.array.reshape({-1, 9, 9});
 }
 
 py::array_t<uint64_t> pyosl::to_np_pack(const BaseState& state) {
-  auto packed = py::array_t<uint64_t>(4);
-  auto buffer = packed.request();
-  auto ptr = static_cast<uint64_t*>(buffer.ptr);
+  nparray<uint64_t> packed(4);
+  auto ptr = packed.ptr();
   osl::StateRecord256 instance {state};
   auto bs = instance.to_bitset();
   for (int i: std::views::iota(0,4))
     ptr[i] = bs[i];
-  return packed;
+  return packed.array;
 }
 
 std::pair<osl::MiniRecord, int> pyosl::unpack_record(py::array_t<uint64_t> code_seq) {
@@ -295,69 +314,108 @@ py::array_t<float> pyosl::to_np_44ch(const osl::BaseState& state) {
    *  - 14 for black pieces
    *  - 14 for hand pieces
    */
-  auto feature = py::array_t<float>(9*9*ml::basic_channels);
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-  ml::helper::write_np_44ch(state, ptr);
-  return feature;
+  auto sz = 9*9*ml::basic_channels;
+  nparray<float> feature(sz);
+  ml::write_float_feature([&](auto *out){ ml::helper::write_np_44ch(state, out); },
+                          sz,
+                          feature.ptr()
+                          );
+  return feature.array;
 }
 
 py::array_t<float> pyosl::to_np_state_feature(const EffectState& state, bool flipped) {
-  auto feature = py::array_t<float>(9*9*ml::board_channels);
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
+  auto sz = 9*9*ml::board_channels;
+  nparray<float> feature(sz);
 
-  ml::helper::write_state_features(state, flipped, ptr);
-
-  return feature.reshape({-1, 9, 9});
+  ml::write_float_feature([&](auto *out){ ml::helper::write_state_features(state, flipped, out); },
+                          sz,
+                          feature.ptr());
+  
+  return feature.array.reshape({-1, 9, 9});
 }
 
 std::tuple<py::array_t<float>, int, int, py::array_t<float>>
 pyosl::to_np_feature_labels(const StateRecord320& record) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-
-  auto aux_feature = py::array_t<float>(9*9*12);
-  auto aux_buffer = aux_feature.request();
-  auto aux_ptr = static_cast<float_t*>(aux_buffer.ptr);
+  nparray<float> feature(9*9*ml::channel_id.size());
+  nparray<float> aux_feature(9*9*12);
 
   int move_label, value_label;
-  record.export_feature_labels(ptr, move_label, value_label, aux_ptr);
-  return {feature.reshape({-1, 9, 9}), move_label, value_label, aux_feature.reshape({-1, 9, 9})};
+  record.export_feature_labels(feature.ptr(), move_label, value_label, aux_feature.ptr());
+  return {feature.array.reshape({-1, 9, 9}), move_label, value_label, aux_feature.array.reshape({-1, 9, 9})};
 }
 
-std::tuple<py::array_t<float>, int, int, py::array_t<float>>
+std::tuple<py::array_t<int8_t>, int, int, py::array_t<int8_t>>
 pyosl::sample_np_feature_labels(const SubRecord& record) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
+  nparray<int8_t> feature(ml::input_unit);
+  nparray<int8_t> aux_feature(ml::aux_unit);
 
-  auto aux_feature = py::array_t<float>(9*9*12);
-  auto aux_buffer = aux_feature.request();
-  auto aux_ptr = static_cast<float_t*>(aux_buffer.ptr);
-
+  std::fill(feature.ptr(), feature.ptr()+ml::input_unit, 0);
+  std::fill(aux_feature.ptr(), aux_feature.ptr()+ml::aux_unit, 0);
+  
   int move_label, value_label;
-  record.sample_feature_labels(ptr, move_label, value_label, aux_ptr);
-  return {feature.reshape({-1, 9, 9}), move_label, value_label, aux_feature.reshape({-1, 9, 9})};
+  record.sample_feature_labels(feature.ptr(), move_label, value_label, aux_feature.ptr());
+  return {feature.array.reshape({-1, 9, 9}), move_label, value_label, aux_feature.array.reshape({-1, 9, 9})};
+}
+
+void pyosl::sample_np_feature_labels_to(const SubRecord& record, int offset,
+                                        py::array_t<int8_t> inputs,
+                                        py::array_t<int32_t> policy_labels,
+                                        py::array_t<float> value_labels,
+                                        py::array_t<int8_t> aux_labels) {
+  auto input_buf = inputs.request(), policy_buf = policy_labels.request(),
+    value_buf = value_labels.request(), aux_buf = aux_labels.request();
+
+  record.sample_feature_labels_to(offset,
+                                  static_cast<nn_input_element*>(input_buf.ptr),
+                                  static_cast<int32_t*>(policy_buf.ptr),
+                                  static_cast<float*>(value_buf.ptr),
+                                  static_cast<nn_input_element*>(aux_buf.ptr));
+}
+
+void pyosl::collate_features(const std::vector<std::vector<SubRecord>>& block_vector,
+                             const py::list& indices,
+                             py::array_t<int8_t> inputs,
+                             py::array_t<int32_t> policy_labels,
+                             py::array_t<float> value_labels,
+                             py::array_t<int8_t> aux_labels)
+{
+  const int N = indices.size();
+  auto input_buf = inputs.request(), policy_buf = policy_labels.request(),
+    value_buf = value_labels.request(), aux_buf = aux_labels.request();
+  auto *iptr = static_cast<nn_input_element*>(input_buf.ptr);
+  auto *pptr = static_cast<int32_t*>(policy_buf.ptr);
+  auto *vptr = static_cast<float*>(value_buf.ptr);
+  auto *aptr = static_cast<nn_input_element*>(aux_buf.ptr);
+
+  auto f = [&](int l, int r, TID tid) {
+    for (int i=l; i<r; ++i) {
+      py::tuple item = indices[i];
+      int p = py::int_(item[0]), s = py::int_(item[1]);
+      const SubRecord& record = block_vector[p][s];
+      record.sample_feature_labels_to(i, iptr, pptr, vptr, aptr, SubRecord::default_decay, tid);
+    }
+  };
+  run_range_parallel_tid(N, f);
 }
 
 py::array_t<float> pyosl::export_features(BaseState initial, const MoveVector& moves) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
-
-  ml::export_features(initial, moves, ptr);
-  return feature.reshape({-1, 9, 9});
+  nparray<float> feature(ml::input_unit);
+  ml::write_float_feature([&](auto *out){ ml::export_features(initial, moves, out); },
+                          ml::input_unit,
+                          feature.ptr());
+  return feature.array.reshape({-1, 9, 9});
 }
 
 std::pair<py::array_t<float>,osl::GameResult>
 pyosl::export_features_after_move(BaseState initial, const MoveVector& moves, Move latest) {
-  auto feature = py::array_t<float>(9*9*ml::channel_id.size());
-  auto buffer = feature.request();
-  auto ptr = static_cast<float_t*>(buffer.ptr);
+  nparray<float> feature(ml::input_unit);
+  std::fill(feature.ptr(), feature.ptr()+ml::input_unit, 0);
 
-  auto ret = GameManager::export_heuristic_feature_after(latest, initial, moves, ptr);
-  return {feature.reshape({-1, 9, 9}), ret};
+  auto ret =
+    ml::write_float_feature([&](auto *out){
+      return GameManager::export_heuristic_feature_after(latest, initial, moves, out);
+    },
+      ml::input_unit,
+      feature.ptr());
+  return {feature.array.reshape({-1, 9, 9}), ret};
 }
-

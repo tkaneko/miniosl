@@ -55,6 +55,7 @@ void test_japanese() {
     auto state(record.initial_state);
     auto last_to = Square();
     for (auto move: record.moves) {
+      TEST_ASSERT(state.isAcceptable(move));
       auto ja = to_ki2(move, state, last_to);
       try  {
         auto m = kanji::to_move(ja, state, last_to);
@@ -119,7 +120,7 @@ void test_make_move_unsafe() {
 }
 
 void test_export_features() {
-  std::vector<float> work(ml::channel_id.size()*81);
+  std::vector<nn_input_element> work(osl::ml::input_unit);
   
   const auto& data = test_record_set();
   int count = 0;
@@ -130,6 +131,7 @@ void test_export_features() {
     GameManager mgr;
     
     for (auto move: record.moves) {
+      std::fill(work.begin(), work.end(), 0);
       mgr.export_heuristic_feature(&work[0]);
       auto ret = mgr.make_move(move);
       if (ret != InGame)

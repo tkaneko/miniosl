@@ -1,7 +1,11 @@
 *.so
 *.egg-info
 *build
+*ipynb*
+*.pt
+*.gch
+runs
 __pycache__
+.python-version
 compile_commands.json
 /dist
-*ipynb*

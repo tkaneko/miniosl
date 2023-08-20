@@ -57,7 +57,7 @@ def load_sfen_from_file(sfen, *,
         with open(sfen_npz, 'r') as f:
             record_set = miniosl.RecordSet.from_npz(sfen_npz)
             return [miniosl.SubRecord(_) for _ in record_set.records]
-    data = []
+    data = miniosl.MiniRecordVector()
     ignored = 0
     with open(f'{sfen}', 'r') as f:
         for line in f:
@@ -77,27 +77,6 @@ def load_sfen_from_file(sfen, *,
     return [miniosl.SubRecord(_) for _ in data]
 
 
-class GameRecordBlock:
-    """a batch of game records (e.g., 20k)
-
-    :param sfen: path to sfen file or list of :py:class:`miniosl.SubRecord`
-    """
-    def __init__(self, sfen: str | list[miniosl.SubRecord]):
-        if isinstance(sfen, str):
-            self.data = load_sfen_from_file(sfen,
-                                            compress_and_rm=True, strict=True)
-        elif isinstance(sfen, list):
-            self.data = sfen
-
-    def sample(self, index):
-        if not (0 <= index < len(self.data)):
-            raise ValueError("index")
-        return self.data[index].sample_feature_labels()
-
-    def __len__(self):
-        return len(self.data)
-
-
 class GameDataset(torch.utils.data.Dataset):
     """dataset for training.
 
@@ -108,13 +87,17 @@ class GameDataset(torch.utils.data.Dataset):
     :param window_size: number of game records to keep
     :param block_unit: number of game records for a block, \
     that is a unit in add/replace oporation
+    :param batch_with_collate: need to specify `collate_fn=lambda indices: dataset.collate(indices)` for trainloader, if (and only if) True
     """
-    def __init__(self, window_size, block_unit):
+    def __init__(self, window_size: int, block_unit: int, batch_with_collate: bool = True):
         self.window_size = window_size
         self.block_unit = block_unit
-        self.blocks = []
+        self.blocks = miniosl.GameBlockVector()
         self.cur_block_id = 0
         self.block_limit = (window_size + block_unit - 1) // block_unit
+        self.batch_with_collate = batch_with_collate
+
+        self.blocks.reserve(self.block_limit)
 
     def block_id(self) -> int:
         """number of block added so far"""
@@ -123,6 +106,15 @@ class GameDataset(torch.utils.data.Dataset):
     def unit_size(self) -> int:
         """number of records in a `GameRecordBlock`"""
         return self.block_unit
+
+    def make_block(sfen):
+        """a helper function to make a block"""
+        if isinstance(sfen, str):
+            lst = load_sfen_from_file(sfen, compress_and_rm=True, strict=True)
+            return miniosl.GameRecordBlock(lst)
+        elif isinstance(sfen, list):
+            return miniosl.GameRecordBlock(sfen)
+        raise ValueError(f'not supported {type(sfen)}')
 
     def add(self, new_block):
         """add or replace the oldest one with `new_block`"""
@@ -138,25 +130,42 @@ class GameDataset(torch.utils.data.Dataset):
     def stored_game_records(self):
         return self.block_unit * len(self.blocks)
 
-    def sample(self, index):
+    def sample_id(self, index):
         if not (0 <= index < len(self)):
             raise ValueError("index")
         # need this due to the spec of __len__(), even after fully filled
         index %= self.stored_game_records()
-        p, s = index // self.block_unit, index % self.block_unit
-        return self.blocks[p].sample(s)
+        return index // self.block_unit, index % self.block_unit
 
     def __len__(self):
         """epoch should go beyond #records to cover #positions"""
         return self.stored_game_records() * 100
 
     def __getitem__(self, idx):
-        return self.reshape_item(self.sample(idx))
+        p, s = self.sample_id(idx)
+        return p, s if self.batch_with_collate else self.reshape_item(self.blocks[p].sample(s))
 
     def reshape_item(self, item):
         input, move_label, value_label, aux_label = item
         return (torch.from_numpy(input), move_label, np.float32(value_label),
                 torch.from_numpy(aux_label))
+
+    def collate(self, indices):
+        N = len(indices)
+        inputs = np.zeros(N*miniosl.input_unit, dtype=np.int8)
+        policy_labels = np.zeros(N, dtype=np.int32)
+        value_labels = np.zeros(N, dtype=np.float32)
+        aux_labels = np.zeros(N*miniosl.aux_unit, dtype=np.int8)
+        miniosl.collate_features(self.blocks, indices,
+                                 inputs,
+                                 policy_labels, value_labels, aux_labels)
+        # for offset, (p, s) in enumerate(indices):
+        #     self.blocks[p][s].sample_feature_labels_to(offset,
+        #                                                inputs, policy_labels, value_labels, aux_labels)
+        return (torch.from_numpy(inputs.reshape(N, -1, 9, 9)),
+                torch.from_numpy(policy_labels),
+                torch.from_numpy(value_labels),
+                torch.from_numpy(aux_labels.reshape(N, -1)))
 
 
 def load_torch_dataset(path: str) -> torch.utils.data.Dataset:
@@ -165,9 +174,9 @@ def load_torch_dataset(path: str) -> torch.utils.data.Dataset:
         # use entire file as a single block
         seq = load_sfen_from_file(path, compress_and_rm=False, strict=False)
         logging.info(f'load {len(seq)} data')
-        block = GameRecordBlock(seq)
-        n = len(block.data)
-        set = GameDataset(n, n)
+        block = miniosl.GameRecordBlock(seq)
+        n = len(block)
+        set = GameDataset(n, n, batch_with_collate=True)
         set.add(block)
         return set
     if path.endswith('.npz'):

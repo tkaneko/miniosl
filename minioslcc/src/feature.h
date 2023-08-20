@@ -11,40 +11,45 @@ namespace osl {
     std::array<int8_t,81> board_dense_feature(const BaseState& state);
     std::array<int8_t,piece_stand_order.size()*2> hand_dense_feature(const BaseState& state);
 
-    std::array<int8_t,81*30> board_feature(const BaseState& state);
-    std::array<float,81*piece_stand_order.size()*2> hand_feature(const BaseState& state);
+    void board_feature(const BaseState& state, nn_input_element /*30ch*/ *planes);
+    void hand_feature(const BaseState& state, nn_input_element /*14ch*/ *planes);
 
     /** covered squares by long piece */
-    std::array<int8_t,81*2> lance_cover(const EffectState& state);
-    std::array<int8_t,81*2> bishop_cover(const EffectState& state);
-    std::array<int8_t,81*2> rook_cover(const EffectState& state);
-    std::array<int8_t,81*2> king_visibility(const EffectState& state);
+    void lance_cover(const EffectState& state, nn_input_element /*2ch*/ *planes);
+    void bishop_cover(const EffectState& state, nn_input_element /*2ch*/ *planes);
+    void rook_cover(const EffectState& state, nn_input_element /*2ch*/ *planes);
+    void king_visibility(const EffectState& state, nn_input_element /*2ch*/ *planes);
     /** checkmate or threatmate */
-    std::array<int8_t,81*2> mate_path(const EffectState& state);
+    void mate_path(const EffectState& state, nn_input_element /*2ch*/ *planes);
     namespace impl  {
       /** fill 1 on the path from src (exclusive) to dst (inclusive) */
-      void fill_segment(Square src, Square dst, int offset, std::array<int8_t,81*2>& out);
-      inline void fill_segment(Piece p, Square dst, Player owner, std::array<int8_t,81*2>& out) {
-        fill_segment(p.square(), dst, idx(owner)*81, out);
+      void fill_segment(Square src, Square dst, nn_input_element /*1ch*/ *out);
+      inline void fill_segment(Piece p, Square dst, Player owner, nn_input_element /*2ch*/ *out) {
+        fill_segment(p.square(), dst, out + idx(owner)*81);
       }
-      void fill_move_trajectory(Move move, int offset, std::array<int8_t,81*2>& out);
-      void fill_ptypeo(const BaseState& state, Square sq, PtypeO ptypeo, std::array<int8_t,81>& out);
+      void fill_move_trajectory(Move move, nn_input_element /* 1ch */ *out);
+      void fill_ptypeo(const BaseState& state, Square sq, PtypeO ptypeo, nn_input_element /*1ch*/ *out);
     }
     using impl::fill_segment;
     using impl::fill_move_trajectory;
     namespace helper {
       // 44ch
-      void write_np_44ch(const BaseState& state, float *);
+      void write_np_44ch(const BaseState& state, nn_input_element *);
       // +13 ch
-      void write_np_additional(const EffectState& state, bool flipped, float *);
+      void write_np_additional(const EffectState& state, bool flipped, nn_input_element *);
       /** write state features i.e., w/o history (44+13ch) */
-      void write_state_features(const EffectState& state, bool flipped, float *);
+      void write_state_features(const EffectState& state, bool flipped, nn_input_element *);
       // 4ch
-      void write_np_history(const BaseState& state, Move last_move, float *ptr);
-      /** @internal write 4*7ch and update state applied after moves in history */ 
-      void write_np_histories(BaseState& state, const MoveVector& history, float *ptr);
+      /**
+       * @param ptr must be zero-filled in advance
+       */
+      void write_np_history(const BaseState& state, Move last_move, nn_input_element *ptr);
+      /** @internal write 4*7ch and update state applied after moves in history 
+       * @param ptr must be zero-filled in advance
+       */ 
+      void write_np_histories(BaseState& state, const MoveVector& history, nn_input_element *ptr);
       // status after move
-      void write_np_aftermove(EffectState state, Move move, float *);
+      void write_np_aftermove(EffectState state, Move move, nn_input_element *);
     }
     /** move label [0, 27*81-1] for cross entropy */
     int policy_move_label(Move move);
@@ -62,9 +67,10 @@ namespace osl {
     extern const std::unordered_map<std::string, int> channel_id;
 
     /** @internal export features primary for game playing
+     * @param features must be zero-filled in advance
      * @return pair of the current state and the flag for flipped
      */
-    std::pair<EffectState,bool> export_features(BaseState initial, const MoveVector& moves, float *features, int idx=-1);
+    std::pair<EffectState,bool> export_features(BaseState initial, const MoveVector& moves, nn_input_element *features, int idx=-1);
   }
 
   /** subset of MiniRecord assuming completed game with the standard initial state */
@@ -78,12 +84,21 @@ namespace osl {
 
     SubRecord() = default;
     SubRecord(const MiniRecord& record);
+    SubRecord(MiniRecord&& record);
 
     /** export features and labels */
-    void export_feature_labels(int idx, float *input, int& move_label, int& value_label, float *aux_label) const;
+    void export_feature_labels(int idx, nn_input_element *input,
+                               int& move_label, int& value_label, nn_input_element *aux_label) const;
     /** randomly sample index and call export_feature_labels() */
-    void sample_feature_labels(float *input, int& move_label, int& value_label, float *aux_label,
+    void sample_feature_labels(nn_input_element *input,
+                               int& move_label, int& value_label, nn_input_element *aux_label,
                                int decay=default_decay, TID tid=TID_ZERO) const;
+    /** randomly sample index and export features to given pointers (must be zero-filled) */
+    void sample_feature_labels_to(int offset,
+                                  nn_input_element *input_buf,
+                                  int32_t *policy_buf, float *value_buf, nn_input_element *aux_buf,
+                                  int decay=default_decay, TID tid=TID_ZERO) const;
+
     /** @internal make a state after the first `n` moves
      * marked as internal due to lack of the safety in make_move
      */

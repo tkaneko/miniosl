@@ -102,7 +102,7 @@ def test_parallelgamemanager():
     print(feature.shape)
     cnt = 0
     while len(mgrs.completed_games) < N_GAMES:
-        moves_chosen = []
+        moves_chosen = miniosl.MoveVector()
         for g in range(N):
             moves = mgrs.games[g].state.genmove()
             moves_chosen.append(random.choice(moves))

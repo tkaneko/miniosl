@@ -1,5 +1,6 @@
 #include "pyb/miniosl.h"
 #include <pybind11/stl.h>
+#include <pybind11/stl_bind.h>
 #include <pybind11/operators.h>
 #include <pybind11/stl/filesystem.h>
 
@@ -213,7 +214,7 @@ void pyosl::init_basic(py::module_& m) {
         "move"_a, "state"_a, "prev_to"_a=osl::Square());
   m.def("hash_after_move", &osl::make_move);
   m.def("win_result", &osl::win_result);
-  
+
   // enums
   py::enum_<osl::Player>(m, "Player", py::arithmetic())
     .value("black", osl::BLACK, "first player").value("white", osl::WHITE, "second player")
@@ -255,8 +256,14 @@ void pyosl::init_basic(py::module_& m) {
   m.attr("piece_stand_order") = &osl::piece_stand_order;
   m.attr("channel_id") = &osl::ml::channel_id;
   m.attr("draw_limit") = &osl::MiniRecord::draw_limit;
+  m.attr("One") = &osl::ml::One;
+  m.attr("input_unit") = &osl::ml::input_unit;
+  m.attr("aux_unit") = &osl::ml::aux_unit;
   
   // "mapping of ptype to bitset of movable directions"
 
+  py::bind_vector<std::vector<osl::Move>>(m, "MoveVector");
+  py::bind_vector<std::vector<osl::HashStatus>>(m, "HashStatusVector");
+  py::bind_vector<std::vector<osl::MiniRecord>>(m, "MiniRecordVector");
 }
 

@@ -66,6 +66,9 @@ def save_sfen(path, record_seq):
     return counts
 
 
+eps = 1e-3
+
+
 def selfplay_array(nn_for_array: miniosl.inference.InferenceForGameArray,
                    player_a: miniosl.PlayerArray,
                    player_b: miniosl.PlayerArray,
@@ -85,7 +88,8 @@ def selfplay_array(nn_for_array: miniosl.inference.InferenceForGameArray,
     start = time.clock_gettime_ns(time.CLOCK_MONOTONIC)
     steps, prev = 0, 0
 
-    bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
+    bar_format = \
+        "{l_bar}{bar}| {n_fmt}/{total_fmt}[{elapsed}<{remaining}{postfix}]"
     with tqdm.tqdm(total=args.n_games,
                    bar_format=bar_format) as pbar:
         while len(mgrs.completed()) < args.n_games:
@@ -103,7 +107,6 @@ def selfplay_array(nn_for_array: miniosl.inference.InferenceForGameArray,
     bwin, bloss = counts[int(miniosl.BlackWin)], counts[int(miniosl.WhiteWin)]
     draw = counts[int(miniosl.Draw)]
     bwin_probability = (bwin + draw / 2) / (bwin + draw + bloss)
-    eps = 1e-3
     elodiff = miniosl.p2elo(bwin_probability + eps)
     csv_writer.writerow([now,
                          player_a.name(), player_b.name(),
@@ -113,6 +116,7 @@ def selfplay_array(nn_for_array: miniosl.inference.InferenceForGameArray,
                          round(bwin_probability, 3),
                          round(elodiff, 1)
                          ])
+    return bwin, draw, bloss
 
 
 def main():
@@ -132,11 +136,16 @@ def main():
     with open(args.csv_output, 'a') as csv_output:
         wr = csv.writer(csv_output, quoting=csv.QUOTE_NONNUMERIC)
 
-        selfplay_array(stub, player_a, player_b, args.output, wr)
+        bwin, bdraw, _ = selfplay_array(stub, player_a, player_b,
+                                        args.output, wr)
         if args.both_side:
             pre, ext = os.path.splitext(args.output)
             output = pre + '-r' + ext
-            selfplay_array(stub, player_b, player_a, output, wr)
+            _, wdraw, wloss = selfplay_array(stub, player_b, player_a,
+                                             output, wr)
+            p = (bwin + wloss + bdraw/2 + wdraw/2) / (args.n_games * 2)
+            elodiff = miniosl.p2elo(p + eps)
+            logger.info(f'{p:.3f},{elodiff:.2f}')
 
 
 if __name__ == "__main__":

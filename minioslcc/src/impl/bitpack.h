@@ -3,6 +3,7 @@
 
 #include "state.h"
 #include "record.h"
+#include "infer.h"
 
 namespace osl
 {

@@ -134,7 +134,7 @@ def load_record_set(path: str, name: str = '', *, limit: int | None = None):
         if data.ndim != 1 or not (name == '' or name == key):
             continue
         code_count = 0
-        record_set = []
+        record_set = miniosl.MiniRecordVector()
         while code_count < len(data):
             try:
                 record, n = miniosl.unpack_record(data[code_count:])

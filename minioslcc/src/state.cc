@@ -774,7 +774,10 @@ namespace osl {
 
 namespace osl
 {
-  std::array<std::default_random_engine,4> rng::rngs = {make_rng(), make_rng(), make_rng(), make_rng() };
+  std::array<std::default_random_engine, rng::available_instances> rng::rngs = {
+    make_rng(), make_rng(), make_rng(), make_rng(),  make_rng(), make_rng(), make_rng(), make_rng(),
+    make_rng(), make_rng(), make_rng(), make_rng(),  make_rng(), make_rng(), make_rng(), make_rng(),
+  };
   // NOTE: the order matters here
   const CArray<Direction,Offset32_SIZE> board::Long_Directions = make_Long_Directions();
   const CArray<Offset, Offset32_SIZE> board::Basic10_Offsets = make_Basic10_Offsets();

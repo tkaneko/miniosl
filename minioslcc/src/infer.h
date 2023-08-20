@@ -5,6 +5,8 @@
 
 #include <vector>
 #include <array>
+#include <algorithm>
+#include <cstdint>
 
 namespace osl {
   namespace ml {
@@ -17,21 +19,62 @@ namespace osl {
     /** board_channels + channels_per_history*history_length */
     extern const int standard_channels;
     /** moves included before current position */
-    constexpr int history_length = 7; // for AZ; // 1 for comatibility with r0.0.10 >=
+    constexpr int history_length = 7; // for AZ; // 1 for comatibility with =< r0.0.10
     constexpr int channels_per_history = (history_length > 1) ? 4 : 3;
     const int input_channels = board_channels + history_length*channels_per_history;
-  }
+    constexpr int input_unit = ml::input_channels*81, policy_unit = 2187, aux_unit = 9*9*12;
 
-  typedef std::array<float,2187> policy_logits_t;
-  typedef std::array<float,ml::input_channels*81> nn_input_t;
+    typedef std::array<float,ml::policy_unit> policy_logits_t;
+    /** 
+     * note this objects will be poorly aligned unless the number of input_channels is a good multiples.
+     */
+    typedef std::array<float,ml::input_unit> nn_input_t;
+#define MINIOSL_INT8_FEATURES
+#ifdef MINIOSL_INT8_FEATURES
+    constexpr int One = ml::quantize_scale;
+    typedef int8_t nn_input_element;
+    inline float to_float(nn_input_element v) { return 1.0*v/ml::One; }
+    template <class Container>
+    inline void transform(const Container& container, float *ptr) {
+      std::transform(container.begin(), container.end(), ptr, to_float); // ranges needs C++20
+    }
+    struct transform_when_leave {
+      std::vector<nn_input_element> work;
+      float *dst;
+      transform_when_leave(float *ptr, int size) : work(size, 0), dst(ptr) {};
+      ~transform_when_leave() { transform(work, dst); }
+      nn_input_element *proxy() { return &work[0]; }
+    };
+    template <class Function>
+    auto write_float_feature(Function f, int sz, float *ptr) {
+      transform_when_leave work(ptr, sz);
+      return f(work.proxy());
+    }
+#else
+    constexpr float One = 1;
+    typedef float nn_input_element;
+    template <class Function>
+    auto write_float_feature(Function f, int sz, float *ptr) {
+      std::fill(ptr, ptr+sz, 0);
+      return f(ptr);
+    }
+#endif
+  }
+  using ml::nn_input_t;
+  using ml::policy_logits_t;
+  using ml::nn_input_element;
+
   class InferenceModel {
   public:
     virtual ~InferenceModel();
     /** warmup and may tell standard batch size to the engine */
-    virtual void test_run(std::vector<nn_input_t>& in,
-                          std::vector<policy_logits_t>& policy_out,
-                          std::vector<std::array<float,1>>& vout);
-    virtual void batch_infer(std::vector<nn_input_t>& in,
+    virtual void test_run(std::vector<nn_input_element>& /* size = batch_size * input_unit */ in,
+                          std::vector<policy_logits_t>& /* size = batch_size */ policy_out,
+                          std::vector<std::array<float,1>>& /* size = batch_size */ vout);
+    /** primary inference function 
+     * @param policy_out can be zero if only vout is needed
+     */
+    virtual void batch_infer(std::vector<nn_input_element>& in,
                              std::vector<policy_logits_t>& policy_out,
                              std::vector<std::array<float,1>>& vout) = 0;
   };
