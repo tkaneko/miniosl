@@ -554,10 +554,12 @@ export_feature_labels(float *input, int& move_label, int& value_label, float *au
   while (! moves.empty() && !moves.back().isNormal())
     moves.pop_back();
 
-  auto [state, flipped] =
+  const auto& ret =
     ml::write_float_feature([&](auto *out){ return ml::export_features(base.state, moves, out); },
                             ml::input_unit,
                             input);
+  const EffectState& state = ret.first;
+  bool flipped = ret.second;
 
   if (flipped)
     throw std::logic_error("StateRecord320 flip consistency"); // must already be flipped if needed

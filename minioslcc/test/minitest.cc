@@ -5271,14 +5271,16 @@ void test_feature() {
     TEST_CHECK(best_move.isNormal());
     plane2ch mate_path{0};
     ml::mate_path(state, &mate_path[0]);
-    TEST_CHECK(mate_path[Square(8,2).index81()]);
-    TEST_CHECK(mate_path[Square(8,3).index81()]);
-    TEST_CHECK(mate_path[Square(8,8).index81()]);
-    TEST_CHECK(mate_path[Square(8,9).index81()]);
-    TEST_CHECK(mate_path[Square(2,8).index81()+81]);
-    TEST_CHECK(mate_path[Square(2,7).index81()+81]);
-    TEST_CHECK(mate_path[Square(2,2).index81()+81]);
-    TEST_CHECK(mate_path[Square(2,1).index81()+81]);
+    TEST_CHECK(mate_path[Square(2,8).index81()]);
+    TEST_CHECK(mate_path[Square(2,7).index81()]);
+    TEST_CHECK(mate_path[Square(2,2).index81()]);
+    TEST_CHECK(mate_path[Square(2,1).index81()]);
+    TEST_CHECK(mate_path[Square(1,9).index81()] + 81);
+    TEST_CHECK(mate_path[Square(1,8).index81()] + 81);
+    TEST_CHECK(mate_path[Square(2,9).index81()] + 81);
+    TEST_CHECK(mate_path[Square(3,9).index81()] + 81);
+    TEST_CHECK(mate_path[Square(2,7).index81()] + 81);
+    TEST_CHECK(mate_path[Square(3,8).index81()] + 81);
   }
 }
 
@@ -5436,6 +5438,16 @@ void test_subrecord_sample() {
     }
   }
   TEST_CHECK(*std::ranges::min_element(count) > 0);
+
+
+  auto sfen = "startpos moves 7g7f 8c8d 2g2f 4a3b 2f2e 8d8e 8h7g 1c1d 7i7h 1d1e 6g6f 7a7b 3i4h 5a5b 5i6h 7c7d 4i5h 9c9d 9g9f 8a7c 3g3f 3c3d 4h3g 2b3c 3g4f 4c4d 3f3e 3d3e 4f3e 3a4b 2e2d 2c2d 3e2d P*2g 2h2g 3c2d 2g2d P*2c 2d4d 3b4c 4d7d 2a3c P*3d 3c4e 6h7i 8e8f 8g8f 5c5d B*3b 4e5g+ 5h5g P*8g 7h8g 9d9e 3b2c+ 9e9f 3d3c+ 4c3c 2c2b 9f9g+ 9i9g 9a9g+ 8i9g P*9f 8g9f P*9e 9f8g S*9f 8g9f 9e9f N*4e 3c4c 7d9d 9f9g+ 9d9g N*8e 8f8e 7c8e P*5c 5b6b N*7d 6b7c 7d8b+ 8e9g+ R*9c 7c8b S*7c 8b9c 7c7b 6a7b L*8e P*8d 7i6h R*2h 5g5h L*5f P*9d 9c8b 9d9c+ 8b9c P*9d 9c8b P*8c 7b8c 9d9c+ 8c9c P*8c 9c8c 2b1a 5f5h+ 6i5h N*5f 6h6g R*6i 6g5f 2h5h+ resign";
+  auto record = usi::read_record(sfen);
+  SubRecord sub_record(record);
+  int move_label, value_label;
+  for (int i=0; i<16; ++i) {
+    std::vector<nn_input_element> input(ml::input_unit, 0), aux_label(ml::aux_unit, 0);
+    sub_record.sample_feature_labels(&*input.begin(), move_label, value_label, &*aux_label.begin());
+  }
 }
 
 void test_win_loss_after_move() {

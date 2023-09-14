@@ -45,6 +45,16 @@ void osl::ml::hand_feature(const BaseState& state, nn_input_element /*14ch*/ *pl
   assert (c == 14);
 }
 
+void osl::ml::impl::fill_empty(const BaseState& state, Square src, Offset diff, nn_input_element /*1ch*/ *out) {
+  if (state.pieceAt(src).isEdge())
+    return;
+  src += diff;
+  while (state.pieceAt(src).isEmpty()) {
+    out[src.index81()] = One;
+    src += diff;
+  }    
+}
+
 void osl::ml::impl::fill_segment(Square src, Square dst, nn_input_element *out) {
   auto sq = src;
   auto x_diff = dst.x() - src.x(), y_diff = dst.y() - src.y();
@@ -63,32 +73,41 @@ void osl::ml::impl::fill_segment(Square src, Square dst, nn_input_element *out) 
     out[sq.index81()] = One;
 }
 
-void osl::ml::lance_cover(const EffectState& state, nn_input_element /*2ch*/ *planes) {
+void osl::ml::lance_cover(const EffectState& state, nn_input_element /*4ch*/ *planes) {
   for (auto z: players) {
     auto pieces = state.piecesOnBoard(z);
     auto lances = (pieces & ~state.promotedPieces()).to_ullong() & piece_id_set(LANCE);
-    for (int n: BitRange(lances)) 
-      fill_segment(state.pieceOf(n), state.pieceReach(change_view(z, U), n), z, planes);
+    for (int n: BitRange(lances)) {
+      auto farthest = state.pieceReach(change_view(z, U), n);
+      fill_segment(state.pieceOf(n), farthest, z, planes);
+      fill_empty(state, farthest, to_offset(z, U), planes+(idx(z)+2)*81);
+    }
   }
 }
 
-void osl::ml::bishop_cover(const EffectState& state, nn_input_element /*2ch*/ *planes) {
+void osl::ml::bishop_cover(const EffectState& state, nn_input_element /*4ch*/ *planes) {
   for (auto z: players) {
     auto pieces = state.piecesOnBoard(z);
     auto bishops = pieces.to_ullong() & piece_id_set(BISHOP);
     for (int n: BitRange(bishops)) 
-      for (auto dir: {UL, UR, DL, DR}) 
-        fill_segment(state.pieceOf(n), state.pieceReach(dir, n), z, planes);
+      for (auto dir: {UL, UR, DL, DR}) {
+        auto farthest = state.pieceReach(dir, n);
+        fill_segment(state.pieceOf(n), farthest, z, planes);
+        fill_empty(state, farthest, black_offset(dir), planes+(idx(z)+2)*81);
+      }
   }
 }
 
-void osl::ml::rook_cover(const EffectState& state, nn_input_element /*2ch*/ *planes) {
+void osl::ml::rook_cover(const EffectState& state, nn_input_element /*4ch*/ *planes) {
   for (auto z: players) {
     auto pieces = state.piecesOnBoard(z);
     auto rooks = pieces.to_ullong() & piece_id_set(ROOK);
     for (int n: BitRange(rooks)) 
-      for (auto dir: {U, L, R, D}) 
-        fill_segment(state.pieceOf(n), state.pieceReach(dir, n), z, planes);
+      for (auto dir: {U, L, R, D}) {
+        auto farthest = state.pieceReach(dir, n);
+        fill_segment(state.pieceOf(n), farthest, z, planes);
+        fill_empty(state, farthest, black_offset(dir), planes+(idx(z)+2)*81);
+      }
   }
 }
 
@@ -164,9 +183,11 @@ void osl::ml::impl::fill_ptypeo(const BaseState& state, Square sq, PtypeO ptypeo
 
 
 void osl::ml::mate_path(const EffectState& state, nn_input_element *planes) {
-  auto cmove = state.tryCheckmate1ply(), tmove = state.findThreatmate1ply();
-  fill_move_trajectory(cmove, planes);
-  fill_move_trajectory(tmove, planes + 81);
+  auto tmove = state.findThreatmate1ply();
+  if (tmove.isNormal()) {
+    fill_move_trajectory(tmove, planes);
+    fill_ptypeo(state, tmove.to(), tmove.ptypeO(), planes + 81);
+  }
 }
 
 void osl::ml::helper::write_np_44ch(const BaseState& state, nn_input_element *ptr) {
@@ -180,21 +201,16 @@ void osl::ml::helper::write_np_additional(const osl::EffectState& state, bool fl
   // reach LBR+K 8ch
   {
     auto *lance_plane = ptr;
-    auto *bishop_plane= ptr+2*81;
-    auto *rook_plane  = ptr+4*81;
-    auto *king_plane  = ptr+6*81;
+    auto *bishop_plane= ptr+4*81;
+    auto *rook_plane  = ptr+8*81;
+    auto *king_plane  = ptr+12*81;
     ml::lance_cover(state, lance_plane);
     ml::bishop_cover(state, bishop_plane);
     ml::rook_cover(state, rook_plane);
     ml::king_visibility(state, king_plane);
   }
-  // checkmate, threatmate
-  {
-    auto *th_plane = ptr+8*81;
-    ml::mate_path(state, th_plane);
-  }
+  int c = 14;
   // pawn4
-  int c = 10;
   for (auto pl: players) {
     nn_input_element p4 = One * std::min(4, state.countPiecesOnStand(pl, PAWN)) / 4;
     std::fill(ptr+c*81, ptr+(c+1)*81, p4);
@@ -203,6 +219,13 @@ void osl::ml::helper::write_np_additional(const osl::EffectState& state, bool fl
   // flip
   std::fill(ptr+c*81, ptr+(c+1)*81, flipped*One);
   ++c;
+  // check piece
+  check_piece(state, ptr+c*81);
+  ++c;
+  // threatmate 2ch
+  ml::mate_path(state, ptr+c*81);
+  c += 2;
+
   assert(c == heuristic_channels);
 }
 
@@ -211,7 +234,21 @@ void osl::ml::helper::write_state_features(const EffectState& state, bool flippe
   ml::helper::write_np_additional(state, flipped, ptr + 9*9*ml::basic_channels);
 }
 
-void osl::ml::helper::write_np_history(const BaseState& state, Move last_move, nn_input_element *ptr) {
+void osl::ml::check_piece(const EffectState& state, nn_input_element /*1ch*/ *plane) {
+  auto attack = state.effectAt(alt(state.turn()), state.kingSquare(state.turn()));
+  if (attack.none())
+    return;
+  auto p = state.pieceOf(attack.takeOneBit());
+  plane[p.square().index81()] = One;
+  if (attack.none())
+    return;
+  // at most two pieces can make check
+  p = state.pieceOf(attack.takeOneBit());
+  plane[p.square().index81()] = One;
+}
+
+void osl::ml::helper::write_np_history(EffectState& state, Move last_move, nn_input_element *ptr) {
+  // (1) features BEFORE the last_move
   // last_move 3ch
   {
     nn_input_element *plane = ptr;
@@ -228,13 +265,60 @@ void osl::ml::helper::write_np_history(const BaseState& state, Move last_move, n
   }
   int c = 3;
   // king 1ch
-  if constexpr (ml::channels_per_history == 4) {
+  {
     auto *plane = ptr+c*81;
     auto sq = state.kingSquare(last_move.player());
     plane[sq.index81()] = One;
     ++c;
   }
+
+  // check piece
+  check_piece(state, ptr+c*81);
+  ++c;
+  // threatmate 2ch
+  ml::mate_path(state, ptr+c*81);
+  c += 2;
+
+  // (2) make_move
+  state.makeMove(last_move);
+  
+  // (3) features AFTER the last_move
+  // checkmate if capture 3ch
+  if (last_move.isNormal()) {
+    auto dst = last_move.to();
+    auto *tplanes = ptr+c*81;
+    checkmate_if_capture(state, dst, tplanes);
+  }
+  c += 3;
+  assert(c == channels_per_history);
 }
+
+void osl::ml::checkmate_if_capture(const EffectState& state, Square sq, nn_input_element /*3ch*/ *planes) {
+  if (state.countEffect(state.turn(), sq) != 1)
+    return;
+
+  auto try_capture = [&](Move capture) {
+    if (! state.isAcceptable(capture))
+      return false;
+    EffectState copy(state);
+    copy.makeMove(capture);
+    Move threat = copy.tryCheckmate1ply();
+    if (! threat.isNormal())
+      return false;
+    fill_move_trajectory(capture, planes);
+    fill_move_trajectory(threat, planes+81);
+    fill_ptypeo(copy, threat.to(), threat.ptypeO(), planes+2*81);
+    return true;
+  };
+    
+  Piece attack = state.pieceOf(state.effectAt(state.turn(), sq).takeOneBit());
+  Move capture(attack.square(), sq, attack.ptype(), state.pieceAt(sq).ptype(), false, state.turn());
+  if (try_capture(capture))
+    return;
+  capture = capture.promote();
+  try_capture(capture);
+}
+
 
 void osl::ml::helper::write_np_aftermove(EffectState state, Move move, nn_input_element *ptr) {
   if (! move.isNormal() || ! state.isAcceptable(move))
@@ -243,35 +327,43 @@ void osl::ml::helper::write_np_aftermove(EffectState state, Move move, nn_input_
   auto dst = move.to();
   state.makeMove(move);
 
-  // 8ch --- reach LBR+K 
+  // 12 + 2ch --- reach LBR+K 
   {
     auto *lance_plane = ptr;
-    auto *bishop_plane= ptr+2*81;
-    auto *rook_plane  = ptr+4*81;
-    auto *king_plane  = ptr+6*81;
+    auto *bishop_plane= ptr+4*81;
+    auto *rook_plane  = ptr+8*81;
+    auto *king_plane  = ptr+12*81;
     ml::lance_cover(state, lance_plane);
     ml::bishop_cover(state, bishop_plane);
     ml::rook_cover(state, rook_plane);
     ml::king_visibility(state, king_plane);
   }
 
-  // 4ch --- trajectory, cover,
-  int c=8;
+  // 5ch --- trajectory, cover,
+  int c=14;
   auto *plane_cover = ptr + c*81;
   ++c;
   auto *capture_cover = ptr + c*81;
   ++c;
-  auto *plane_traj_threat = ptr + c*81; // 2ch
+  auto *plane_traj = ptr + c*81;
+  ++c;
+  auto *plane_threat = ptr + c*81; // 2ch
   c += 2;
   impl::fill_ptypeo(state, dst, move.ptypeO(), plane_cover);
   if (move.isCapture())
     impl::fill_ptypeo(state, dst, move.capturePtypeO(), capture_cover);
-  plane_traj_threat[dst.index81()] = One;
+  plane_traj[dst.index81()] = One;
   if (! move.isDrop())
-    fill_move_trajectory(move, plane_traj_threat);
+    fill_move_trajectory(move, plane_traj);
 
-  auto tmove = state.findThreatmate1ply();
-  fill_move_trajectory(tmove, plane_traj_threat + 81);
+  mate_path(state, plane_threat);
+
+  // 3ch --- checkmate-if-capt
+  auto *tplanes = ptr + c*81;
+  c += 3;
+  checkmate_if_capture(state, dst, tplanes);
+
+  assert(c == aux_channels);
 }
 
 
@@ -338,6 +430,7 @@ namespace osl {
     auto make_channel_id() {
       std::unordered_map<std::string, int> table;
       // make sure depending only on constexpr objs
+      // convention -- use '-' for the current state
       for (auto ptype: piece_ptype) {
         auto b = newPtypeO(BLACK, ptype), w = newPtypeO(WHITE, ptype);
         auto ptype_name = lc(ptype_en_names[idx(ptype)]);
@@ -357,25 +450,42 @@ namespace osl {
         auto ptype_name = lc(ptype_en_names[idx(ptype)]);
         table["black-long-"+ptype_name] = ch;
         table["white-long-"+ptype_name] = ch+1;
-        ch += 2;
+        if (ptype != KING) {
+          table["black-long2-"+ptype_name] = ch+2;
+          table["white-long2-"+ptype_name] = ch+3;
+          ch += 4;
+        }
+        else
+          ch += 2;
       }
-      assert(ch == 52);
-      table["checkmate"] = 52;
-      table["threatmate"] = 53;
-      table["black-pawn4"] = 54;
-      table["white-pawn4"] = 55;
-      table["flipped"] = 56;
+      assert(ch == 58);
+      table["black-pawn4"] = ch++;
+      table["white-pawn4"] = ch++;
+      table["flipped"] = ch++;
+      table["check-piece"] = ch++;
+      table["threatmate"] = ch++;
+      table["threatmate-ptypeo"] = ch++;
+      assert(ch == ml::board_channels);
+      // convention -- use '_' for histories
       for (int i=0; i<ml::history_length; ++i) {
         auto id = std::to_string(i+1);
         auto offset = i*ml::channels_per_history;
-        table["last_move_to_"+id] = 57 + offset;
-        table["last_move_traj_"+id] = 58 + offset;
-        table["last_move_capture_"+id] = 59 + offset;
-        if constexpr (ml::channels_per_history == 4)
-          table["last_king_"+id] = 60 + offset;
+        table["last_move_to_"+id]      = ch + 0 + offset;
+        table["last_move_traj_"+id]    = ch + 1 + offset;
+        table["last_move_capture_"+id] = ch + 2 + offset;
+
+        table["last_king_"+id]         = ch + 3 + offset;
+        table["check_piece_"+id]       = ch + 4 + offset;
+        table["threatmate_"+id]        = ch + 5 + offset;
+        table["threatmate_ptypeo_"+id] = ch + 6 + offset;
+        table["dtakeback_"+id]         = ch + 7 + offset;
+        table["tthreat_"+id]           = ch + 8 + offset;
+        table["tthreat_ptypeo_"+id]    = ch + 9 + offset;
       }
       if (table.size() != ml::input_channels)
-        throw std::logic_error("channel config inconsistency");
+        throw std::logic_error("channel config inconsistency "
+                               + std::to_string(table.size())
+                               + " " + std::to_string(ml::input_channels));
       return table;
     }
   }
@@ -424,23 +534,25 @@ std::pair<osl::EffectState,bool> osl::ml::export_features(BaseState base, const 
     rotate180(history);
   }
 
-  // history features depending on old state
-  ml::helper::write_np_histories(base, history, out + board_channels*81);
-
   EffectState state{ base };
+
+  // history features depending on old state
+  ml::helper::write_np_histories(state, history, out + board_channels*81);
+
   // features for current state
   ml::helper::write_state_features(state, flip, out);
   return {state, flip};
 }
 
 
-void osl::ml::helper::write_np_histories(BaseState& base, const MoveVector& history, nn_input_element *out) {
+void osl::ml::helper::write_np_histories(EffectState& state, const MoveVector& history, nn_input_element *out) {
   for (int i=0; i<history.size(); ++i) {
-    auto *ptr = out + i*9*9*ml::channels_per_history;
     if (! history[i].isNormal()) 
       continue;
-    ml::helper::write_np_history(base, history[i], ptr);
-    base.make_move_unsafe(history[i]);
+    auto j = history.size() - i - 1; // fill in the reverse order
+    auto *ptr = out + j*9*9*ml::channels_per_history;
+    ml::helper::write_np_history(state, history[i], ptr);
+    // state has been updated with history[i];
   }
 }
 

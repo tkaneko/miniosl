@@ -15,12 +15,14 @@ namespace osl {
     void hand_feature(const BaseState& state, nn_input_element /*14ch*/ *planes);
 
     /** covered squares by long piece */
-    void lance_cover(const EffectState& state, nn_input_element /*2ch*/ *planes);
-    void bishop_cover(const EffectState& state, nn_input_element /*2ch*/ *planes);
-    void rook_cover(const EffectState& state, nn_input_element /*2ch*/ *planes);
+    void lance_cover(const EffectState& state, nn_input_element /*4ch*/ *planes);
+    void bishop_cover(const EffectState& state, nn_input_element /*4ch*/ *planes);
+    void rook_cover(const EffectState& state, nn_input_element /*4ch*/ *planes);
     void king_visibility(const EffectState& state, nn_input_element /*2ch*/ *planes);
+    void check_piece(const EffectState& state, nn_input_element /*1ch*/ *plane);
     /** checkmate or threatmate */
     void mate_path(const EffectState& state, nn_input_element /*2ch*/ *planes);
+    void checkmate_if_capture(const EffectState& state, Square sq, nn_input_element /*3ch*/ *planes);
     namespace impl  {
       /** fill 1 on the path from src (exclusive) to dst (inclusive) */
       void fill_segment(Square src, Square dst, nn_input_element /*1ch*/ *out);
@@ -29,9 +31,12 @@ namespace osl {
       }
       void fill_move_trajectory(Move move, nn_input_element /* 1ch */ *out);
       void fill_ptypeo(const BaseState& state, Square sq, PtypeO ptypeo, nn_input_element /*1ch*/ *out);
+      void fill_empty(const BaseState& state, Square src, Offset diff, nn_input_element /*1ch*/ *out);
     }
     using impl::fill_segment;
+    using impl::fill_empty;
     using impl::fill_move_trajectory;
+    using impl::fill_ptypeo;
     namespace helper {
       // 44ch
       void write_np_44ch(const BaseState& state, nn_input_element *);
@@ -41,13 +46,14 @@ namespace osl {
       void write_state_features(const EffectState& state, bool flipped, nn_input_element *);
       // 4ch
       /**
+       * @internal write history features and update state applying `last_move`
        * @param ptr must be zero-filled in advance
        */
-      void write_np_history(const BaseState& state, Move last_move, nn_input_element *ptr);
-      /** @internal write 4*7ch and update state applied after moves in history 
+      void write_np_history(EffectState& state, Move last_move, nn_input_element *ptr);
+      /** @internal write history features and update state applying moves in the history 
        * @param ptr must be zero-filled in advance
        */ 
-      void write_np_histories(BaseState& state, const MoveVector& history, nn_input_element *ptr);
+      void write_np_histories(EffectState& state, const MoveVector& history, nn_input_element *ptr);
       // status after move
       void write_np_aftermove(EffectState state, Move move, nn_input_element *);
     }

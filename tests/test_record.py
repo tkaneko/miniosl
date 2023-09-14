@@ -115,7 +115,7 @@ def test_to_np_feature_labels():
     item = miniosl.StateRecord320.test_item()
     input, move_label, value_label, aux_label = item.to_np_feature_labels()
     assert input.shape == (len(miniosl.channel_id), 9, 9)
-    assert aux_label.shape == (12, 9, 9)
+    assert aux_label.shape == (miniosl.aux_unit//81, 9, 9)
 
 
 def test_end_by_rule():

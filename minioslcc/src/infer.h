@@ -14,23 +14,22 @@ namespace osl {
      * the current value is for hand features as lcm(18,4,2)
      */
     constexpr int quantize_scale = 36;
-    const int basic_channels = 44, heuristic_channels = 13,
+    const int basic_channels = 44, heuristic_channels = 20,
       board_channels = basic_channels + heuristic_channels;
     /** board_channels + channels_per_history*history_length */
     extern const int standard_channels;
     /** moves included before current position */
-    constexpr int history_length = 7; // for AZ; // 1 for comatibility with =< r0.0.10
-    constexpr int channels_per_history = (history_length > 1) ? 4 : 3;
-    const int input_channels = board_channels + history_length*channels_per_history;
-    constexpr int input_unit = ml::input_channels*81, policy_unit = 2187, aux_unit = 9*9*12;
+    constexpr int history_length = 7; // for AZ;
+    constexpr int channels_per_history = 10;
+    constexpr int input_channels = board_channels + history_length*channels_per_history;
+    constexpr int aux_channels = 22;
+    constexpr int input_unit = input_channels*81, policy_unit = 2187, aux_unit = 9*9*aux_channels;
 
     typedef std::array<float,ml::policy_unit> policy_logits_t;
     /** 
      * note this objects will be poorly aligned unless the number of input_channels is a good multiples.
      */
     typedef std::array<float,ml::input_unit> nn_input_t;
-#define MINIOSL_INT8_FEATURES
-#ifdef MINIOSL_INT8_FEATURES
     constexpr int One = ml::quantize_scale;
     typedef int8_t nn_input_element;
     inline float to_float(nn_input_element v) { return 1.0*v/ml::One; }
@@ -50,15 +49,6 @@ namespace osl {
       transform_when_leave work(ptr, sz);
       return f(work.proxy());
     }
-#else
-    constexpr float One = 1;
-    typedef float nn_input_element;
-    template <class Function>
-    auto write_float_feature(Function f, int sz, float *ptr) {
-      std::fill(ptr, ptr+sz, 0);
-      return f(ptr);
-    }
-#endif
   }
   using ml::nn_input_t;
   using ml::policy_logits_t;

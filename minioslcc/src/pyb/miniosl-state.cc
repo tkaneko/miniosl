@@ -336,8 +336,8 @@ py::array_t<float> pyosl::to_np_state_feature(const EffectState& state, bool fli
 
 std::tuple<py::array_t<float>, int, int, py::array_t<float>>
 pyosl::to_np_feature_labels(const StateRecord320& record) {
-  nparray<float> feature(9*9*ml::channel_id.size());
-  nparray<float> aux_feature(9*9*12);
+  nparray<float> feature(ml::input_unit);
+  nparray<float> aux_feature(ml::aux_unit);
 
   int move_label, value_label;
   record.export_feature_labels(feature.ptr(), move_label, value_label, aux_feature.ptr());

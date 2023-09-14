@@ -51,7 +51,12 @@ void osl::GameManager::export_heuristic_feature(nn_input_element *ptr) const {
 osl::GameResult osl::GameManager::export_heuristic_feature_after(Move move, nn_input_element *ptr) const {
   if (! state.isAcceptable(move))
     throw std::domain_error("move");
-  return export_heuristic_feature_after(move, record.initial_state, record.moves, ptr);
+  auto ret = export_heuristic_feature_after(move, record.initial_state, record.moves, ptr);
+  if (ret == InGame && !state.inCheck() && ! state.isCheck(move)) {
+    if (table.has_entry(record.history.back().basic(), move))
+      ret = Draw;
+  }
+  return ret;
 }
 
 osl::GameResult osl::GameManager::

@@ -17,13 +17,11 @@ namespace osl {
     }
     std::vector<std::thread> workers;
     workers.reserve(range_parallel_threads);
-    int prev=0;
+    constexpr int algn = 16;
+    int size = (N+algn*range_parallel_threads-1)/algn/range_parallel_threads * algn;
     for (int i=0; i<range_parallel_threads; ++i) {
-      int c = (i+1) < range_parallel_threads
-        ? N*(i+1) / range_parallel_threads
-        : N;
-      workers.emplace_back(f, prev, c);
-      prev = c;
+      int l = std::min(size*i, N), r = std::min(l+size, N);
+      workers.emplace_back(f, l, r);
     }
     for (auto& w: workers)
       w.join();
@@ -36,13 +34,11 @@ namespace osl {
     }
     std::vector<std::thread> workers;
     workers.reserve(range_parallel_threads);
-    int prev=0;
+    constexpr int algn = 16;
+    int size = (N+algn*range_parallel_threads-1)/algn/range_parallel_threads * algn;
     for (int i=0; i<range_parallel_threads; ++i) {
-      int c = (i+1) < range_parallel_threads
-        ? N*(i+1) / range_parallel_threads
-        : N;
-      workers.emplace_back(f, prev, c, TID(i));
-      prev = c;
+      int l = std::min(size*i, N), r = std::min(l+size, N);
+      workers.emplace_back(f, l, r, TID(i));
     }
     for (auto& w: workers)
       w.join();

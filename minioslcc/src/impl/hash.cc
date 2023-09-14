@@ -187,7 +187,7 @@ osl::HistoryTable::~HistoryTable() {
 osl::GameResult osl::HistoryTable::add(int state_number, HashStatus& now,
                                        const std::vector<HashStatus>& history) {
   GameResult game_status = InGame;
-  auto& entry = table_t::operator[]({now.board_hash, now.black_stand});
+  auto& entry = table_t::operator[](now.basic());
   int past_id = entry.empty() ? -1 : entry.back();
   if (past_id >= 0) {
     const auto& repeat_from = history[past_id];

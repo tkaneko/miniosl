@@ -33,4 +33,11 @@ setattr(RecordSet, 'from_npz', record.load_record_set)
 
 setattr(OpeningTree, 'save_npz', record.save_opening_tree)
 setattr(OpeningTree, 'retrieve_children', record.retrieve_children)
+
+
+def version():
+    import importlib.metadata
+    return importlib.metadata.version('miniosl')
+
+
 # flake8: noqa

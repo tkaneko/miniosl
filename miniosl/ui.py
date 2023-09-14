@@ -442,11 +442,18 @@ class UI:
                 return self.show_channels(self._features[30:], 2, 7, flip)
             if plane_id == "long":
                 print('lbr+k')
-                return self.show_channels(self._features[44:], 2, 4, flip)
+                return self.show_channels(self._features[44:], 4, 4, flip)
             if plane_id == "safety":
-                return self.show_channels(self._features[52:], 1, 2, flip)
+                return self.show_channels(self._features[61:], 1, 3, flip)
+            if plane_id == "safety_1":
+                id = miniosl.channel_id['check_piece_1']
+                return self.show_channels(self._features[id:], 1, 6, flip)
+            if plane_id == "safety_2":
+                id = miniosl.channel_id['check_piece_2']
+                return self.show_channels(self._features[id:], 1, 6, flip)
+            latest_history = 64
             if plane_id == "lastmove":
-                return self.show_channels(self._features[57:], 1, 3, flip)
+                return self.show_channels(self._features[latest_history:], 1, 3, flip)
             plane_id = miniosl.channel_id[plane_id]
         if not is_in_notebook():
             print(self._features[plane_id])

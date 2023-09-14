@@ -259,6 +259,8 @@ void pyosl::init_basic(py::module_& m) {
   m.attr("One") = &osl::ml::One;
   m.attr("input_unit") = &osl::ml::input_unit;
   m.attr("aux_unit") = &osl::ml::aux_unit;
+  m.attr("channels_per_history") = &osl::ml::channels_per_history;
+  m.attr("history_length") = &osl::ml::history_length;
   
   // "mapping of ptype to bitset of movable directions"
 

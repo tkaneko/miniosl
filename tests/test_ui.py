@@ -65,7 +65,9 @@ def test_to_state_feature():
     board = miniosl.UI()
     feature = board.to_np_state_feature()
     assert isinstance(feature, np.ndarray)
-    assert feature.shape == (57, 9, 9)
+    board_channels = miniosl.input_unit//81 \
+        - miniosl.channels_per_history*miniosl.history_length
+    assert feature.shape == (board_channels, 9, 9)
 
     board = miniosl.UI("sfen l5SSl/3g5/3sp+P+Np1/p5g1p/1n1pB1k2/P2PP3P/B+r2gGN2/9/L3K2RL b 5Psn3p 1")
     assert board.count_hand(miniosl.black, miniosl.pawn) == 5

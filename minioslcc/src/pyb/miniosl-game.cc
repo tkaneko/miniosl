@@ -37,13 +37,9 @@ namespace pyosl {
                                     + " " + std::to_string(policy_out.size())
                                     + " " + std::to_string(vout.size())
                                     );
-      nparray<float> feature(in.size());
+      nparray<int8_t> feature(in.size());
       auto ptr = feature.ptr();
-#ifdef MINIOSL_INT8_FEATURES
-      ml::transform(in, ptr);
-#else
       std::copy(in.begin(), in.end(), ptr);
-#endif
       auto [policy, value, aux] = py_infer(feature.array);
       if (! policy_out.empty()) {
         auto pb = policy.request();
@@ -59,14 +55,14 @@ namespace pyosl {
         for (size_t j=0; j<vout[0].size(); ++j)
           vout[i][j] = vptr[i*vout[0].size() + j];
     }
-    virtual std::tuple<np_float_t, np_float_t, np_float_t> py_infer(py::array_t<float>) =0;
+    virtual std::tuple<np_float_t, np_float_t, np_float_t> py_infer(py::array_t<int8_t>) =0;
   };
 
   class PyInferenceModelStub : public InferenceModelStub {
   public:
     using InferenceModelStub::InferenceModelStub;
     typedef std::tuple<np_float_t, np_float_t, np_float_t> tuple_t;
-    tuple_t py_infer(py::array_t<float> inputs) override {
+    tuple_t py_infer(py::array_t<int8_t> inputs) override {
       PYBIND11_OVERRIDE_PURE
         (
          tuple_t, /* Return type */

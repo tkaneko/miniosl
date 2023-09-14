@@ -34,9 +34,12 @@ grp_nn.add_argument("--n-channel", help="#channel", type=int, default=128)
 grp_nn.add_argument("--ablate-bottleneck", action='store_true')
 grp_nn.add_argument("--broadcast-every", help="insert broadcast periodically",
                     type=int, default=4)
+grp_nn.add_argument("--bn-momentum", help="momentum in BatchNorm", type=float,
+                    default=0.1)
+grp_nn.add_argument("--compiled", action='store_true')
 grp_l = parser.add_argument_group("training options")
 grp_l.add_argument("--ablate-aux-loss", action='store_true')
-grp_l.add_argument("--batch-size", type=int, default=256)
+grp_l.add_argument("--batch-size", type=int, default=1024)
 grp_l.add_argument("--epoch-limit", help="maximum epoch", type=int, default=2)
 grp_l.add_argument("--step-limit", help="maximum #update, 0 for inf",
                    type=int, default=100000)
@@ -71,15 +74,13 @@ def validate(model, loader, cfg, *, pbar=None, name=None):
     with torch.no_grad():
         for i, data in enumerate(loader):
             inputs, move_labels, value_labels, aux_labels = data
-            inputs = inputs.to(cfg.device).float()
-            inputs /= miniosl.One
-            output_move, output_value, output_aux = model.infer(inputs)
+            output_move, output_value, output_aux = model.infer_int8(inputs)
             top1 += (np.sum(np.argmax(output_move, axis=1)
                             == move_labels.to('cpu').numpy())
                      / len(move_labels)).item()
             move_loss = F.cross_entropy(torch.from_numpy(output_move), move_labels.long()).item()
             value_loss = np_mse(output_value.flatten(), value_labels.numpy())
-            aux_loss = np_mse(output_aux, aux_labels.float().numpy().reshape((-1, 972)) / miniosl.One)
+            aux_loss = np_mse(output_aux, aux_labels.float().numpy().reshape((-1, miniosl.aux_unit)) / miniosl.One)
             running_vloss_move += move_loss
             running_vloss_value += value_loss
             running_vloss_aux += aux_loss
@@ -113,12 +114,26 @@ def at_the_end_of_interval(i, interval):
     return i % interval == interval - 1
 
 
-def train(model, cfg):
+def ddp_setup(rank, world_size):
+    torch.cuda.set_device(rank)
+    torch.distributed.init_process_group("nccl", rank=rank, world_size=world_size)
+
+
+def train(rank, world_size, model, cfg):
+    """training.  may be spawned by multiprocessing if world_size > 0"""
+    torch.set_float32_matmul_precision('high')
+    os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     from torch.utils.tensorboard import SummaryWriter
-    logging.info('start training')
-    with open(f'{cfg.savefile}.json', 'w') as file:
-        json.dump(cfg.__dict__, file)
-    logging.info(f'loading {cfg.train}')
+    primary = True
+    if world_size > 0:
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        ddp_setup(rank, world_size)
+        primary = rank == 0
+    if primary:
+        logging.info('start training')
+        with open(f'{cfg.savefile}.json', 'w') as file:
+            json.dump(cfg.__dict__, file)
+        logging.info(f'loading {cfg.train}')
     dataset = miniosl.load_torch_dataset(cfg.train)
 
     criterion = torch.nn.CrossEntropyLoss()
@@ -127,42 +142,61 @@ def train(model, cfg):
     optimizer = torch.optim.Adam(model.parameters(), weight_decay=1e-4)
 
     steps_per_epoch = (len(dataset)+cfg.batch_size-1) // cfg.batch_size
-    trainloader = loader_class(dataset, batch_size=cfg.batch_size,
+    shuffle, sampler, device = True, None, cfg.device
+    batch_size = cfg.batch_size
+    if world_size > 0:
+        device = f'cuda:{rank}'
+        sampler = torch.utils.data.distributed.DistributedSampler(dataset)
+        shuffle = False
+        batch_size //= world_size
+    trainloader = loader_class(dataset, batch_size=batch_size,
                                collate_fn=lambda indices: dataset.collate(indices),
-                               shuffle=True, num_workers=0)
+                               shuffle=shuffle, sampler=sampler,
+                               num_workers=0)
     v_dataset, validate_loader = None, None
     if cfg.validate_data:
         logging.info(f'loading {cfg.validate_data} for validation')
         v_dataset = miniosl.load_torch_dataset(cfg.validate_data)
-        validate_loader = loader_class(v_dataset, batch_size=cfg.batch_size,
-                                       shuffle=not deterministic_mode,
+        if world_size > 0:
+            sampler = torch.utils.data.distributed.DistributedSampler(v_dataset)
+        validate_loader = loader_class(v_dataset, batch_size=batch_size,
+                                       shuffle=not deterministic_mode and shuffle,
                                        collate_fn=lambda indices: v_dataset.collate(indices),
+                                       sampler=sampler,
                                        num_workers=0)
     writer = SummaryWriter()
     vsize = cfg.validation_size
 
+    if world_size > 0:
+        model = DDP(model.to(device), device_ids=[rank])
+    compiled_model = torch.compile(model)
+
     bar_format = "{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
-    pbar_interval = max(1, 4096 / cfg.batch_size)
+    pbar_interval = max(1, 4096 // batch_size)
     for epoch in range(cfg.epoch_limit):
-        logging.info(f'start epoch {epoch}')
+        if world_size > 0:
+            trainloader.sampler.set_epoch(epoch)
+        if primary:
+            logging.info(f'start epoch {epoch}')
         with tqdm.tqdm(total=min(cfg.step_limit, steps_per_epoch),
-                       smoothing=0, bar_format=bar_format) as pbar:
+                       smoothing=0, bar_format=bar_format, disable=not primary) as pbar:
             if validate_loader:
                 vname = f'{cfg.savefile}-{epoch}-0'
                 vloss = validate(model, validate_loader, cfg, pbar=pbar, name=vname)
-                writer.add_scalars('Validation',
-                                   {'move': vloss[0]/vsize, 'value': vloss[1]/vsize,
-                                    'aux': vloss[2]*81*2/vsize},
-                                   epoch*steps_per_epoch)
+                if primary:
+                    writer.add_scalars('Validation',
+                                       {'move': vloss[0]/vsize, 'value': vloss[1]/vsize,
+                                        'aux': vloss[2]*81*2/vsize},
+                                       epoch*steps_per_epoch)
             running_loss_move, running_loss_value, running_loss_aux = 0.0, 0.0, 0.0
             writer.flush()
             for i, data in enumerate(trainloader, 0):
                 if i >= steps_per_epoch:
                     break
-                if (i+1) % pbar_interval == 0:
+                if (i+1) % pbar_interval == 0 and primary:
                     pbar.update(pbar_interval)
-                model.train(True)
-                inputs, move_labels, value_labels, aux_labels = [_.to(cfg.device) for _ in data]
+                compiled_model.train(True)
+                inputs, move_labels, value_labels, aux_labels = [_.to(device) for _ in data]
                 inputs, aux_labels = inputs.float(), aux_labels.float()
                 inputs /= miniosl.One
                 aux_labels /= miniosl.One
@@ -170,20 +204,21 @@ def train(model, cfg):
 
                 optimizer.zero_grad()
 
-                outputs_move, outputs_value, outputs_aux = model(inputs)
+                outputs_move, outputs_value, outputs_aux = compiled_model(inputs)
                 move_loss = criterion(outputs_move, move_labels)
                 value_loss = criterion_value(outputs_value.flatten(), value_labels)
-                aux_loss = criterion_aux(outputs_aux, aux_labels.reshape((-1, 972)))
+                aux_loss = criterion_aux(outputs_aux, aux_labels.reshape((-1, miniosl.aux_unit)))
+
                 loss = move_loss + value_loss
                 if not cfg.ablate_aux_loss:
-                    loss += aux_loss
+                    loss += aux_loss * 0.1
                 loss.backward()
                 optimizer.step()
 
                 running_loss_move += move_loss.item()
                 running_loss_value += value_loss.item()
                 running_loss_aux += aux_loss.item()
-                if at_the_end_of_interval(i, cfg.report_interval):
+                if at_the_end_of_interval(i, cfg.report_interval) and primary:
                     cnt = cfg.report_interval
                     pbar.set_postfix(ordered_dict={
                         'step': i+1, 'm': running_loss_move / cnt,
@@ -203,20 +238,27 @@ def train(model, cfg):
                     if validate_loader:
                         vname = f'{cfg.savefile}-{epoch}-{i+1}'
                         vloss = validate(model, validate_loader, cfg, pbar=pbar, name=vname)
-                        writer.add_scalars('Validation',
-                                           {'move': vloss[0]/vsize,
-                                            'value': vloss[1]/vsize,
-                                            'aux': vloss[2]*81*2/vsize},
-                                           epoch*steps_per_epoch + i)
-                    torch.save(model.state_dict(), f'interim-{cfg.savefile}.pt')
+                        if primary:
+                            writer.add_scalars('Validation',
+                                               {'move': vloss[0]/vsize,
+                                                'value': vloss[1]/vsize,
+                                                'aux': vloss[2]*81*2/vsize},
+                                               epoch*steps_per_epoch + i)
+                    learned = model.state_dict() if world_size == 0 else model.module.state_dict()
+                    torch.save(learned, f'interim-{cfg.savefile}.pt')
                 if cfg.step_limit > 0 and i >= cfg.step_limit:
-                    logging.warning('reach step_limit')
+                    if primary:
+                        logging.warning('reach step_limit')
                     break
-        if epoch + 1 < cfg.epoch_limit:
-            torch.save(model.state_dict(), f'{cfg.savefile}-{epoch}.pt')
-
-    logging.info('finish')
-    torch.save(model.state_dict(), f'{cfg.savefile}.pt')
+        if epoch + 1 < cfg.epoch_limit and primary:
+            learned = model.state_dict() if world_size == 0 else model.module.state_dict()
+            torch.save(learned, f'{cfg.savefile}-{epoch}.pt')
+    if primary:
+        logging.info('finish')
+        learned = model.state_dict() if world_size == 0 else model.module.state_dict()
+        torch.save(learned, f'{cfg.savefile}.pt')
+    if world_size > 0:
+        torch.distributed.destroy_process_group()
 
 
 def main():
@@ -233,20 +275,34 @@ def main():
 
     network_cfg = {'in_channels': len(miniosl.channel_id),
                    'channels': args.n_channel, 'out_channels': 27,
-                   'auxout_channels': 12, 'num_blocks': args.n_block,
+                   'auxout_channels': miniosl.aux_unit//81,
+                   'num_blocks': args.n_block,
                    'make_bottleneck': not args.ablate_bottleneck,
+                   'bn_momentum': args.bn_momentum,
                    'broadcast_every': args.broadcast_every}
     model = miniosl.StandardNetwork(**network_cfg).to(args.device)
     if args.loadfile:
         logging.info(f'load {args.loadfile}')
-        model = miniosl.inference.load(args.loadfile, args.device, network_cfg)
+        model = miniosl.inference.load(args.loadfile, args.device, network_cfg,
+                                       args.compiled)
         if not args.validate:
             if not isinstance(model, miniosl.inference.TorchInfer):
                 raise ValueError(f'{type(model)} is not trainable/exportable')
             model = model.model
 
     if args.train:
-        train(model, args)
+        if args.device == 'cuda' and torch.cuda.device_count() > 1 and not deterministic_mode:
+            world_size = torch.cuda.device_count()
+            port = 29500
+            os.environ["MASTER_ADDR"] = "localhost"
+            os.environ["MASTER_PORT"] = str(29500)
+            logger.info(f'run ddp {world_size} port {port}')
+            torch.multiprocessing.spawn(train,
+                                        args=(world_size, model, args),
+                                        nprocs=world_size,
+                                        join=True)
+        else:
+            train(0, 0, model, args)
     else:
         if not args.loadfile:
             parser.print_help(sys.stderr)

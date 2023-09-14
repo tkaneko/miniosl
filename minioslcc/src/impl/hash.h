@@ -372,6 +372,8 @@ namespace osl
     ~HistoryTable();
     GameResult add(int move_number, HashStatus& now, const std::vector<HashStatus>& history);
 
+    bool has_entry(const BasicHash& now, Move to_move) const { return contains(make_move(now, to_move)); }
+
     typedef HashTable<std::vector<int>> table_t;
     typedef std::vector<int> vector_t;
   };
