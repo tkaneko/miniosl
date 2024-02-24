@@ -3,6 +3,8 @@
 
 #include "record.h"
 #include "infer.h"
+#include "impl/rng.h"
+
 namespace osl {
   /** run 1:1 game */
   struct GameManager {
@@ -45,7 +47,7 @@ namespace osl {
    */
   class PlayerArray {
   public:
-    PlayerArray(bool greedy_) : greedy(greedy_) {}
+    PlayerArray(bool greedy_);
     virtual ~PlayerArray()=default;
     void new_series(const std::vector<GameManager>& games);
     /** return request size per game */
@@ -63,6 +65,7 @@ namespace osl {
   protected:
     const std::vector<GameManager> *_games = nullptr;
     std::vector<Move> _decision;
+    rng::rng_array_t rngs;
     void check_ready() const;
     void check_size(int n, int scale=1, std::string where="") const;
   public:
@@ -71,13 +74,13 @@ namespace osl {
       return sort_moves_impl<false>(moves, logits, top_n);
     }
     static std::vector<std::pair<double,Move>>
-    sort_moves_with_gumbel(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n, TID tid=TID_ZERO,
-                           double noise_scale=1.0) {
-      return sort_moves_impl<true>(moves, logits, top_n, tid, noise_scale);
+    sort_moves_with_gumbel(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n,
+                           rng_t *rng, double noise_scale=1.0) {
+      return sort_moves_impl<true>(moves, logits, top_n, rng, noise_scale);
     }
     template <bool with_noise> static std::vector<std::pair<double,Move>>
-    sort_moves_impl(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n, TID tid=TID_ZERO,
-                    double noise_scale=1.0);
+    sort_moves_impl(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n,
+                    rng_t *rng=nullptr, double noise_scale=1.0);
   };
   
   struct PolicyPlayer : public PlayerArray {
@@ -97,10 +100,10 @@ namespace osl {
     int max_width() const override { return root_width; }
     std::string name() const override;
 
-    /** transform nnQ in [-1,1] following Gumbel MuZero */
-    static double transformQ(double nnQ) {
+    /** transform nnQ in [-1,1] to > 0 following Gumbel MuZero */
+    static double transformQ(double nnQ, double cvisit=50.0) {
       auto Q = nnQ/2.0 + 0.5;
-      const auto cvisit=50.0, cscale=1.0, maxnb=1.0;
+      const auto cscale=1.0, maxnb=1.0;
       return (cvisit + maxnb) * Q;
     }
 

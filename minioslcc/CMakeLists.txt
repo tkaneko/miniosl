@@ -14,7 +14,8 @@ endif()
 #set(CMAKE_CXX_VISIBILITY_PRESET hidden)
 add_library(minioslcc20 src/basic-type.cc src/base-state.cc src/state.cc src/game.cc
   src/record.cc src/opening.cc src/feature.cc src/impl/effect.cc src/impl/more.cc
-  src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc src/impl/japanese.cc)
+  src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc src/impl/japanese.cc
+  src/impl/rng.cc)
 target_include_directories(minioslcc20 PUBLIC src)
 if(ENABLE_RANGE_PARALLEL)
   target_compile_definitions(minioslcc20 PUBLIC "ENABLE_RANGE_PARALLEL")

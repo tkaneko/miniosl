@@ -11,7 +11,8 @@
 
 namespace pyosl {
   using namespace osl;
-  py::array_t<float> export_heuristic_feature(const GameManager& mgr);
+  py::array_t<int8_t> export_heuristic_feature8(const GameManager& mgr);
+  py::array_t<float> export_heuristic_feature16(const GameManager& mgr);
   py::array_t<float> export_heuristic_feature_parallel(const ParallelGameManager& mgr);
 
   // allow implementation of virtual methods in python
@@ -107,7 +108,8 @@ void pyosl::init_game(py::module_& m) {
     .def_readonly("state", &osl::GameManager::state)
     .def_readonly("legal_moves", &osl::GameManager::legal_moves)
     .def("make_move", &osl::GameManager::make_move)
-    .def("export_heuristic_feature", &pyosl::export_heuristic_feature)
+    .def("export_heuristic_feature8", &pyosl::export_heuristic_feature8)
+    .def("export_heuristic_feature16", &pyosl::export_heuristic_feature16)
     .def_static("from_record", &osl::GameManager::from_record)
     .def("__copy__",  [](const osl::GameManager& g) { return osl::GameManager(g);})
     .def("__deepcopy__",  [](const osl::GameManager& g) { return osl::GameManager(g);})
@@ -175,12 +177,19 @@ void pyosl::init_game(py::module_& m) {
     ;
 
   // function
-  m.def("transformQ", &osl::FlatGumbelPlayer::transformQ, "q_by_nn"_a);
+  m.def("transformQ", &osl::FlatGumbelPlayer::transformQ, "q_by_nn"_a, "cvisit"_a=50.0);
 
   py::bind_vector<std::vector<osl::GameManager>>(m, "GameManagerVector");
 }
 
-py::array_t<float> pyosl::export_heuristic_feature(const osl::GameManager& mgr) {
+py::array_t<int8_t> pyosl::export_heuristic_feature8(const osl::GameManager& mgr) {
+  nparray<int8_t> feature(ml::input_unit);
+  std::fill(feature.ptr(), feature.ptr()+ml::input_unit, 0);
+  mgr.export_heuristic_feature(feature.ptr());
+  return feature.array.reshape({-1, 9, 9});
+}
+
+py::array_t<float> pyosl::export_heuristic_feature16(const osl::GameManager& mgr) {
   nparray<float> feature(ml::input_unit);
   ml::write_float_feature([&](auto *out) { mgr.export_heuristic_feature(out); },
                           ml::input_unit,

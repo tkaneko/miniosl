@@ -139,7 +139,8 @@ def load_record_set(path: str, name: str = '', *, limit: int | None = None):
             try:
                 record, n = miniosl.unpack_record(data[code_count:])
             except Exception:
-                print(f'after {len(record_set)} records, code_count {code_count}')
+                print(f'after {len(record_set)} records, '
+                      f'code_count {code_count}')
                 raise
             record_set.append(record)
             code_count += n

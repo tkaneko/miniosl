@@ -47,10 +47,10 @@ class PolicyHead(nn.Module):
     def __init__(self, *, channels: int, out_channels: int):
         super().__init__()
         self.head = nn.Sequential(
-          Conv2d(channels, channels, 1),
-          nn.ReLU(),
-          Conv2d(channels, out_channels, 1),
-          nn.Flatten()
+            Conv2d(channels, channels, 1),
+            nn.ReLU(),
+            Conv2d(channels, out_channels, 1),
+            nn.Flatten()
         )
 
     def forward(self, data: torch.Tensor) -> torch.Tensor:
@@ -96,36 +96,35 @@ class PoolBias(nn.Module):
         return self.conv1x1out(c)
 
 
+def make_block(channels: int, bn_momentum: int) -> nn.Module:
+    return ResBlockAlt(
+        nn.Sequential(
+            Conv2d(channels, channels//2, 1,
+                   bn_momentum=bn_momentum),
+            nn.ReLU(),
+            Conv2d(channels//2, channels//2, 3, padding=1,
+                   bn_momentum=bn_momentum),
+            nn.ReLU(),
+            Conv2d(channels//2, channels//2, 3, padding=1,
+                   bn_momentum=bn_momentum),
+            nn.ReLU(),
+            Conv2d(channels//2, channels, 1,
+                   bn_momentum=bn_momentum),
+        ))
+
+
 class BasicBody(nn.Module):
     def __init__(self, *, in_channels: int, channels: int, num_blocks: int,
-                 make_bottleneck: bool = True, broadcast_every: int = 8,
+                 broadcast_every: int = 8,
                  bn_momentum: float = 0.1):
         super().__init__()
         self.conv1 = Conv2d(in_channels, channels, 3, padding=1)
-        if make_bottleneck:
-            self.body = nn.Sequential(
-                *[ResBlockAlt(
-                    nn.Sequential(
-                        Conv2d(channels, channels//2, 1, bn_momentum=bn_momentum),
-                        nn.ReLU(),
-                        Conv2d(channels//2, channels//2, 3, padding=1, bn_momentum=bn_momentum),
-                        nn.ReLU(),
-                        Conv2d(channels//2, channels//2, 3, padding=1, bn_momentum=bn_momentum),
-                        nn.ReLU(),
-                        Conv2d(channels//2, channels, 1, bn_momentum=bn_momentum),
-                    ))
-                  if (_ + 1) % broadcast_every != 0
-                  else ResBlockAlt(PoolBias(channels=channels))
-                  for _ in range(num_blocks)])
-        else:
-            self.body = nn.Sequential(
-                *[ResBlock(
-                    nn.Sequential(
-                        Conv2d(channels, channels, 3, padding=1, bn_momentum=bn_momentum),
-                        nn.ReLU(),
-                        Conv2d(channels, channels, 3, padding=1, bn_momentum=bn_momentum),
-                        nn.ReLU(),
-                    )) for _ in range(num_blocks)])
+        self.body = nn.Sequential(
+            *[make_block(channels, bn_momentum)
+              if (_ + 1) % broadcast_every != 0
+              else ResBlockAlt(PoolBias(channels=channels))
+              for _ in range(num_blocks)
+              ])
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = nn.functional.relu(self.conv1(x))
@@ -145,7 +144,30 @@ class BasicNetwork(nn.Module):
         return self.head(x)
 
 
-class StandardNetwork(nn.Module):
+class PVNetwork(nn.Module):
+    def __init__(self, *, in_channels: int, channels: int, out_channels: int,
+                 num_blocks: int,
+                 value_head_hidden: int = 256, broadcast_every: int = 8,
+                 bn_momentum: float = 0.1,
+                 auxout_channels=None):
+        super().__init__()
+        self.body = BasicBody(in_channels=in_channels, channels=channels,
+                              num_blocks=num_blocks,
+                              broadcast_every=broadcast_every,
+                              bn_momentum=bn_momentum)
+        self.head = PolicyHead(channels=channels, out_channels=out_channels)
+        self.value_head = ValueHead(channels=channels,
+                                    hidden_layer_size=value_head_hidden)
+
+    def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
+        """take a batch of input features
+        and return a batch of [policies, values, misc].
+        """
+        x = self.body(x)
+        return self.head(x), self.value_head(x)
+
+
+class StandardNetwork(PVNetwork):
     """Standard residual networks with bottleneck architecture in torch
 
     :param in_channels: number of channels in input features,
@@ -155,18 +177,13 @@ class StandardNetwork(nn.Module):
     :param value_head_hidden: hidden units in the last layer in the value head
     """
     def __init__(self, *, in_channels: int, channels: int, out_channels: int,
-                 auxout_channels: int, num_blocks: int, make_bottleneck: bool,
+                 auxout_channels: int, num_blocks: int,
                  value_head_hidden: int = 256, broadcast_every: int = 8,
                  bn_momentum: float = 0.1):
-        super().__init__()
-        self.body = BasicBody(in_channels=in_channels, channels=channels,
-                              num_blocks=num_blocks,
-                              make_bottleneck=make_bottleneck,
-                              broadcast_every=broadcast_every,
-                              bn_momentum=bn_momentum)
-        self.head = PolicyHead(channels=channels, out_channels=out_channels)
-        self.value_head = ValueHead(channels=channels,
-                                    hidden_layer_size=value_head_hidden)
+        super().__init__(in_channels=in_channels, channels=channels, out_channels=out_channels,
+                         num_blocks=num_blocks,
+                         value_head_hidden=value_head_hidden, broadcast_every=broadcast_every,
+                         bn_momentum=bn_momentum)
         self.aux_head = PolicyHead(channels=channels,
                                    out_channels=auxout_channels)
 
@@ -177,7 +194,6 @@ class StandardNetwork(nn.Module):
         """
         x = self.body(x)
         return self.head(x), self.value_head(x), self.aux_head(x)
-
 
 # Local Variables:
 # python-indent-offset: 4

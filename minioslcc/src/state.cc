@@ -763,21 +763,8 @@ namespace osl {
   }
 }
 
-namespace osl {
-  auto make_rng() {
-    static const auto env = std::getenv("MINIOSL_DETERMINISTIC");
-    static int cnt = 0;
-    static std::random_device rdev;
-    return std::default_random_engine(env ? (cnt++) : rdev());
-  }
-}
-
 namespace osl
 {
-  std::array<std::default_random_engine, rng::available_instances> rng::rngs = {
-    make_rng(), make_rng(), make_rng(), make_rng(),  make_rng(), make_rng(), make_rng(), make_rng(),
-    make_rng(), make_rng(), make_rng(), make_rng(),  make_rng(), make_rng(), make_rng(), make_rng(),
-  };
   // NOTE: the order matters here
   const CArray<Direction,Offset32_SIZE> board::Long_Directions = make_Long_Directions();
   const CArray<Offset, Offset32_SIZE> board::Basic10_Offsets = make_Basic10_Offsets();

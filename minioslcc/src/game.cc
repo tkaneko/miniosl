@@ -129,10 +129,13 @@ std::vector<osl::GameResult> osl::ParallelGameManager::make_move_parallel(const 
   return ret;
 }
 
+osl::PlayerArray::PlayerArray(bool greedy_) : greedy(greedy_), rngs(rng::make_rng_array()) {
+}
+
 template <bool with_noise>
 std::vector<std::pair<double,osl::Move>>
-osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t& logits, int top_n, TID tid,
-                                  double noise_scale) {
+osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t& logits, int top_n,
+                                  rng_t *rng, double noise_scale) {
   std::extreme_value_distribution<> gumbel {0, 1};
   
   std::vector<std::pair<double,Move>> pmv; // probability-move vector
@@ -140,7 +143,7 @@ osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t
   for (auto move: moves) {
     auto p = logits[ml::policy_move_label(move)];
     if constexpr (with_noise)
-      p += gumbel(rngs[idx(tid)]) * noise_scale;
+      p += gumbel(*rng) * noise_scale;
     pmv.emplace_back(p, move);
   }
   std::partial_sort(pmv.begin(), pmv.begin()+std::min((int)pmv.size(), top_n), pmv.end(),
@@ -192,7 +195,7 @@ bool osl::PolicyPlayer::recv_result(const std::vector<policy_logits_t>& logits, 
     for (int g=l; g<r; ++g) {
       auto ret = greedy
         ? sort_moves((*_games)[g].legal_moves, logits[g], 1)
-        : sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], 1, tid);
+        : sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], 1, &rngs[idx(tid)]);
       _decision[g] = ret[0].second;
     }
   };
@@ -247,7 +250,8 @@ bool osl::FlatGumbelPlayer::recv_result(const std::vector<policy_logits_t>& logi
         auto ns = noise_scale;
         if ((*_games)[g].record.move_size() >= greedy_threshold)
           ns = 0.0;
-        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width, TID(0), ns);
+        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width,
+                                          &rngs[idx(tid)], ns);
         while (ret.size() < root_width)
           ret.push_back(ret[0]);
         int offset = g*root_width;
@@ -265,6 +269,7 @@ bool osl::FlatGumbelPlayer::recv_result(const std::vector<policy_logits_t>& logi
   auto run = [&](int l, int r) {
     for (int g=l; g<r; ++g) {
       int offset = g*root_width;
+      int c_visit = std::max(50, (*_games)[g].record.move_size());
       for (int i=0; i<root_width; ++i) {
         auto value = /* negamax */ -values[offset + i][0];
         auto terminal = root_children_terminal[offset + i];
@@ -274,7 +279,7 @@ bool osl::FlatGumbelPlayer::recv_result(const std::vector<policy_logits_t>& logi
           else
             value = (terminal == win_result(turn)) ? 1.0 : -1.0;
         }
-        root_children[offset + i].first += transformQ(value);
+        root_children[offset + i].first += transformQ(value, c_visit);
       }
       auto best = std::max_element(&root_children[offset], &root_children[offset+root_width]);
       _decision[g] = best->second;      

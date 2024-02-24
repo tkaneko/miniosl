@@ -20,7 +20,7 @@ namespace osl {
     extern const int standard_channels;
     /** moves included before current position */
     constexpr int history_length = 7; // for AZ;
-    constexpr int channels_per_history = 10;
+    constexpr int channels_per_history = 16;
     constexpr int input_channels = board_channels + history_length*channels_per_history;
     constexpr int aux_channels = 22;
     constexpr int input_unit = input_channels*81, policy_unit = 2187, aux_unit = 9*9*aux_channels;

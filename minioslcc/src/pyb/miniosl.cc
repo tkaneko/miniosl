@@ -91,11 +91,15 @@ void pyosl::init_basic(py::module_& m) {
     .def_static("resign", &osl::Move::Resign, "return resign")
     .def_static("declare_win", &osl::Move::DeclareWin, "return win declaration")
     ;
-  py::class_<osl::Piece>(m, "Piece", py::dynamic_attr(), "a state of piece placed in a corresponding :py:class:`BaseState`")
+  py::class_<osl::Piece>(m, "Piece", py::dynamic_attr(),
+                         "a state of piece placed in a corresponding :py:class:`BaseState`")
     .def("square", &osl::Piece::square)
     .def("ptype", &osl::Piece::ptype)
     .def("color", &osl::Piece::owner)
     .def("is_piece", &osl::Piece::isPiece)
+    .def("equals", &osl::Piece::equalPtyeO,
+         "equality w.r.t. PtypeO (i.e., ignoring piece id or location)"
+         )
     .def("id", &osl::Piece::id)
     .def("__repr__", [](osl::Piece p) {
       std::stringstream ss;

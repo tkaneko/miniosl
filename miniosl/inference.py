@@ -33,13 +33,13 @@ class InferenceModel(abc.ABC):
         self.device = device
 
     @abc.abstractmethod
-    def infer(self, inputs: torch.Tensor) -> Tuple[np.ndarray, float,
+    def infer(self, inputs: torch.Tensor) -> Tuple[np.ndarray, np.ndarray,
                                                    np.ndarray]:
         """return inference results for batch"""
         pass
 
     def infer_int8(self, inputs: np.ndarray | torch.Tensor
-                   ) -> Tuple[np.ndarray, float, np.ndarray]:
+                   ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
         """an optimized path"""
         if isinstance(inputs, np.ndarray):
             if inputs.dtype != np.int8:
@@ -110,29 +110,40 @@ class OnnxInfer(InferenceModel):
             device_type=device, device_id=0, element_type=np.float32,
             shape=tuple(inputs.shape), buffer_ptr=inputs.data_ptr(),
         )
-        self.move_tensor = torch.empty((inputs.shape[0], 2187), dtype=torch.float32, device=device).contiguous()
+        self.move_tensor = torch.empty((inputs.shape[0], 2187),
+                                       dtype=torch.float32,
+                                       device=device).contiguous()
         self.binding.bind_output(
             name='move',
             device_type=device, device_id=0, element_type=np.float32,
-            shape=tuple(self.move_tensor.shape), buffer_ptr=self.move_tensor.data_ptr(),
+            shape=tuple(self.move_tensor.shape),
+            buffer_ptr=self.move_tensor.data_ptr(),
         )
         # binding.bind_output('move')
-        self.value_tensor = torch.empty((inputs.shape[0], 1), dtype=torch.float32, device=device).contiguous()
+        self.value_tensor = torch.empty((inputs.shape[0], 1),
+                                        dtype=torch.float32,
+                                        device=device).contiguous()
         self.binding.bind_output(
             name='value',
             device_type=device, device_id=0, element_type=np.float32,
-            shape=tuple(self.value_tensor.shape), buffer_ptr=self.value_tensor.data_ptr(),
+            shape=tuple(self.value_tensor.shape),
+            buffer_ptr=self.value_tensor.data_ptr(),
         )
         # binding.bind_output('value')
-        self.aux_tensor = torch.empty((inputs.shape[0], 9*9*12), dtype=torch.float32, device=device).contiguous()
+        self.aux_tensor = torch.empty((inputs.shape[0], 9*9*22),
+                                      dtype=torch.float32,
+                                      device=device).contiguous()
         self.binding.bind_output(
             name='aux',
             device_type=device, device_id=0, element_type=np.float32,
-            shape=tuple(self.aux_tensor.shape), buffer_ptr=self.aux_tensor.data_ptr(),
-        )        
+            shape=tuple(self.aux_tensor.shape),
+            buffer_ptr=self.aux_tensor.data_ptr(),
+        )
         # binding.bind_output('aux')
         self.ort_session.run_with_iobinding(self.binding)
-        return self.move_tensor.to('cpu').numpy(), self.value_tensor.to('cpu').numpy(), self.aux_tensor.to('cpu').numpy()
+        return (self.move_tensor.to('cpu').numpy(),
+                self.value_tensor.to('cpu').numpy(),
+                self.aux_tensor.to('cpu').numpy())
         # out = binding.copy_outputs_to_cpu()
 
 
@@ -177,13 +188,18 @@ class TorchInfer(InferenceModel):
 
 
 def load(path: str, device: str = "", torch_cfg: dict = {},
-         compiled: bool = False) -> InferenceModel:
+         *,
+         compiled: bool = False,
+         remove_aux_head: bool = False) -> InferenceModel:
     """factory method to load a model from file
 
     :param path: filepath,
     :param device: torch device such as 'cuda', 'cpu',
     :param torch_cfg: network specification needed for TorchInfer.
     """
+    if remove_aux_head:
+        if not (path.endswith('.pt') or path.endswith('.chpt')):
+            raise ValueError('not supported')
     if path.endswith('.onnx'):
         return OnnxInfer(path, device)
     if path.endswith('.ts'):
@@ -193,26 +209,34 @@ def load(path: str, device: str = "", torch_cfg: dict = {},
     if path.endswith('.pts'):  # need to used a different extention from TRT's
         return TorchScriptInfer(path, device)
     if path.endswith('.pt'):
-        raw_model = miniosl.network.StandardNetwork(**torch_cfg).to(device)
+        NN = miniosl.network.PVNetwork if remove_aux_head else miniosl.network.StandardNetwork
+        raw_model = NN(**torch_cfg).to(device)
         if compiled:
             cmodel = torch.compile(raw_model)
             model = cmodel
         else:
             model = raw_model
         saved_state = torch.load(path, map_location=torch.device(device))
-        model.load_state_dict(saved_state)
+        strict = not remove_aux_head
+        model.load_state_dict(saved_state, strict=strict)
         return TorchInfer(raw_model, device)
     if path.endswith('.chpt'):
         checkpoint = torch.load(path, map_location=torch.device(device))
         cfg = checkpoint['cfg']
         network_cfg = cfg['network_cfg']
-        raw_model = miniosl.StandardNetwork(**network_cfg).to(device)
+        for obsolete_key in ['make_bottleneck']:
+            if obsolete_key in network_cfg:
+                del network_cfg[obsolete_key]
+        NN = miniosl.network.PVNetwork if remove_aux_head \
+            else miniosl.network.StandardNetwork
+        raw_model = NN(**network_cfg).to(device)
         if compiled:
             cmodel = torch.compile(raw_model)
             model = cmodel
         else:
             model = raw_model
-        model.load_state_dict(checkpoint['model_state_dict'])
+        strict = not remove_aux_head
+        model.load_state_dict(checkpoint['model_state_dict'], strict=strict)
         return TorchInfer(raw_model, device)
     raise ValueError("unknown filetype")
 
@@ -264,6 +288,7 @@ def export_tensorrt(model, *, device, filename):
     enabled_precisions = {torch.half}
     trt_ts_module = torch_tensorrt.compile(
         model, inputs=inputs, enabled_precisions=enabled_precisions,
+        ir='ts',
         device=torch.device(device)
     )
     input_data = torch.randn(16, feature_channels, 9, 9, device=device)

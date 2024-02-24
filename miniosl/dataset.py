@@ -107,10 +107,11 @@ class GameDataset(torch.utils.data.Dataset):
         """number of records in a `GameRecordBlock`"""
         return self.block_unit
 
-    def make_block(sfen):
+    def make_block(sfen, compress_and_rm=True, strict=True):
         """a helper function to make a block"""
         if isinstance(sfen, str):
-            lst = load_sfen_from_file(sfen, compress_and_rm=True, strict=True)
+            lst = load_sfen_from_file(sfen,
+                                      compress_and_rm=compress_and_rm, strict=strict)
             return miniosl.GameRecordBlock(lst)
         elif isinstance(sfen, list):
             return miniosl.GameRecordBlock(sfen)
@@ -168,16 +169,19 @@ class GameDataset(torch.utils.data.Dataset):
                 torch.from_numpy(aux_labels.reshape(N, -1)))
 
 
-def load_torch_dataset(path: str) -> torch.utils.data.Dataset:
+def load_torch_dataset(path: str | list[str]) -> torch.utils.data.Dataset:
     """load dataset from file"""
-    if path.endswith('.sfen') or path.endswith('.txt') or path.endswith('sfen.npz'):
-        # use entire file as a single block
-        seq = load_sfen_from_file(path, compress_and_rm=False, strict=False)
-        logging.info(f'load {len(seq)} data')
-        block = miniosl.GameRecordBlock(seq)
-        n = len(block)
-        set = GameDataset(n, n, batch_with_collate=True)
-        set.add(block)
+    if isinstance(path, list) or path.endswith('.sfen') or path.endswith('.txt') or path.endswith('sfen.npz'):
+        if not isinstance(path, list):
+            path = [path]
+        blocks = [miniosl.GameDataset.make_block(_, compress_and_rm=False, strict=False)
+                  for _ in path]
+        sizes = [len(_) for _ in blocks]
+        unit = min(sizes)
+        logging.info(f'load {sum(sizes)} data as {unit} x {len(sizes)}')
+        set = GameDataset(unit * len(sizes), unit, batch_with_collate=True)
+        for blk in blocks:
+            set.add(blk)
         return set
     if path.endswith('.npz'):
         return PositionwiseDataset(path)

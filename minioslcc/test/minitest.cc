@@ -858,10 +858,16 @@ void test_state() {
   {
     BaseState state;
     TEST_ASSERT(state.check_internal_consistency());
+    state.init(HIRATE);
+    TEST_ASSERT(state.check_internal_consistency());
+    TEST_ASSERT(state.pieceAt(Square(9,7)) != state.pieceAt(Square(8,7)));
+    TEST_ASSERT(state.pieceAt(Square(9,7)).equalPtyeO(state.pieceAt(Square(8,7))));
   }
   {
     EffectState state;
     TEST_ASSERT(state.check_internal_consistency());
+    TEST_ASSERT(state.pieceAt(Square(9,7)) != state.pieceAt(Square(8,7)));
+    TEST_ASSERT(state.pieceAt(Square(9,7)).equalPtyeO(state.pieceAt(Square(8,7))));
   }
 }
 

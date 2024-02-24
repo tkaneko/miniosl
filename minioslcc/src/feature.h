@@ -23,6 +23,11 @@ namespace osl {
     /** checkmate or threatmate */
     void mate_path(const EffectState& state, nn_input_element /*2ch*/ *planes);
     void checkmate_if_capture(const EffectState& state, Square sq, nn_input_element /*3ch*/ *planes);
+
+    void color_of_piece(const BaseState& state, nn_input_element /* 2ch */ *planes);
+    void piece_changed_cover(const EffectState& state, nn_input_element /* 2ch */ *planes);
+    void cover_count(const EffectState& state, nn_input_element /* 2ch */ *planes);
+    
     namespace impl  {
       /** fill 1 on the path from src (exclusive) to dst (inclusive) */
       void fill_segment(Square src, Square dst, nn_input_element /*1ch*/ *out);
@@ -42,7 +47,7 @@ namespace osl {
       void write_np_44ch(const BaseState& state, nn_input_element *);
       // +13 ch
       void write_np_additional(const EffectState& state, bool flipped, nn_input_element *);
-      /** write state features i.e., w/o history (44+13ch) */
+      /** write state features i.e., w/o history (44+{heuristic_channels}ch) */
       void write_state_features(const EffectState& state, bool flipped, nn_input_element *);
       // 4ch
       /**

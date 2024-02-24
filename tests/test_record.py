@@ -90,8 +90,14 @@ def test_gamemanager():
 
 def test_gamemanager_feature():
     mgr = miniosl.GameManager()
-    feature = mgr.export_heuristic_feature()
-    print(feature.shape)
+    feature = mgr.export_heuristic_feature16()
+    shape = feature.shape
+    assert shape[-1] == 9
+    assert shape[-2] == 9
+    feature = mgr.export_heuristic_feature8()
+    shape = feature.shape
+    assert shape[-1] == 9
+    assert shape[-2] == 9
 
 
 def test_parallelgamemanager():

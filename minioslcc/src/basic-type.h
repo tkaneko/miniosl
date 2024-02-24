@@ -834,6 +834,11 @@ namespace osl
       assert(isPiece());
       return static_cast<int>(packed)>=0;
     }
+    /** equality w.r.t. PtypeO (i.e., ignoring piece id or location) */
+    bool equalPtyeO(Piece other) const {
+      return this->ptypeO() == other.ptypeO();
+    }
+
     friend inline bool operator==(Piece, Piece) = default;
     friend inline bool operator!=(Piece, Piece) = default;
   };

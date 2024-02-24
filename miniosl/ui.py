@@ -284,6 +284,18 @@ class UI:
         return [miniosl.to_ja(move, self._state, Square())
                 for move in self._state.genmove()]
 
+    def pv_to_ja(self, pv: list[Move]) -> list[str]:
+        """show moves in Japanese"""
+        ret = []
+        last_to = self.last_to()
+        state = State(self._state)
+        for move in pv:
+            s = miniosl.to_ja(move, state, last_to or Square())
+            ret.append(s)
+            state.make_move(move)
+            last_to = move.dst()
+        return ret
+
     def last_move(self) -> Move | None:
         """the last move played or None"""
         if not (0 < self.cur <= len(self._record)):
@@ -350,13 +362,15 @@ class UI:
                 break
         return self.hint()
 
-    def _do_make_move(self, move: Move,
-                      last_to: Square | None = None):
-        self._features = None
+    def legal_move_to_ja(self, move: Move, last_to: Square | None = None):
         if last_to is not None:
-            self.last_move_ja = miniosl.to_ja(move, self._state, last_to)
+            return miniosl.to_ja(move, self._state, last_to)
         else:
-            self.last_move_ja = miniosl.to_ja(move, self._state)
+            return miniosl.to_ja(move, self._state)
+
+    def _do_make_move(self, move: Move, last_to: Square | None = None):
+        self._features = None
+        self.last_move_ja = self.legal_move_to_ja(move, last_to)
         self._state.make_move(move)
 
     def load_opening_tree(self, filename):
@@ -428,7 +442,7 @@ class UI:
         | ``'long'`` | ``'safety'``, or indeger id (in internal representation)
         """
         self.update_features()
-        turn = self._state.turn()
+        turn = self.turn()
         flip = turn == miniosl.white
         if isinstance(plane_id, str):
             if plane_id == "pieces":
@@ -460,14 +474,21 @@ class UI:
         return self.hint(plane=self._features[plane_id], flip_if_white=True,
                          *args, **kwargs)
 
-    def load_eval(self, path: str, device: str = "", torch_cfg: dict = {}):
+    def load_eval(self, path: str = "", device: str = "",
+                  torch_cfg: dict = {}):
         """load parameters of evaluation function from file
 
         parameters will be passed to :py:func:`inference.load`.
         """
         import miniosl.inference
+        if not path:
+            path = miniosl.pretrained_eval_path()
         path = os.path.expanduser(path)
-        self.model = miniosl.inference.load(path, device, torch_cfg)
+        if os.path.exists(path):
+            self.model = miniosl.inference.load(path, device, torch_cfg)
+        else:
+            logging.warn(f'failed to load {path=}')
+
 
     def eval(self, verbose=True) -> Tuple[float, list]:
         """return value and policy for current state.
@@ -478,7 +499,7 @@ class UI:
         logits, value, aux = self.model.eval(self._features,
                                              take_softmax=False)
         policy = miniosl.softmax(logits.reshape(-1)).reshape(-1, 9, 9)
-        flip = self._state.turn() == miniosl.white
+        flip = self.turn() == miniosl.white
         if verbose:
             self.show_channels([np.max(policy, axis=0)], 1, 1, flip)
             print(f'eval = {value*Value_Scale:.0f}')
@@ -504,9 +525,9 @@ class UI:
             _, v, _ = self.model.infer_one(f)
             logit = logits[move.policy_move_label()]
             v = -v.item()       # negamax
-            if terminal == miniosl.win_result(self._state.turn()):
+            if terminal == miniosl.win_result(self.turn()):
                 v = 1.0
-            elif terminal == miniosl.win_result(miniosl.alt(self._state.turn())):
+            elif terminal == miniosl.win_result(miniosl.alt(self.turn())):
                 v = -1.0
             elif terminal == miniosl.Draw:
                 v = 0
@@ -515,20 +536,40 @@ class UI:
         self._infer_result[f'gumbel{width}'] = values
         return values
 
-    def mcts(self, budget: int = 4):
-        logging.info(f'ui.record {self._record.initial_state}')
+    def mcts(self, budget: int = 100, report: int = 4, *,
+             batch_size=1,
+             resume_root=None):
+        """run mcts
+        - budegt: number of simulations
+        - report: number of (interim) report during search
+        """
+        import tqdm
+        if not self.model:
+            raise RuntimeError('load model')
         record = self._record
         if self.cur < record.move_size():
             record = record.branch_at(self.cur)
         mgr = miniosl.GameManager.from_record(record)
-        logging.info(f'mgr.state {mgr.state}')
-        # logging.info(f'root {mgr.legal_moves}')
-        root = miniosl.run_mcts(mgr, budget, self.model)
-        clist = sorted(root.children.items(), key=lambda e: -e[1].visit_count)
-        for move, c in clist:
-            if c.visit_count > math.log(budget)-1:
-                print(f'{move.to_csa()}, {c.policy_probability*100:.1f}%,'
-                      + f' {1-c.value():.2f}, {c.visit_count}')
+        root = resume_root
+        report = min(budget, report)
+        sim_done = 0
+        total = max(1, report)
+        with tqdm.tqdm(total=total, disable=(report == 0)) as pbar:
+            for i in range(total):
+                step_forward = budget*(i+1)//max(1, report)
+                root = miniosl.run_mcts(mgr, step_forward-sim_done, self.model,
+                                        batch_size=batch_size, root=root)
+                sim_done = step_forward
+                pv = root.pv(ratio=0.25)
+                if pv:
+                    m = pv[0]
+                    pbar.set_postfix(pv=f'{m[0].to_csa()} {m[1]:.3f}'
+                                     + f' {"".join([_[0].to_csa() for _ in pv[1:]])}'
+                                     + f' {m[2]/sim_done*100:4.1f}%')
+                pbar.update(1)
+        if sim_done < budget:   # in case report == 0
+            root = miniosl.run_mcts(mgr, budget-sim_done,
+                                    self.model, root=root)
         return root
 
     def analyze(self):
@@ -542,7 +583,7 @@ class UI:
                 self._do_make_move(self._record.moves[i-1])
             self.cur = i
             value, *_ = self.eval(False)
-            evals.append(value * miniosl.sign(self._state.turn()))
+            evals.append(value * miniosl.sign(self.turn()))
         self.replay(now)
         plt.axhline(y=0, linestyle='dotted')
         return plt.plot(np.array(evals), '+')

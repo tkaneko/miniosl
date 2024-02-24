@@ -9,3 +9,4 @@ __pycache__
 .python-version
 compile_commands.json
 /dist
+/miniosl/pretrained/

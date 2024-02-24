@@ -279,6 +279,10 @@ void osl::ml::helper::write_np_history(EffectState& state, Move last_move, nn_in
   ml::mate_path(state, ptr+c*81);
   c += 2;
 
+  // color_of_piece 2ch
+  ml::color_of_piece(state, ptr+c*81);
+  c += 2;
+
   // (2) make_move
   state.makeMove(last_move);
   
@@ -290,6 +294,13 @@ void osl::ml::helper::write_np_history(EffectState& state, Move last_move, nn_in
     checkmate_if_capture(state, dst, tplanes);
   }
   c += 3;
+
+  ml::piece_changed_cover(state, ptr+c*81);
+  c += 2;
+
+  ml::cover_count(state, ptr+c*81);
+  c += 2;
+  
   assert(c == channels_per_history);
 }
 
@@ -317,6 +328,34 @@ void osl::ml::checkmate_if_capture(const EffectState& state, Square sq, nn_input
     return;
   capture = capture.promote();
   try_capture(capture);
+}
+
+void osl::ml::color_of_piece(const BaseState& state, nn_input_element /* 2ch */ *planes) {
+  for (int x: board_y_range())  // 1..9
+    for (int y: board_y_range()) {
+      auto p = state.pieceAt(Square(x,y));
+      if (! p.isEmpty())
+        planes[Square::index81(x,y) + idx(p.owner())*81] = One;
+    }
+}
+
+void osl::ml::piece_changed_cover(const EffectState& state, nn_input_element /* 2ch */ *planes) {
+  auto both_pieces = state.changedSource();
+  for (auto z: players) {
+    auto pieces = both_pieces & state.piecesOnBoard(z);
+    auto pp = planes + idx(z)*81;
+    for (int n: pieces.toRange())
+      pp[state.pieceOf(n).square().index81()] = One;
+  }
+}
+
+void osl::ml::cover_count(const EffectState& state, nn_input_element /* 2ch */ *planes) {
+  for (int x: board_y_range())  // 1..9
+    for (int y: board_y_range()) {
+      Square sq(x,y);
+      planes[Square::index81(x,y)   ] = One / 4 * std::min(4, state.countEffect(BLACK, sq));
+      planes[Square::index81(x,y)+81] = One / 4 * std::min(4, state.countEffect(WHITE, sq));
+    }
 }
 
 
@@ -478,9 +517,15 @@ namespace osl {
         table["check_piece_"+id]       = ch + 4 + offset;
         table["threatmate_"+id]        = ch + 5 + offset;
         table["threatmate_ptypeo_"+id] = ch + 6 + offset;
-        table["dtakeback_"+id]         = ch + 7 + offset;
-        table["tthreat_"+id]           = ch + 8 + offset;
-        table["tthreat_ptypeo_"+id]    = ch + 9 + offset;
+        table["pieces_black_"+id]      = ch + 7 + offset;
+        table["pieces_white_"+id]      = ch + 8 + offset;
+        table["dtakeback_"+id]         = ch + 9 + offset;
+        table["tthreat_"+id]           = ch +10 + offset;
+        table["tthreat_ptypeo_"+id]    = ch +11 + offset;
+        table["cover_changed_b_"+id]   = ch +12 + offset;
+        table["cover_changed_w_"+id]   = ch +13 + offset;
+        table["cover_count_b_"+id]     = ch +14 + offset;
+        table["cover_count_w_"+id]     = ch +15 + offset;
       }
       if (table.size() != ml::input_channels)
         throw std::logic_error("channel config inconsistency "

@@ -3,7 +3,7 @@
 Many functions are imported from :py:mod:`minioslcc` implemented in C++20.
 """
 from minioslcc import *
-from miniosl.ui import UI
+from .ui import UI
 from .record import np_array_to_sfen_file, sfen_file_to_np_array, \
     sfen_file_to_training_np_array, load_record_set, load_opening_tree, \
     SfenBlockStat
@@ -38,6 +38,11 @@ setattr(OpeningTree, 'retrieve_children', record.retrieve_children)
 def version():
     import importlib.metadata
     return importlib.metadata.version('miniosl')
+
+
+def pretrained_eval_path():
+    import importlib.resources
+    return importlib.resources.files('miniosl').joinpath('pretrained/eval.onnx')
 
 
 # flake8: noqa
