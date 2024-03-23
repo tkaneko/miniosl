@@ -123,9 +123,9 @@ class UI:
                     self._record = miniosl.csa_record(the_csa)
                 elif os.path.isfile(src):
                     if src.endswith('.csa'):
-                        self._record = miniosl.csa_record()
+                        self._record = miniosl.csa_record(src)
                     else:
-                        self._record = miniosl.usi_record()
+                        self._record = miniosl.usi_record(src)
                 elif len(src) >= 8:
                     if src[:2] == 'P1':
                         self._record.set_initial_state(miniosl.csa_board(src))
@@ -489,8 +489,7 @@ class UI:
         else:
             logging.warn(f'failed to load {path=}')
 
-
-    def eval(self, verbose=True) -> Tuple[float, list]:
+    def eval(self, verbose=False) -> Tuple[np.ndarray, list]:
         """return value and policy for current state.
 
         need to call :py:meth:`load_eval` in advance
@@ -502,7 +501,7 @@ class UI:
         flip = self.turn() == miniosl.white
         if verbose:
             self.show_channels([np.max(policy, axis=0)], 1, 1, flip)
-            print(f'eval = {value*Value_Scale:.0f}')
+            print(f'eval = {value[0]*Value_Scale:.0f}')
         mp = miniosl.inference.sort_moves(self.genmove(), policy)
         self._infer_result = {'policy': policy, 'value': value, 'mp': mp,
                               'aux': aux, 'logits': logits}
@@ -522,9 +521,9 @@ class UI:
         for i in range(min(len(mp), width)):
             move = mp[i][1]
             f, terminal = self._record.initial_state.export_features_after_move(history, move)
-            _, v, _ = self.model.infer_one(f)
+            _, v, *_ = self.model.infer_one(f)
             logit = logits[move.policy_move_label()]
-            v = -v.item()       # negamax
+            v = -v[0].item()       # negamax
             if terminal == miniosl.win_result(self.turn()):
                 v = 1.0
             elif terminal == miniosl.win_result(miniosl.alt(self.turn())):

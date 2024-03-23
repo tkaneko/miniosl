@@ -178,7 +178,7 @@ class TUI:
             nps = (self.budget_total - budget_total_at_start) / 1000 / elapsed
             self.clear_status(len(status_head))
             self.status.move(0, 2 + len(status_head) + 1)
-            self.status.addstr(f'{elapsed:.1f}s nps={nps:.1f}k',
+            self.status.addstr(f'{elapsed:.1f}s nps={nps:.2f}k',
                                Color.highlight())
             self.status.refresh()
             if search_root.is_terminal():
@@ -446,7 +446,10 @@ class TUI:
     def show_eval(self):
         value, mp = self.UI.eval(verbose=False)
         self.policy_panel.addstr(0, 0, f'NN {os.path.basename(args.eval)}')
-        self.policy_panel.addstr(1, 4, f'評価値 {value:5.0f}')
+        self.policy_panel.addstr(
+            1, 4,
+            f'評価値 {value[0]:5.0f} {value[1]:5.0f} {value[2]:5.0f}'
+            f'  {value[3]:5.0f}')
         for i in range(min(len(mp), 3)):
             mp_ja = miniosl.to_ja(mp[i][1], self.UI._state)
             self.policy_panel.addstr(2+i, 4, f'{mp_ja:11s}')

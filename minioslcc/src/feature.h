@@ -4,6 +4,7 @@
 #include "state.h"
 #include "infer.h"
 #include <unordered_map>
+#include <optional>
 
 namespace osl {
   struct MiniRecord;
@@ -60,7 +61,7 @@ namespace osl {
        */ 
       void write_np_histories(EffectState& state, const MoveVector& history, nn_input_element *ptr);
       // status after move
-      void write_np_aftermove(EffectState state, Move move, nn_input_element *);
+      void write_np_aftermove(EffectState state, Move move, nn_input_element *aux_label);
     }
     /** move label [0, 27*81-1] for cross entropy */
     int policy_move_label(Move move);
@@ -82,12 +83,21 @@ namespace osl {
      * @return pair of the current state and the flag for flipped
      */
     std::pair<EffectState,bool> export_features(BaseState initial, const MoveVector& moves, nn_input_element *features, int idx=-1);
+
+    constexpr int legalmove_bs_sz = (policy_unit+7)/8;
+    /** @internal export features primary for game playing */
+    inline void set_in_uint8bit_vector(uint8_t *buf, int id) {
+      int q = id / 8, r = id % 8;
+      buf[q] |= (1u << r);
+    }
+    void set_legalmove_bits(const MoveVector&, uint8_t *buf);
   }
 
   /** subset of MiniRecord assuming completed game with the standard initial state */
   struct SubRecord {
     /** moves */
     std::vector<Move> moves;
+    std::optional<int> shogi816k_id;
     /** resign or DeclareWin if game has the winner */
     Move final_move;
     /** result of the game or `InGame` if not yet initialized */
@@ -97,17 +107,23 @@ namespace osl {
     SubRecord(const MiniRecord& record);
     SubRecord(MiniRecord&& record);
 
+    BaseState initial_state() const;
+
     /** export features and labels */
     void export_feature_labels(int idx, nn_input_element *input,
-                               int& move_label, int& value_label, nn_input_element *aux_label) const;
+                               int& move_label, int& value_label, nn_input_element *aux_label,
+                               MoveVector& legal_moves) const;
     /** randomly sample index and call export_feature_labels() */
     void sample_feature_labels(nn_input_element *input,
                                int& move_label, int& value_label, nn_input_element *aux_label,
+                               uint8_t *legalmove_buf=nullptr,
                                int decay=default_decay, TID tid=TID_ZERO) const;
     /** randomly sample index and export features to given pointers (must be zero-filled) */
     void sample_feature_labels_to(int offset,
                                   nn_input_element *input_buf,
                                   int32_t *policy_buf, float *value_buf, nn_input_element *aux_buf,
+                                  nn_input_element *input2_buf,
+                                  uint8_t *legalmove_buf,
                                   int decay=default_decay, TID tid=TID_ZERO) const;
 
     /** @internal make a state after the first `n` moves

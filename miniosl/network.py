@@ -66,7 +66,7 @@ class ValueHead(nn.Module):
             nn.Flatten(),
             nn.Linear(81, hidden_layer_size),
             nn.ReLU(),
-            nn.Linear(hidden_layer_size, 1),
+            nn.Linear(hidden_layer_size, 4),
             nn.Tanh(),
         )
 
@@ -180,9 +180,11 @@ class StandardNetwork(PVNetwork):
                  auxout_channels: int, num_blocks: int,
                  value_head_hidden: int = 256, broadcast_every: int = 8,
                  bn_momentum: float = 0.1):
-        super().__init__(in_channels=in_channels, channels=channels, out_channels=out_channels,
+        super().__init__(in_channels=in_channels, channels=channels,
+                         out_channels=out_channels,
                          num_blocks=num_blocks,
-                         value_head_hidden=value_head_hidden, broadcast_every=broadcast_every,
+                         value_head_hidden=value_head_hidden,
+                         broadcast_every=broadcast_every,
                          bn_momentum=bn_momentum)
         self.aux_head = PolicyHead(channels=channels,
                                    out_channels=auxout_channels)

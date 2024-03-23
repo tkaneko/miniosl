@@ -118,7 +118,10 @@ void pyosl::init_basic(py::module_& m) {
     .def_readonly("final_move", &osl::MiniRecord::final_move, "resign or win declaration in :py:class:`Move`")
     .def("state_size", &osl::MiniRecord::state_size)
     .def("move_size", &osl::MiniRecord::move_size, "#moves played so far")
-    .def("set_initial_state", &osl::MiniRecord::set_initial_state, "state"_a, ":meta private:")
+    .def("set_initial_state", &osl::MiniRecord::set_initial_state,
+         "state"_a,
+         "shogi816k_id"_a=std::nullopt,
+         ":meta private:")
     .def("append_move", [](osl::MiniRecord& record, osl::Move move, bool in_check) {
       if (record.history.size() == 0)
         throw std::logic_error("add_move before set_initial_state");
@@ -135,10 +138,6 @@ void pyosl::init_basic(py::module_& m) {
       std::vector<uint64_t> code; osl::bitpack::append_binary_record(r, code);
       return code;
     }, "encode in uint64 array")
-    .def("export_all", &osl::MiniRecord::export_all, "flip_if_white_to_move"_a=true,
-         "make a sequence of training records each of which has 32 byets")
-    .def("export_all320", &osl::MiniRecord::export_all320, "flip_if_white_to_move"_a=true,
-         "make a sequence of training records each of which has 40 byets")
     .def("__len__", [](const osl::MiniRecord& r) { return r.moves.size(); })
     .def("__repr__", [](const osl::MiniRecord& r) {
       return "<MiniRecord '"+osl::to_usi(r.initial_state)
@@ -262,7 +261,9 @@ void pyosl::init_basic(py::module_& m) {
   m.attr("draw_limit") = &osl::MiniRecord::draw_limit;
   m.attr("One") = &osl::ml::One;
   m.attr("input_unit") = &osl::ml::input_unit;
+  m.attr("policy_unit") = &osl::ml::policy_unit;
   m.attr("aux_unit") = &osl::ml::aux_unit;
+  m.attr("legalmove_bs_sz") = &osl::ml::legalmove_bs_sz;
   m.attr("channels_per_history") = &osl::ml::channels_per_history;
   m.attr("history_length") = &osl::ml::history_length;
   

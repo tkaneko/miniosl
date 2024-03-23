@@ -1,8 +1,7 @@
 import miniosl
-import minioslcc
-import numpy as np
 import copy
 import random
+import numpy as np
 
 sfen = 'startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 6i7h 5a5b 4g4f'\
     + ' 9c9d 3h4g 7c7d 1g1f 7d7e 2e2d 2c2d 2h2d 8e8f 8g8f P*2c 2d7d 8b8f 5i5h'\
@@ -36,32 +35,6 @@ def test_anim():
     assert isinstance(s, miniosl.State)
     anim = r.to_apng(10)
     assert anim
-
-
-def test_np():
-    r = miniosl.usi_record(sfen)
-    array = r.export_all()
-    assert len(array) == len(r)
-    assert len(array[3]) == 4
-    t = miniosl.to_state_label_tuple256(array[3])
-    assert isinstance(t.state, minioslcc.BaseState)
-    assert isinstance(t.move, minioslcc.Move)
-    assert isinstance(t.result, minioslcc.GameResult)
-    s = miniosl.State(t.state)
-    assert s.to_usi() == t.state.to_usi()
-
-    nparray = np.array(array, dtype=np.uint64)
-    np.random.shuffle(nparray)
-    assert len(nparray[3]) == 4
-    t = miniosl.to_state_label_tuple256(nparray[3].tolist())
-    assert isinstance(t.state, minioslcc.BaseState)
-    assert isinstance(t.move, minioslcc.Move)
-    assert isinstance(t.result, minioslcc.GameResult)
-    code = t.state.to_np_pack()
-    assert code.shape == (4,)
-
-    s = miniosl.State(t.state)
-    assert s.to_usi() == t.state.to_usi()
 
 
 def test_channel_name():
@@ -103,7 +76,8 @@ def test_gamemanager_feature():
 def test_parallelgamemanager():
     N = 4
     N_GAMES = 10
-    mgrs = miniosl.ParallelGameManager(N, True)
+
+    mgrs = miniosl.ParallelGameManager(N)
     feature = mgrs.export_heuristic_feature_parallel()
     print(feature.shape)
     cnt = 0
@@ -115,13 +89,6 @@ def test_parallelgamemanager():
         mgrs.make_move_parallel(moves_chosen)
         cnt += 1
         assert cnt < N_GAMES*miniosl.draw_limit
-
-
-def test_to_np_feature_labels():
-    item = miniosl.StateRecord320.test_item()
-    input, move_label, value_label, aux_label = item.to_np_feature_labels()
-    assert input.shape == (len(miniosl.channel_id), 9, 9)
-    assert aux_label.shape == (miniosl.aux_unit//81, 9, 9)
 
 
 def test_end_by_rule():
@@ -185,3 +152,49 @@ def test_end_by_rule4():
     ok = mgr.make_move(mgr.state.to_move('5c5d'))
     assert ok == miniosl.InGame
     assert mgr.record.repeat_count() == 0
+
+
+def unpack_moves(u8array):
+    org_shape = list(u8array.shape)
+    new_shape = org_shape+[8]
+    x = np.broadcast_to(np.expand_dims(u8array, axis=-1), new_shape)
+    x = np.right_shift(x, np.arange(8))  # thanks to Demura-san
+    return (x & np.ones_like(x)).reshape(org_shape[:-1] + [org_shape[-1]*8])
+
+
+def test_construct():
+    state = miniosl.State()
+    record = miniosl.MiniRecord()
+    record.set_initial_state(state)
+    for move in ["+7776FU", "-3334FU", "+2726FU"]:
+        record.append_move(state.to_move(move), False)
+        state.make_move(move)
+    record.settle_repetition()
+    assert record.result == miniosl.InGame
+
+    record = miniosl.usi_record('startpos moves 7g7f 3c3d 2g2f resign')
+    assert record.result == miniosl.BlackWin
+    sub_record = miniosl.SubRecord(record)
+    feature0, _, _, aux0, legalmove0 = sub_record.sample_feature_labels(0)
+    assert isinstance(feature0, np.ndarray)
+    assert isinstance(aux0, np.ndarray)
+    assert isinstance(legalmove0, np.ndarray)
+    assert legalmove0.dtype == np.uint8
+    assert len(legalmove0) == miniosl.legalmove_bs_sz
+
+    _, _, _, _, legalmove1 = sub_record.sample_feature_labels(1)
+    _, _, _, _, legalmove2 = sub_record.sample_feature_labels(2)
+
+    up = np.unpackbits(legalmove0)
+    assert np.count_nonzero(up) == 30
+    state = miniosl.State()
+    moves = state.genmove()
+    um = unpack_moves(legalmove0)
+    for m in moves:
+        id = m.policy_move_label()
+        q, r = id // 8, id % 8
+        assert legalmove0[q] & (1 << r)
+        assert um[id] == 1
+
+    assert np.array_equal(legalmove0, legalmove1)
+    assert not np.array_equal(legalmove0, legalmove2)

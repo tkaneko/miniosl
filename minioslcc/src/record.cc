@@ -188,52 +188,10 @@ void osl::MiniRecord::replay(EffectState& state, int idx) {
 osl::MiniRecord osl::MiniRecord::branch_at(int idx) {
   if (idx >= moves.size())
     throw std::domain_error("index too large "+std::to_string(idx)+" v.s. "+std::to_string(moves.size()));
-  MiniRecord copy {initial_state,
+  MiniRecord copy {initial_state, std::nullopt,
                    {moves.begin(), moves.begin()+idx},
                    {history.begin(), history.begin()+idx+1}};
   return copy;
-}
-
-std::vector<std::array<uint64_t,4>> osl::MiniRecord::export_all(bool flip_if_white) const {
-  std::vector<std::array<uint64_t,4>> ret;
-  EffectState state(initial_state);
-  StateRecord256 ps;
-  for (auto move: moves) {
-    ps.state = state;
-    ps.next = move;
-    ps.result = result;
-    if (flip_if_white && state.turn() == WHITE) 
-      ps.flip();
-    ret.push_back(ps.to_bitset());
-    state.makeMove(move);
-  }
-  return ret;
-}
-
-std::vector<std::array<uint64_t,5>> osl::MiniRecord::export_all320(bool flip_if_white) const {
-  std::vector<std::array<uint64_t,5>> ret;
-  std::deque<Move> history5;
-  EffectState state(initial_state);
-  StateRecord320 ps;
-  for (size_t i=0; i<moves.size(); ++i) {
-    auto move = moves[i];
-    ps.base.state = state;
-    ps.base.next = move;
-    ps.base.result = result;
-    std::ranges::fill(ps.history, Move());
-    std::copy(history5.begin(), history5.end(), ps.history.begin());
-    // 
-    if (flip_if_white && move.player() == WHITE) // different from state.turn() with odd-length history
-      ps.flip();
-    ret.push_back(ps.to_bitset());
-    history5.push_back(move);
-    if (history5.size() > 5) {
-      auto old = history5.front();
-      history5.pop_front();
-      state.makeMove(old);
-    }
-  }
-  return ret;
 }
 
 void osl::MiniRecord::guess_result(const EffectState& state) {
@@ -822,6 +780,7 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
     }
     state.initFinalize();
     record.set_initial_state(state);
+    record.shogi816k_id = state.shogi816kID();
   }
   if (! (is >> word))
     return record;

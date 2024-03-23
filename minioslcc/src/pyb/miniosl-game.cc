@@ -18,18 +18,19 @@ namespace pyosl {
   // allow implementation of virtual methods in python
   // https://pybind11.readthedocs.io/en/stable/advanced/classes.html
   typedef py::array_t<float, py::array::c_style | py::array::forcecast> np_float_t;
+  typedef std::tuple<np_float_t, np_float_t, np_float_t> infer_tuple_t;
   class InferenceModelStub : public InferenceModel {
   public:
     using InferenceModel::InferenceModel;
     void test_run(std::vector<nn_input_element>& in,
                   std::vector<policy_logits_t>& policy_out,
-                  std::vector<std::array<float,1>>& vout) override {
+                  std::vector<value_vector_t>& vout) override {
       batch_infer(in, policy_out, vout);
     }
     
     void batch_infer(std::vector<nn_input_element>& in,
                      std::vector<policy_logits_t>& policy_out,
-                     std::vector<std::array<float,1>>& vout) override {
+                     std::vector<value_vector_t>& vout) override {
       const int sz = in.size() / osl::ml::input_unit;
       if (sz != vout.size() || (!policy_out.empty() && sz != policy_out.size()))
         throw std::invalid_argument("batch_infer: size mismatch "
@@ -56,17 +57,16 @@ namespace pyosl {
         for (size_t j=0; j<vout[0].size(); ++j)
           vout[i][j] = vptr[i*vout[0].size() + j];
     }
-    virtual std::tuple<np_float_t, np_float_t, np_float_t> py_infer(py::array_t<int8_t>) =0;
+    virtual infer_tuple_t py_infer(py::array_t<int8_t>) =0;
   };
 
   class PyInferenceModelStub : public InferenceModelStub {
   public:
     using InferenceModelStub::InferenceModelStub;
-    typedef std::tuple<np_float_t, np_float_t, np_float_t> tuple_t;
-    tuple_t py_infer(py::array_t<int8_t> inputs) override {
+    infer_tuple_t py_infer(py::array_t<int8_t> inputs) override {
       PYBIND11_OVERRIDE_PURE
         (
-         tuple_t, /* Return type */
+         infer_tuple_t, /* Return type */
          InferenceModelStub,      /* Parent class */
          py_infer,          /* Name of function in C++ (must match Python name) */
          inputs      /* Argument(s) */
@@ -115,7 +115,7 @@ void pyosl::init_game(py::module_& m) {
     .def("__deepcopy__",  [](const osl::GameManager& g) { return osl::GameManager(g);})
     ;
   py::class_<osl::ParallelGameManager>(m, "ParallelGameManager", py::dynamic_attr())
-    .def(py::init<int,bool,bool>(), "N"_a, "force_declare"_a, "ignore_draw"_a=false)
+    .def(py::init<int,std::optional<osl::GameConfig>>(), "N"_a, "config"_a=std::nullopt)
     .def_readonly("games", &osl::ParallelGameManager::games)
     .def_readonly("completed_games", &osl::ParallelGameManager::completed_games)
     .def("make_move_parallel", &osl::ParallelGameManager::make_move_parallel)
@@ -135,8 +135,19 @@ void pyosl::init_game(py::module_& m) {
     .def("name", &osl::PolicyPlayer::name)
     ;
 
+  py::class_<osl::GumbelPlayerConfig>(m, "GumbelPlayerConfig")
+    .def(py::init<>())
+    .def_readwrite("root_width", &osl::GumbelPlayerConfig::root_width)
+    .def_readwrite("noise_scale", &osl::GumbelPlayerConfig::noise_scale)
+    .def_readwrite("greedy_after", &osl::GumbelPlayerConfig::greedy_after)
+    .def_readwrite("softalpha", &osl::GumbelPlayerConfig::softalpha)
+    .def_readwrite("value_mix", &osl::GumbelPlayerConfig::value_mix)
+    .def_readwrite("second_width", &osl::GumbelPlayerConfig::second_width)
+    .def_readwrite("depth_weight", &osl::GumbelPlayerConfig::depth_weight)
+    ;
+
   py::class_<osl::FlatGumbelPlayer, osl::PlayerArray>(m, "FlatGumbelPlayer", py::dynamic_attr())
-    .def(py::init<int,double>(), "width"_a, "noise_scale"_a=1.0)
+    .def(py::init<osl::GumbelPlayerConfig>(), "config"_a)
     .def("name", &osl::FlatGumbelPlayer::name)
     ;
 
@@ -160,9 +171,19 @@ void pyosl::init_game(py::module_& m) {
     .def("think", &osl::RandomPlayer::think)
     ;
 
+  py::class_<osl::GameConfig>(m, "GameConfig")
+    .def(py::init<>())
+    .def_readwrite("force_declare", &osl::GameConfig::force_declare)
+    .def_readwrite("ignore_draw", &osl::GameConfig::ignore_draw)
+    .def_readwrite("random_opening", &osl::GameConfig::random_opening)
+    .def_readwrite("shogi816k", &osl::GameConfig::shogi816k)
+    ;
+  
   py::class_<osl::GameArray>(m, "GameArray", py::dynamic_attr())
-    .def(py::init<int, PlayerArray&, PlayerArray&, InferenceModel&, bool>(),
-         "N"_a, "player_a"_a, "player_b"_a, "model"_a, "ignore_draw"_a=false)
+    .def(py::init<int, PlayerArray&, PlayerArray&,
+         InferenceModel&, InferenceModel&,
+         std::optional<GameConfig>>(),
+         "N"_a, "player_a"_a, "player_b"_a, "model_a"_a, "model_b"_a, "config"_a=std::nullopt)
     .def("step", &osl::GameArray::step)
     .def("completed", &osl::GameArray::completed)
     .def("warmup", &osl::GameArray::warmup, "n"_a=4)
@@ -177,7 +198,7 @@ void pyosl::init_game(py::module_& m) {
     ;
 
   // function
-  m.def("transformQ", &osl::FlatGumbelPlayer::transformQ, "q_by_nn"_a, "cvisit"_a=50.0);
+  m.def("transformQ", &osl::FlatGumbelPlayer::transformQ_formula, "q_by_nn"_a, "cvisit"_a=50.0, "maxnb"_a=1);
 
   py::bind_vector<std::vector<osl::GameManager>>(m, "GameManagerVector");
 }
@@ -201,6 +222,7 @@ py::array_t<float> pyosl::export_heuristic_feature16(const osl::GameManager& mgr
 py::array_t<float> pyosl::export_heuristic_feature_parallel(const osl::ParallelGameManager& mgrs) {
   const int sz = ml::input_unit * mgrs.n_parallel();
   nparray<float> feature(sz);
+  std::fill(feature.ptr(), feature.ptr()+sz, 0);
   ml::write_float_feature([&](auto *out) { GameArray::export_root_features(mgrs.games, out); },
                           sz,
                           feature.ptr()

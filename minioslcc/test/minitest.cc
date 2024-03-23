@@ -871,6 +871,19 @@ void test_state() {
   }
 }
 
+void test_state816k() {
+  {
+    BaseState state(Shogi816K, 0);
+    TEST_ASSERT(state.check_internal_consistency());
+  }
+  for (int i=0; i<1024; ++i) {
+    BaseState state(Shogi816K, -1);
+    TEST_ASSERT(state.check_internal_consistency());
+    auto id = state.shogi816kID();
+    TEST_ASSERT(id.has_value());
+  }
+}
+
 void testEffectedState(EffectState const& state,Move move)
 {
   PieceMask b_mask=state.effectedPieces(BLACK);
@@ -4555,88 +4568,6 @@ void test_combination_id() {
         }
 }
 
-void test_pack_position() {
-  {
-    StateRecord256 ps;
-    auto bs = ps.to_bitset();
-    StateRecord256 ps2;
-    ps2.restore(bs);
-    TEST_CHECK(to_usi(ps.state) == to_usi(ps2.state));
-  }
-  {
-    StateRecord256 ps;
-    TEST_ASSERT_EQUAL(ps.flipped, false);
-    ps.flip();
-    TEST_ASSERT_EQUAL(ps.flipped, true);
-  }
-  {
-    auto sfen = "sfen l2g3nl/5k3/2npppsgp/p2s2p2/5P1pP/PrPPS1R2/4P1P2/2G1K1G2/LNS4NL b B3Pbp 1";
-    EffectState state = usi::to_state(sfen);
-    
-    StateRecord256 ps = {state};
-    auto bs = ps.to_bitset();
-    StateRecord256 ps2;
-    ps2.restore(bs);
-
-    TEST_CHECK(sfen == to_usi(ps2.state));
-  }
-  {
-    StateRecord320 ps;
-    auto bs = ps.to_bitset();
-    StateRecord320 ps2;
-    ps2.restore(bs);
-    TEST_CHECK(to_usi(ps.base.state) == to_usi(ps2.base.state));
-    TEST_CHECK(ps.base == ps2.base);
-    TEST_CHECK(ps.history == ps2.history);
-  }
-  {
-    EffectState state;
-    auto m7 = state.to_move("+7776FU");
-    state.makeMove(m7);
-    auto m3 = state.to_move("-3334FU");
-
-    {
-      StateRecord320 ps;
-      ps.base.next = m3;
-      ps.history[0] = m7;
-    
-      auto bs = ps.to_bitset();
-      StateRecord320 ps2;
-      ps2.restore(bs);
-      TEST_CHECK(ps.base.state == ps2.base.state);
-      TEST_CHECK(ps.base.next == ps2.base.next);
-      TEST_MSG("%s v.s. %s", to_csa(ps.base.next).c_str(), to_csa(ps2.base.next).c_str());
-      TEST_CHECK(ps.base == ps2.base);
-      TEST_CHECK(ps.history == ps2.history);
-
-      ps.flip();
-      TEST_CHECK(ps.base.flipped);
-      TEST_CHECK(ps.base.next == m7);
-      TEST_CHECK(ps.history[0] == m3);
-
-      ps2.restore(ps.to_bitset());
-      TEST_CHECK(ps.base == ps2.base);
-      TEST_CHECK(ps.history == ps2.history);    
-    }
-    state.makeMove(m3);
-    auto m2 = state.to_move("+2726FU");
-    {
-      StateRecord320 ps;
-      ps.base.next = m2;
-      ps.history[0] = m7;
-      ps.history[1] = m3;
-
-      StateRecord320 ps2;
-      ps2.restore(ps.to_bitset());
-      TEST_CHECK(ps.base.state == ps2.base.state);
-      TEST_CHECK(ps.base.next == ps2.base.next);
-      TEST_MSG("%s v.s. %s", to_csa(ps.base.next).c_str(), to_csa(ps2.base.next).c_str());
-      TEST_CHECK(ps.base == ps2.base);
-      TEST_CHECK(ps.history == ps2.history);
-    }
-  }
-}
-
 void test_win_if_declare()
 {
   {
@@ -4841,55 +4772,6 @@ void test_compress_record()
   int read_count = bitpack::read_binary_record(ptr, r2);
   TEST_ASSERT(count == read_count);
   TEST_ASSERT(record == r2);
-
-  {
-    // separate each position for training data
-    auto all_data = record.export_all(false); // no flip
-    TEST_ASSERT(all_data.size() == record.moves.size());
-    StateRecord256 ps;
-    EffectState replay;
-    for (auto data: all_data) {
-      B256 b256{data};
-      ps.restore(b256);
-      TEST_ASSERT(ps.state == replay);
-      TEST_ASSERT(replay.isLegal(ps.next));
-      replay.makeMove(ps.next);
-    }
-  }
-  {
-    // separate each position for training data, 320bit version
-    auto all_data = record.export_all320(false);
-    TEST_ASSERT(all_data.size() == record.moves.size());
-    StateRecord320 ps;
-    EffectState replay;
-    for (auto data: all_data) {
-      B320 b320{data};
-      ps.restore(b320);
-      TEST_CHECK(ps.make_state() == replay);
-      TEST_ASSERT(replay.isLegal(ps.base.next));
-      replay.makeMove(ps.base.next);
-    }
-  }
-  {
-    auto record = usi::read_record("startpos moves 7g7f 3c3d");
-    auto all_data = record.export_all(true);
-    EffectState replay;
-    StateRecord256 tuple;
-    tuple.restore(all_data[0]);
-    TEST_ASSERT(tuple.state == replay);
-    TEST_ASSERT(! tuple.flipped);
-    Move m7776(Square(7,7), Square(7,6), PAWN, Ptype_EMPTY, false, BLACK);
-    TEST_ASSERT(tuple.next == m7776);
-    replay.makeMove(m7776);
-
-    tuple.restore(all_data[1]); // rotated
-    TEST_ASSERT(tuple.state != replay);
-    TEST_ASSERT(tuple.state == replay.rotate180());
-    Move m3334(Square(3,3), Square(3,4), PAWN, Ptype_EMPTY, false, WHITE);
-    TEST_ASSERT(tuple.next != m3334);
-    TEST_ASSERT(tuple.next == m3334.rotate180());    
-    TEST_ASSERT(tuple.flipped);
-  }
 }
 
 void test_hash() {
@@ -5338,8 +5220,9 @@ void test_game_manager() {
 void test_parallel_game_manager() {
   std::default_random_engine rsrc;
   const int N = 4, N_TARGET = 10;
-  const bool force_declare = true;
-  ParallelGameManager mgrs(N, force_declare);
+  GameConfig cfg;
+  cfg.force_declare = true;
+  ParallelGameManager mgrs(N, cfg);
   TEST_CHECK(mgrs.completed_games.size() == 0);
   int cnt = 0;
   while (mgrs.completed_games.size() < N_TARGET) {
@@ -5503,6 +5386,56 @@ void test_kifu() {
   TEST_CHECK(record.moves[1] == m34fu);
 }
 
+class MockModel : public osl::InferenceModel {
+public:
+  ~MockModel() {} 
+  void batch_infer(std::vector<nn_input_element>& in,
+                   std::vector<policy_logits_t>& policy_out,
+                   std::vector<value_vector_t>& vout) {
+  }
+};
+
+void test_gamearray() {
+  auto game_config = GameConfig();
+  game_config.ignore_draw = true;
+  game_config.shogi816k = true;
+  CPUPlayer player_a(std::make_shared<RandomPlayer>(), false), player_b(std::make_shared<RandomPlayer>(), false);
+  MockModel model;
+  GameArray mgrs(8, player_a, player_b,
+                 model, model,
+                 game_config);
+  for (int i=0; i<1024; ++i)
+    mgrs.step();
+}
+
+void test_gumbelplayer() {
+  auto game_config = GameConfig();
+  game_config.ignore_draw = true;
+  game_config.shogi816k = true;
+  GumbelPlayerConfig config;
+  config.root_width=4;
+
+  {
+    FlatGumbelPlayer player_a(config), player_b(config);
+    MockModel model;
+    GameArray mgrs(8, player_a, player_b,
+                   model, model,
+                   game_config);
+    for (int i=0; i<1024; ++i)
+      mgrs.step();
+  }
+
+  config.second_width = 2;
+  {
+    FlatGumbelPlayer player_a(config), player_b(config);
+    MockModel model;
+    GameArray mgrs(8, player_a, player_b,
+                   model, model,
+                   game_config);
+    for (int i=0; i<1024; ++i)
+      mgrs.step();
+  }
+}
 
 TEST_LIST = {
   { "player", test_player },
@@ -5515,6 +5448,7 @@ TEST_LIST = {
   { "offset", test_offset },
   { "king8", test_king8 },
   { "state", test_state },
+  { "state816k", test_state816k },
   { "effect_state", test_effect_state },
   { "effect_state2", test_effect_state2 },
   { "usi", test_usi },
@@ -5525,7 +5459,6 @@ TEST_LIST = {
   { "addeffect", test_addeffect },
   { "movegen", test_movegen },
   { "combination_id", test_combination_id },
-  { "pack_position", test_pack_position },
   { "win_if_declare", test_win_if_declare },
   { "compress_record", test_compress_record },
   { "hash", test_hash },
@@ -5540,5 +5473,7 @@ TEST_LIST = {
   { "make_feature", test_make_feature },
   { "win-loss-after-move", test_win_loss_after_move},
   { "kifu", test_kifu },
+  { "gamearray", test_gamearray },
+  { "gumbelplayer", test_gumbelplayer },
   { nullptr, nullptr }
 };

@@ -26,10 +26,10 @@ namespace osl {
     constexpr int input_unit = input_channels*81, policy_unit = 2187, aux_unit = 9*9*aux_channels;
 
     typedef std::array<float,ml::policy_unit> policy_logits_t;
+    typedef std::array<float,4> value_vector_t;
     /** 
-     * note this objects will be poorly aligned unless the number of input_channels is a good multiples.
+     * note features be poorly aligned unless the number of input_channels is a good multiples.
      */
-    typedef std::array<float,ml::input_unit> nn_input_t;
     constexpr int One = ml::quantize_scale;
     typedef int8_t nn_input_element;
     inline float to_float(nn_input_element v) { return 1.0*v/ml::One; }
@@ -50,8 +50,8 @@ namespace osl {
       return f(work.proxy());
     }
   }
-  using ml::nn_input_t;
   using ml::policy_logits_t;
+  using ml::value_vector_t;
   using ml::nn_input_element;
 
   class InferenceModel {
@@ -60,13 +60,13 @@ namespace osl {
     /** warmup and may tell standard batch size to the engine */
     virtual void test_run(std::vector<nn_input_element>& /* size = batch_size * input_unit */ in,
                           std::vector<policy_logits_t>& /* size = batch_size */ policy_out,
-                          std::vector<std::array<float,1>>& /* size = batch_size */ vout);
+                          std::vector<value_vector_t>& /* size = batch_size */ vout);
     /** primary inference function 
      * @param policy_out can be zero if only vout is needed
      */
     virtual void batch_infer(std::vector<nn_input_element>& in,
                              std::vector<policy_logits_t>& policy_out,
-                             std::vector<std::array<float,1>>& vout) = 0;
+                             std::vector<value_vector_t>& vout) = 0;
   };
 }
 #endif

@@ -536,19 +536,31 @@ namespace osl {
   }
 }
 
-osl::SubRecord::SubRecord(const MiniRecord& record) : moves(record.moves), final_move(record.final_move), result(record.result) {
-  if (record.initial_state != BaseState(HIRATE))
+osl::SubRecord::SubRecord(const MiniRecord& record)
+  : moves(record.moves), shogi816k_id(record.shogi816k_id),
+    final_move(record.final_move), result(record.result) {
+  if (! shogi816k_id
+      && record.initial_state != BaseState(HIRATE))
     throw std::logic_error("unexpected initial state");
 }
-osl::SubRecord::SubRecord(MiniRecord&& record) : moves(std::move(record.moves)), final_move(record.final_move), result(record.result) {
-  if (record.initial_state != BaseState(HIRATE))
+osl::SubRecord::SubRecord(MiniRecord&& record)
+  : moves(std::move(record.moves)), shogi816k_id(record.shogi816k_id),
+    final_move(record.final_move), result(record.result) {
+  if (! shogi816k_id
+      && record.initial_state != BaseState(HIRATE))
     throw std::logic_error("unexpected initial state");
+}
+
+osl::BaseState osl::SubRecord::initial_state() const {
+  if (shogi816k_id)
+    return BaseState(Shogi816K, shogi816k_id.value());
+  return BaseState(HIRATE);
 }
 
 osl::BaseState osl::SubRecord::make_state(int idx) const {
   if (idx < 0 || moves.size() < idx)
     throw std::range_error("make_state: out of range");
-  BaseState state(HIRATE);
+  auto state = initial_state();
   for (int i: std::views::iota(0, idx))
     state.make_move_unsafe(moves[i]);
   return state;
@@ -602,13 +614,15 @@ void osl::ml::helper::write_np_histories(EffectState& state, const MoveVector& h
 }
 
 void osl::SubRecord::export_feature_labels(int idx, nn_input_element *input,
-                                           int& move_label, int& value_label, nn_input_element *aux_label) const {
+                                           int& move_label, int& value_label, nn_input_element *aux_label,
+                                           MoveVector& legal_moves) const {
   if ((! (0 <= idx && idx < moves.size())) || result == InGame)
     throw std::range_error("make_state_label_of_turn: out of range"
                            " or in game " + std::to_string(idx)
                            + " < " + std::to_string(moves.size())
                            + " result " + std::to_string(result));
-  auto [state, flipped] = ml::export_features(BaseState(HIRATE), moves, input, idx);
+  auto [state, flipped] = ml::export_features(initial_state(), moves, input, idx);
+  state.generateLegal(legal_moves);
   
   Move move = moves[idx];
   auto result = this->result;
@@ -620,6 +634,8 @@ void osl::SubRecord::export_feature_labels(int idx, nn_input_element *input,
   // labels
   move_label = ml::policy_move_label(move);
   value_label = ml::value_label(result);
+  if (idx < 2)
+    value_label = 0;
 
   ml::helper::write_np_aftermove(state, move, aux_label);
 }
@@ -656,23 +672,50 @@ int osl::SubRecord::weighted_sampling(int limit, int N, TID tid) {
 
 void osl::SubRecord::sample_feature_labels(nn_input_element *input,
                                            int& move_label, int& value_label, nn_input_element *aux_label,
+                                           uint8_t *legalmove_buf,
                                            int decay, TID tid) const {
+  if (shogi816k_id)
+    decay = 0;
+  MoveVector legal_moves;
   int idx = weighted_sampling(moves.size(), decay, tid);
-  export_feature_labels(idx, input, move_label, value_label, aux_label);
+  export_feature_labels(idx, input, move_label, value_label, aux_label, legal_moves);
+  if (legalmove_buf)
+    ml::set_legalmove_bits(legal_moves, legalmove_buf);
 }
 
-void osl::SubRecord::sample_feature_labels_to(int offset,
-                                              nn_input_element *input_buf,
-                                              int32_t *policy_buf, float *value_buf, nn_input_element *aux_buf,
-                                              int decay, TID tid) const {
+void osl::SubRecord::
+sample_feature_labels_to(int offset,
+                         nn_input_element *input_buf,
+                         int32_t *policy_buf, float *value_buf, nn_input_element *aux_buf,
+                         nn_input_element *input2_buf,
+                         uint8_t *legalmove_buf,
+                         int decay, TID tid) const {
+  if (shogi816k_id)
+    decay = 0;
   int idx = weighted_sampling(moves.size(), decay, tid);
   int move_label, value_label;
+  MoveVector legal_moves;
   export_feature_labels(idx,
                         input_buf + offset*ml::input_unit,
                         move_label, value_label,
-                        aux_buf + offset*ml::aux_unit);
+                        aux_buf + offset*ml::aux_unit,
+                        legal_moves);
   policy_buf[offset] = move_label;
   value_buf[offset] = value_label;
+  if (input2_buf)
+    ml::export_features(initial_state(), moves,
+                        input2_buf + offset*ml::input_unit,
+                        idx+1);
+  if (legalmove_buf)
+    ml::set_legalmove_bits(legal_moves, legalmove_buf + offset*ml::legalmove_bs_sz);
+}
+
+
+void osl::ml::set_legalmove_bits(const MoveVector& legal_moves, uint8_t *buf) {
+  for (auto move: legal_moves) {
+    int id = ml::policy_move_label(move);
+    ml::set_in_uint8bit_vector(buf, id);
+  }
 }
 
 

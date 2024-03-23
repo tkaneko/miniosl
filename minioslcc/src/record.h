@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <sstream>
 #include <tuple>
+#include <optional>
 
 namespace osl
 {
@@ -21,6 +22,7 @@ namespace osl
   struct MiniRecord {
     /** initial state */
     EffectState initial_state;
+    std::optional<int> shogi816k_id;
     /** moves */
     std::vector<Move> moves;
     /** history status of moves.size()+1 to detect repetition */
@@ -35,8 +37,6 @@ namespace osl
     int move_size() const { return moves.size(); }
     /** test game is completed */
     bool has_winner() const { return osl::has_winner(result); }
-    std::vector<std::array<uint64_t,4>> export_all(bool flip_if_white_to_move=true) const;
-    std::vector<std::array<uint64_t,5>> export_all320(bool flip_if_white_to_move=true) const;
     /** @internal export latest state */
     std::array<uint64_t,5> export320(bool flip_if_white_to_move=true) const;
     /**
@@ -65,8 +65,8 @@ namespace osl
     void guess_result(const EffectState& final);
     void settle_repetition();
 
-    void set_initial_state(const BaseState& state) {
-      *this = MiniRecord { EffectState(state) };
+    void set_initial_state(const BaseState& state, std::optional<int> shogi816k_id=std::nullopt) {
+      *this = MiniRecord { EffectState(state), shogi816k_id };
       history.emplace_back(HashStatus(initial_state));
     }
     /**

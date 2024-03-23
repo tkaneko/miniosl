@@ -223,7 +223,11 @@ class SfenBlockStat:
         return b / (b + w)
 
     def uniq20_ratio(self) -> float:
+        if not self.total:
+            return 0
         return len(self.uniq20) / self.total
 
     def uniq40_ratio(self) -> float:
+        if not self.total:
+            return 0
         return len(self.uniq40) / self.total

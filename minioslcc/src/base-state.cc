@@ -1,13 +1,15 @@
 #include "base-state.h"
 #include "record.h"
+#include "impl/bitpack.h"
+#include "impl/rng.h"
 #include <iostream>
 
 osl::BaseState::BaseState() {
   initEmpty();
 }
 
-osl::BaseState::BaseState(Handicap h) {
-  init(h);
+osl::BaseState::BaseState(Handicap h, int additional_param) {
+  init(h, additional_param);
 }
 
 void osl::BaseState::initFinalize(){
@@ -54,9 +56,109 @@ void osl::BaseState::initEmpty() {
   }
 }
   
+void osl::BaseState::init816K(int id) {
+  if (id < 0)
+    id = rngs[0]() % Shogi816K_Size;
+  for (int x=9;x>0;x--) {
+    setPiece(BLACK, Square(x, 7), PAWN);
+    setPiece(WHITE, Square(x, 3), PAWN);
+  }
+  const int rb = id / 22680;
+  assert(0 <= rb && rb < 72);
+  int rook = rb / 8, bishop = rb % 8;
+  setPiece(BLACK, Square(rook + 1, 8), ROOK);
+  setPiece(WHITE, Square(9 - rook, 2), ROOK);
+  if (bishop >= rook)
+    bishop += 1;
+  setPiece(BLACK, Square(bishop + 1, 8), BISHOP);
+  setPiece(WHITE, Square(9 - bishop, 2), BISHOP);
+  const int kgskl = id % 22680;
+  const int king = kgskl / (28 * 15 * 6);
+  assert(0 <= king && king < 9);
+  setPiece(BLACK, Square(king + 1, 9), KING);
+  setPiece(WHITE, Square(9 - king, 1), KING);
+  bool filled[10] = { 0 };
+  filled[king] = true;
+  const int gg = (kgskl % (28 * 15 * 6)) / (15 * 6);
+  const int ss = (kgskl % (15 * 6)) / 6;
+  const int kk = kgskl % 6;
+  auto assign = [&](int nth) {
+    int x = 0;
+    while (filled[x])
+      ++x;
+    for (int i=0; i<nth; ++i) {
+      ++x;
+      while (filled[x])
+        ++x;
+    }
+    filled[x] = true;
+    return x;
+  };
+  for (auto [ptype, id]: {std::make_pair(GOLD, gg), {SILVER, ss}, {KNIGHT, kk}, {LANCE, 0}}) {
+    auto [p0, p1] = bitpack::detail::unpack2(id);
+    assert(p0 < p1);
+    p1 = assign(p1);
+    p0 = assign(p0);
+    setPiece(BLACK, Square(p0 + 1, 9), ptype);
+    setPiece(BLACK, Square(p1 + 1, 9), ptype);
+    setPiece(WHITE, Square(9 - p0, 1), ptype);
+    setPiece(WHITE, Square(9 - p1, 1), ptype);  
+  }
+  initFinalize();
+}
 
-void osl::BaseState::init(Handicap h) {
+std::optional<int> osl::BaseState::shogi816kID() const {
+  int xs[Ptype_SIZE][2] = { 0 };
+  for (int x=9;x>0;x--) {
+    if (pieceAt(Square(x, 7)).ptype() != PAWN) return std::nullopt;
+    if (pieceAt(Square(x, 3)).ptype() != PAWN) return std::nullopt;
+    auto p9 = pieceAt(Square(x, 9)), p8 = pieceAt(Square(x, 8));
+    if (! p9.isOnBoardByOwner(BLACK) || ! is_basic(p9.ptype())
+        || pieceAt(p9.square().rotate180()).ptypeO() != newPtypeO(WHITE, p9.ptype()))
+      return std::nullopt;
+    if (p8.isOnBoardByOwner(WHITE)
+        || (is_piece(p8.ptype())
+            && (! is_basic(p8.ptype()) // may be vacant square
+                || pieceAt(p8.square().rotate180()).ptypeO() != newPtypeO(WHITE, p8.ptype()))))
+      return std::nullopt;
+    for (auto [ptype, piece]: {std::make_pair(GOLD, p9), {SILVER, p9}, {KNIGHT, p9}, {LANCE, p9},
+                               {KING, p9},
+                               {ROOK, p8}, {BISHOP, p8}})
+      if (piece.ptype() == ptype) {
+        if (xs[idx(ptype)][0])
+          xs[idx(ptype)][1] = x;
+        else
+          xs[idx(ptype)][0] = x;
+      }
+  }
+  int& rook = xs[idx(ROOK)][0], & bishop = xs[idx(BISHOP)][0], & king = xs[idx(KING)][0];
+  if (! (rook && bishop && king))
+    return std::nullopt;
+  if (bishop >= rook)
+    bishop -= 1;
+  int rb = (rook-1) * 8 + (bishop-1);
+  assert(0 <= rb && rb < 72);
+  int kgskl = king-1;
+  bool placed[10] = { 0 };
+  placed[king] = 1;
+  int *gg = xs[idx(GOLD)], *ss = xs[idx(SILVER)], *kk = xs[idx(KNIGHT)];
+  for (auto [pp, scale]: {std::make_pair(gg, 28), {ss, 15}, {kk, 6}}) {
+    assert(placed[pp[0]] == 0);
+    placed[pp[0]] = 1;
+    pp[0] = std::count(placed+1, placed+pp[0], 0);
+    assert(placed[pp[1]] == 0);
+    placed[pp[1]] = 1;
+    pp[1] = std::count(placed+1, placed+pp[1], 0);
+    int code = bitpack::detail::combination_id(pp[1], pp[0]);
+    kgskl = kgskl * scale + code;
+  }
+  return rb * 22680 + kgskl;
+}
+
+void osl::BaseState::init(Handicap h, int additional_param) {
   initEmpty();
+  if (h == Shogi816K)
+    return init816K(additional_param);
   if (h != HIRATE) {
     std::cerr << "unsupported handicap\n";
     throw std::domain_error("unsupported handicap");

@@ -10,7 +10,7 @@ feature_channels = len(miniosl.channel_id)
 
 
 def p2elo(p, eps=1e-4):
-    return -400 * np.log10(1/(p+eps)-1)
+    return -400 * np.log10(1/(abs(p)+eps)-1)
 
 
 def sort_moves(moves, policy):
@@ -63,11 +63,14 @@ class InferenceModel(abc.ABC):
         out = self.infer_one(input)
         moves = softmax(out[0]).reshape(-1, 9, 9) \
             if take_softmax else out[0].reshape(-1, 9, 9)
-        value, aux = (out[1].item(), out[2].reshape(-1, 9, 9))
+        value = out[1]
+        aux = out[2].reshape(-1, 9, 9) if len(out) >= 3 else None
         return (moves, value, aux)
 
 
 class OnnxInfer(InferenceModel):
+    first_load = True
+
     def __init__(self, path: str, device: str):
         import re
         super().__init__(device)
@@ -85,7 +88,9 @@ class OnnxInfer(InferenceModel):
         else:
             provider = ort.get_available_providers()
         self.ort_session = ort.InferenceSession(path, providers=provider)
-        logging.info(self.ort_session.get_providers())
+        if OnnxInfer.first_load:
+            logging.info(self.ort_session.get_providers())
+            OnnxInfer.first_load = False
         self.binding = self.ort_session.io_binding()
 
     def infer(self, inputs: torch.Tensor):
@@ -156,9 +161,11 @@ class TorchTRTInfer(InferenceModel):
         self.device = device
 
     def infer(self, inputs: torch.Tensor):
-        tensor = inputs.half().to(self.device)
-        outputs = self.trt_module(tensor)
-        return [_.to('cpu').numpy() for _ in outputs]
+        with torch.cuda.device(torch.device(self.device)):
+            tensor = inputs.half().to(self.device)
+            outputs = self.trt_module(tensor)
+            ret = [_.to('cpu').numpy() for _ in outputs]
+        return ret
 
 
 class TorchScriptInfer(InferenceModel):
@@ -190,6 +197,7 @@ class TorchInfer(InferenceModel):
 def load(path: str, device: str = "", torch_cfg: dict = {},
          *,
          compiled: bool = False,
+         strict: bool = True,
          remove_aux_head: bool = False) -> InferenceModel:
     """factory method to load a model from file
 
@@ -209,7 +217,8 @@ def load(path: str, device: str = "", torch_cfg: dict = {},
     if path.endswith('.pts'):  # need to used a different extention from TRT's
         return TorchScriptInfer(path, device)
     if path.endswith('.pt'):
-        NN = miniosl.network.PVNetwork if remove_aux_head else miniosl.network.StandardNetwork
+        NN = miniosl.network.PVNetwork if remove_aux_head \
+            else miniosl.network.StandardNetwork
         raw_model = NN(**torch_cfg).to(device)
         if compiled:
             cmodel = torch.compile(raw_model)
@@ -217,7 +226,7 @@ def load(path: str, device: str = "", torch_cfg: dict = {},
         else:
             model = raw_model
         saved_state = torch.load(path, map_location=torch.device(device))
-        strict = not remove_aux_head
+        strict = strict and not remove_aux_head
         model.load_state_dict(saved_state, strict=strict)
         return TorchInfer(raw_model, device)
     if path.endswith('.chpt'):
@@ -251,7 +260,7 @@ class InferenceForGameArray(miniosl.InferenceModelStub):
         return self.module.infer_int8(features)
 
 
-def export_onnx(model, *, device, filename):
+def export_onnx(model, *, device, filename, remove_aux_head=False):
     import torch.onnx
     model.eval()
     dtype = torch.float
@@ -260,22 +269,36 @@ def export_onnx(model, *, device, filename):
     if not filename.endswith('.onnx'):
         filename = f'{filename}.onnx'
 
-    torch.onnx.export(model, dummy_input, filename,
-                      dynamic_axes={'input': {0: 'batch_size'},
-                                    'move': {0: 'batch_size'},
-                                    'value': {0: 'batch_size'},
-                                    'aux': {0: 'batch_size'}},
-                      verbose=False, input_names=['input'],
-                      output_names=['move', 'value', 'aux'])
+    if not remove_aux_head:
+        torch.onnx.export(model, dummy_input, filename,
+                          dynamic_axes={'input': {0: 'batch_size'},
+                                        'move': {0: 'batch_size'},
+                                        'value': {0: 'batch_size'},
+                                        'aux': {0: 'batch_size'}},
+                          verbose=False, input_names=['input'],
+                          output_names=['move', 'value', 'aux'])
+    else:
+        torch.onnx.export(model, dummy_input, filename,
+                          dynamic_axes={'input': {0: 'batch_size'},
+                                        'move': {0: 'batch_size'},
+                                        'value': {0: 'batch_size'}},
+                          verbose=False, input_names=['input'],
+                          output_names=['move', 'value'])
 
 
-def export_tensorrt(model, *, device, filename):
+def export_tensorrt(model, *, device, filename, quiet=False):
     logging.debug(f'feature challes {feature_channels}')
     import torch_tensorrt
+    if quiet:
+        torch_tensorrt.logging.set_reportable_log_level(
+            torch_tensorrt.logging.Level.Error
+        )
+    torch_tensorrt.logging.set_is_colored_output_on(True)
     if not device:
         device = 'cuda'
     elif not device.startswith('cuda'):
         raise ValueError(f'unexpected device for trt {device}')
+
     model.eval()
     model = model.half()
     inputs = [
@@ -286,13 +309,15 @@ def export_tensorrt(model, *, device, filename):
             dtype=torch.half,
         )]
     enabled_precisions = {torch.half}
-    trt_ts_module = torch_tensorrt.compile(
-        model, inputs=inputs, enabled_precisions=enabled_precisions,
-        ir='ts',
-        device=torch.device(device)
-    )
-    input_data = torch.randn(16, feature_channels, 9, 9, device=device)
-    _ = trt_ts_module(input_data.half())
+    with torch.cuda.device(torch.device(device)):
+        trt_ts_module = torch_tensorrt.compile(
+            torch.jit.script(model),
+            inputs=inputs, enabled_precisions=enabled_precisions,
+            ir='ts',
+            device=torch.device(device)
+        )
+        input_data = torch.randn(16, feature_channels, 9, 9, device=device)
+        _ = trt_ts_module(input_data.half())
     savefile = filename if filename.endswith('.ts') else f'{filename}.ts'
     torch.jit.save(trt_ts_module, savefile)
 
@@ -310,11 +335,13 @@ def export_torch_script(model, *, device, filename):
     torch.jit.save(ts_module, filename)
 
 
-def export_model(model, *, device, filename):
+def export_model(model, *, device, filename, quiet=False,
+                 remove_aux_head=False):
     if filename.endswith('.onnx'):
-        export_onnx(model, device=device, filename=filename)
+        export_onnx(model, device=device, filename=filename,
+                    remove_aux_head=remove_aux_head)
     elif filename.endswith('.ts'):
-        export_tensorrt(model, device=device, filename=filename)
+        export_tensorrt(model, device=device, filename=filename, quiet=quiet)
     elif filename.endswith('.pts'):
         export_torch_script(model, device=device, filename=filename)
     else:

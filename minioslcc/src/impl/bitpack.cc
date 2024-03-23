@@ -225,179 +225,24 @@ std::tuple<int,int,int,int> osl::bitpack::detail::unpack4(uint64_t code) {
 }
 
 
-osl::bitpack::B256 osl::bitpack::StateRecord256::to_bitset() const {
-  B256Extended code;
-  std::vector<Piece> board_pieces; board_pieces.reserve(40);
-  for (int x: board_y_range()) // 1..9
-    for (int y: board_y_range()) {
-      auto p = state.pieceAt(Square(x,y));
-      if (! p.isPiece())
-        continue;
-      code.board |= one_hot128((x-1)*9+(y-1));
-      board_pieces.push_back(p);
-    }
-  int ptype_count[8] = { 0 };  // number of completed pieces
-  int ptype_bid[8][4] = { 0 }; // (ptype,n-th) -> owned square id
-  for (auto bi: std::views::iota(0,int(board_pieces.size()))) {
-    auto p = board_pieces[bi];
-    auto ptype = unpromote(p.ptype());
-    // renumber
-    int nth = ptype_count[basic_idx(ptype)]++;
-    if (ptype == KING)
-      ptype_bid[basic_idx(ptype)][idx(p.owner())] = bi;
-    else if (ptype != PAWN)
-      ptype_bid[basic_idx(ptype)][nth] = bi;
-    
-    int piece_id = nth + ptype_piece_id[idx(ptype)].first;
-    if (p.ptype() == KING)
-      continue;
-    if (idx(p.owner()))
-      code.color |= one_hot(code_color_id(p.ptype(), piece_id)); // skip two kings    
-    if (p.ptype() == GOLD)
-      continue;
-    if (p.isPromoted())
-      code.promote |= one_hot(code_promote_id(p.ptype(), piece_id)); // skip two kings and four golds
-  }
-  // stand
-  int hp = board_pieces.size();
-  auto encode_stand = [&](Player pl) {
-    for (auto ptype: piece_stand_order) {
-      int cnt = state.countPiecesOnStand(pl, ptype);
-      for (int i: std::views::iota(0, cnt)) {
-        int nth = ptype_count[basic_idx(ptype)]++;
-        int piece_id = nth + ptype_piece_id[idx(ptype)].first;
-        if (idx(pl))
-          code.color |= one_hot(code_color_id(ptype, piece_id));
-        if (ptype != PAWN) 
-          ptype_bid[basic_idx(ptype)][nth] = hp++;
-      }
-    }
-  };
-  encode_stand(BLACK);
-  encode_stand(WHITE);
-
-  for (auto ptype: basic_ptype) {
-    if (ptype == PAWN) continue;
-    if (ptype_count[basic_idx(ptype)] != ptype_piece_count(ptype))
-      throw std::domain_error("StateLabelTuple::to_bitset unexpected piece number");
-  }
-  auto [king_code, rook_code, bishop_code, gold_code, silver_code, knight_code, lance_code] = encode(ptype_bid);
-  code.order_hi= (king_code * comb2(38) + rook_code) * comb2(36) + bishop_code;
-  code.order_lo= (((gold_code * comb4(30)) + silver_code) * comb4(26) + knight_code) * comb4(22) + lance_code;
-  assert(code.order_lo < (1ull<<57));
-  code.turn = idx(state.turn());
-  code.game_result = (unsigned int)this->result;
-
-  code.move = encode12(state, this->next);
-  code.flip = this->flipped;
-  
-  return pack(code);
-}
-
-void osl::bitpack::StateRecord256::restore(const B256& packed) {
-  B256Extended code = unpack(packed);
-  state.initEmpty();
-
-  std::vector<Square> on_board;  
-  for (int x: board_y_range())
-    for (int y: board_y_range())
-      if (code.board & one_hot128((x-1)*9+(y-1)))
-        on_board.emplace_back(x,y);
-
-  std::vector<Ptype> ptype_placement(on_board.size(), Ptype_EMPTY);
-  auto nth_empty = [&](int n) {
-    for (int i=0; i<on_board.size(); ++i) {
-      if (ptype_placement[i] == Ptype_EMPTY && n-- == 0)
-        return i;
-    }
-    return (int)on_board.size() + n;
-  };
-
-  // inverse of
-  // uint32_t hi= (king_code * comb2(38) + rook_code) * comb2(36) + bishop_code;
-  uint32_t code_hi = code.order_hi;
-  auto king_code = code_hi / comb2(38) / comb2(36);
-  state.setPiece(BLACK, on_board[king_code / 39], KING);
-  ptype_placement[king_code / 39] = KING;
-  int wking_bid = nth_empty(king_code % 39);
-  state.setPiece(WHITE, on_board[wking_bid], KING);
-  ptype_placement[wking_bid] = KING;
-
-  int ptype_bid[8][4] = { 0 };
-  auto rook = ptype_bid[basic_idx(ROOK)];
-  std::tie(rook[0], rook[1]) = detail::unpack2((code_hi / comb2(36)) % comb2(38));
-  auto bishop = ptype_bid[basic_idx(BISHOP)];
-  std::tie(bishop[0], bishop[1]) = detail::unpack2(code_hi % comb2(36));
-  
-  typedef std::pair<Ptype,int> pair_t;
-  uint64_t code_lo = code.order_lo;
-  for (auto [ptype, n]: {std::make_pair(LANCE,22), {KNIGHT,26}, {SILVER,30}, {GOLD,34}}) {
-    auto data = ptype_bid[basic_idx(ptype)];
-    auto c = code_lo % comb4(n);
-    std::tie(data[0], data[1], data[2], data[3]) = detail::unpack4(c);
-    code_lo /= comb4(n);
-  }
-  
-  for (auto ptype: std::array<Ptype,6>{{ROOK, BISHOP, GOLD, SILVER, KNIGHT, LANCE}}) {
-    uint64_t bids = 0;
-    for (int i:std::views::iota(0, ptype_piece_count(ptype))) {
-      int bid = nth_empty(ptype_bid[basic_idx(ptype)][i]);
-      int piece_id = i + ptype_piece_id[idx(ptype)].first;
-      Player owner = players[bittest(code.color, code_color_id(ptype, piece_id))];
-      if (bid >= on_board.size()) {
-        state.setPiece(owner, Square::STAND(), ptype);
-      }
-      else {
-        bool promoted = can_promote(ptype) && bittest(code.promote, code_promote_id(ptype, piece_id));
-        auto pptype = promoted ? promote(ptype) : ptype;
-        state.setPiece(owner, on_board[bid], pptype);
-        bids |= one_hot(bid);
-      }
-    }
-    for (auto n: to_range(bids))
-      ptype_placement[n] = ptype;
-  }
-  // pawn
-  int pawn_cnt=0;
-  for (size_t i=0; i<ptype_placement.size(); ++i) {
-    if (ptype_placement[i] != Ptype_EMPTY)
-      continue;
-    int piece_id = pawn_cnt++ + ptype_piece_id[idx(PAWN)].first;
-    Player owner = players[bittest(code.color, code_color_id(PAWN, piece_id))];
-    bool promoted = bittest(code.promote, code_promote_id(PAWN, piece_id));
-    state.setPiece(owner, on_board[i], promoted ? PPAWN : PAWN);
-  }
-  // stand pawn
-  while (pawn_cnt < ptype_piece_count(PAWN)) {
-    int piece_id = pawn_cnt++ + ptype_piece_id[idx(PAWN)].first;
-    Player owner = players[bittest(code.color, code_color_id(PAWN, piece_id))];    
-    state.setPiece(owner, Square::STAND(), PAWN);
-  }
-  state.setTurn(players[code.turn]);
-  state.initFinalize();
-
-  this->result = GameResult(code.game_result);
-  this->next = decode_move12(this->state, code.move);
-  this->flipped = code.flip;
-}
-
-void osl::bitpack::StateRecord256::flip() {
-  flipped ^= 1;
-  state = state.rotate180();
-  next = next.rotate180();
-  result = osl::flip(result);
-}
-
 int osl::bitpack::append_binary_record(const MiniRecord& record, std::vector<uint64_t>& out) {
   constexpr int move_length_limit = 1<<10;
-  if (record.initial_state != BaseState(HIRATE))
-    throw std::domain_error("append_binary_record initial state != startpos");
+  if (! record.shogi816k_id && record.initial_state != BaseState(HIRATE))
+    throw std::domain_error("append_binary_record initial state not supported");
   if (record.moves.size() >= move_length_limit)
     throw std::domain_error("append_binary_record length limit over "+std::to_string(record.moves.size()));
   if (record.moves.size() == 0)
     return 0;
   size_t size_at_beginning = out.size();
   std::vector<uint16_t> code_moves; code_moves.reserve(256);
+  if (record.shogi816k_id) {
+    // extended header
+    code_moves.push_back(0);
+    int hi = record.shogi816k_id.value() / 4096;
+    int lo = record.shogi816k_id.value() % 4096;
+    code_moves.push_back(hi);
+    code_moves.push_back(lo);
+  }
   uint16_t header = (record.moves.size() << 2) + record.result;
   // std::cerr << "header " << header << ' ' << std::bitset<12>(header) << '\n';
   code_moves.push_back(header);
@@ -448,13 +293,22 @@ int osl::bitpack::read_binary_record(const uint64_t *&in, MiniRecord& record) {
     return value;
   };
   uint16_t header = retrieve();
+  if (header == 0) {
+    // shogi 816k
+    int hi = retrieve(), lo = retrieve();
+    int id = hi * 4096 + lo;
+    record.set_initial_state(BaseState(Shogi816K, id), id);
+    header = retrieve();
+  }
+  else {
+    record.set_initial_state(BaseState(HIRATE));
+  }
   // std::cerr << "header " << header << ' ' << std::bitset<12>(header) << '\n';
-  record.set_initial_state(EffectState());
   const int length = header >> 2;
   record.moves.reserve(length);
   record.result = GameResult(header & 3);
 
-  EffectState state;
+  EffectState state(record.initial_state);
   for (int cnt=0; cnt < length; ++cnt) {
     uint16_t code = retrieve();
     auto move = decode_move12(state, code);
@@ -469,106 +323,3 @@ int osl::bitpack::read_binary_record(const uint64_t *&in, MiniRecord& record) {
   return in - ptr_at_beginning;
 }
 
-
-osl::bitpack::B320 osl::bitpack::StateRecord320::to_bitset() const {
-  // before: past --- history[0], history[1],..., history[4], base.next --- future
-  // after: past --- base.next, history[1],..., history[4], history[0] --- future
-  // base.next need to be a legal move in base.state to apply base.to_bitset()
-  // similarly, we need the corresponding state for each move encoding
-  auto base = this->base;
-  auto history = this->history;
-  std::swap(base.next, history[0]);
-  B256 base_code = base.to_bitset();
-  
-  // std::cerr << "enc base " << base.next << '\n';
-  EffectState state(base.state);
-  if (base.next.isNormal())
-    state.makeMove(base.next);
-  uint64_t history_code=0;
-  for (int j=0; j<5; ++j) {
-    int i = (j+1)%5;
-    auto move = history[i];
-    uint64_t code = encode12(state, move);
-    history_code += code << (j*12);
-    // std::cerr << "enc " <<j << ' ' << i << ' ' << move << '\n';
-    if (move.isNormal())
-      state.makeMove(move);
-  }
-  B320 ret;
-  for (int i=0; i<4; ++i) ret[i] = base_code[i];
-  ret[4] = history_code;
-  return ret;
-}
-
-void osl::bitpack::StateRecord320::restore(const B320& binary) {
-  B256 base_code{binary[0], binary[1], binary[2], binary[3]};
-  base.restore(base_code);
-  EffectState state(base.state);
-  if (base.next.isNormal())
-    state.makeMove(base.next);
-  auto history_code = binary[4];
-  // std::cerr << "base " << base.next << '\n';
-  for (int j=0; j<5; ++j) {
-    int i = (j+1)%5;    
-    auto code = history_code & ((1ull << 12)-1);
-    history_code >>= 12;
-    auto move = decode_move12(state, code);
-    history[i] = move;
-    // std::cerr << i << ' ' << move << '\n';
-    if (move.isNormal()) {
-      if (! state.isAcceptable(move))
-        throw std::domain_error("not acceptable "+to_csa(move));
-      state.makeMove(move);
-    }
-  }
-  std::ranges::remove(history, Move());
-  std::swap(base.next, history[0]);
-}
-
-void osl::bitpack::StateRecord320::flip() {
-  base.flip();
-  for (auto &move: history)
-    if (move.isNormal())
-      move = move.rotate180();
-}
-
-osl::EffectState osl::bitpack::StateRecord320::make_state() const {
-  EffectState state(base.state);
-  for (auto move: history)
-    if (move.isNormal())
-      state.makeMove(move);
-  return state;
-}
-
-osl::Move osl::bitpack::StateRecord320::last_move() const {
-  Move ret;
-  for (auto move: history)
-    if (move.isNormal())
-      ret = move;
-  return ret;
-}
-
-void osl::bitpack::StateRecord320::
-export_feature_labels(float *input, int& move_label, int& value_label, float *aux_label) const {
-  MoveVector moves(history.begin(), history.end());
-  while (! moves.empty() && !moves.back().isNormal())
-    moves.pop_back();
-
-  const auto& ret =
-    ml::write_float_feature([&](auto *out){ return ml::export_features(base.state, moves, out); },
-                            ml::input_unit,
-                            input);
-  const EffectState& state = ret.first;
-  bool flipped = ret.second;
-
-  if (flipped)
-    throw std::logic_error("StateRecord320 flip consistency"); // must already be flipped if needed
-  
-  // labels
-  move_label = ml::policy_move_label(base.next);
-  value_label = ml::value_label(base.result);
-
-  ml::write_float_feature([&](auto *out){ ml::helper::write_np_aftermove(state, base.next, out); },
-                          ml::aux_unit,
-                          aux_label);
-}

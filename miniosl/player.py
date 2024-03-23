@@ -60,12 +60,57 @@ def make_usi_player(cfg_path: str) -> UsiPlayer:
     return miniosl.CPUPlayer(pl, False)
 
 
-def make_player(name: str, *, noise_scale=1.0) -> miniosl.PlayerArray:
+def clear_usi_players():
+    if hasattr(make_usi_player, 'players'):
+        make_usi_player.players = []
+
+
+def make_player(name: str, *,
+                noise_scale=1.0, softalpha=0.00783,
+                depth_weight=0.5) -> miniosl.PlayerArray:
     """factory method"""
     gumbel_pattern = r'^gumbel([1-9][0-9]*)$'
-
-    if match := re.match(gumbel_pattern, name):
-        return miniosl.FlatGumbelPlayer(int(match.group(1)), noise_scale)
+    gumbel_d2_pattern = r'^gumbel([1-9][0-9]*)-([1-9][0-9]*)$'
+    soft_pattern = r'^soft([1-9][0-9]*)$'
+    soft_d2_pattern = r'^soft([1-9][0-9]*)-([1-9][0-9]*)$'
+    td_pattern = r'^gumbeltd([1-9][0-9]*)$'
+    ave_pattern = r'^gumbelave([1-9][0-9]*)$'
+    max_pattern = r'^gumbelmax([1-9][0-9]*)$'
+    config = miniosl.GumbelPlayerConfig()
+    config.noise_scale = noise_scale
+    config.depth_weight = depth_weight
+    if match := re.match(gumbel_d2_pattern, name):
+        config.root_width = int(match.group(1))
+        config.second_width = int(match.group(2))
+        if config.root_width < config.second_width:
+            raise RuntimeError(f'width mismatch {config.root_width} < {config.second_width}')
+        return miniosl.FlatGumbelPlayer(config)
+    elif match := re.match(gumbel_pattern, name):
+        config.root_width = int(match.group(1))
+        return miniosl.FlatGumbelPlayer(config)
+    elif match := re.match(td_pattern, name):
+        config.root_width = int(match.group(1))
+        config.value_mix = 1
+        return miniosl.FlatGumbelPlayer(config)
+    elif match := re.match(ave_pattern, name):
+        config.root_width = int(match.group(1))
+        config.value_mix = 2
+        return miniosl.FlatGumbelPlayer(config)
+    elif match := re.match(max_pattern, name):
+        config.root_width = int(match.group(1))
+        config.value_mix = 3
+        return miniosl.FlatGumbelPlayer(config)
+    elif match := re.match(soft_d2_pattern, name):
+        config.root_width = int(match.group(1))
+        config.second_width = int(match.group(2))
+        if config.root_width < config.second_width:
+            raise RuntimeError(f'width mismatch {config.root_width} < {config.second_width}')
+        config.softalpha = softalpha        
+        return miniosl.FlatGumbelPlayer(config)
+    elif match := re.match(soft_pattern, name):
+        config.root_width = int(match.group(1))
+        config.softalpha = softalpha
+        return miniosl.FlatGumbelPlayer(config)
     elif name == "greedy-policy":
         return miniosl.PolicyPlayer(True)
     elif name == "random":

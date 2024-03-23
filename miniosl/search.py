@@ -4,6 +4,7 @@ import numpy as np
 import math
 import copy
 import collections
+import heapq
 
 #  -------------------------------------------------
 #  az configs see pseudocode in the AZ Science paper
@@ -22,7 +23,7 @@ def az_ucb_score(parent, child):
     pb_c *= math.sqrt(parent.visit_count) / (count + 1)
     prior_score = pb_c * child.policy_probability
     assert prior_score > 0
-    value_score = 1 - child.value()  # view f rom parent
+    value_score = 1 - child.value()  # view from parent
 
     return prior_score + value_score
 #  -------------------------------------------------
@@ -45,21 +46,28 @@ class Node:
         self.unobserved = 0     # Watch the Unobserved (2020)
         self.value_subtree_sum = 0.
         self.children = {}
+        self.waiting = []
         self.loss_children = {}
         self.parent = parent
         self.policy_probability = policy_probability
         self.terminal_value = None
         self.in_check = None
+        self.stage = None
 
     def value(self):
         if self.terminal_value is not None:
             return self.terminal_value
         if self.visit_count == 0:
-            return 0.
+            # loss (0. for parent
+            # https://lczero.org/blog/2018/12/alphazero-paper-and-lc0-v0191/
+            # AZ's pseudocode is a bit unclear mixing negamax and minimax
+            return 1.
         return self.value_subtree_sum / self.visit_count
 
     def has_children(self) -> bool:
-        return len(self.children) + len(self.loss_children) > 0
+        return (len(self.waiting)
+                + len(self.children)
+                + len(self.loss_children)) > 0
 
     def is_terminal(self) -> bool:
         return self.terminal_value is not None
@@ -85,23 +93,23 @@ class Node:
                 self.terminal_value = 1.
                 self.winning_move = move \
                     if move.is_normal() else move.declare_win()
+        self.stage = 'queue'
 
     def eval1(self, legal_moves, mp, value01) -> float:
-        for prob, move in zip(mp, legal_moves):
-            assert prob > 0
-            self.children[move] = Node(self, prob)
-        self.top5 = sorted(zip(legal_moves, mp), key=lambda e: -e[1])
-        self.top5 = self.top5[:min(5, len(mp))]
+        self.waiting = list(zip(mp, legal_moves))
+        heapq.heapify(self.waiting)
+        self.stage = 'eval'
         return value01
 
     def eval_by_model(self,
                       features, legal_moves,
                       model: miniosl.InferenceModel):
-        logits, value, _ = model.infer_one(features)
-        value01 = az_value_transform(value.item())
+        logits, value, *_ = model.infer_one(features)
+        value01 = az_value_transform(value[0].item())
         mp = np.array([logits[_.policy_move_label()]
                        for _ in legal_moves])
-        mp = miniosl.softmax(mp).tolist()
+        mp = miniosl.softmax(mp)
+        mp = (-mp).tolist()  # for heapq
         return mp, value01
 
     def eval(self, game: miniosl.GameManager, model: miniosl.InferenceModel
@@ -115,12 +123,24 @@ class Node:
         return self.eval1(game.legal_moves, mp, value01)
 
     def select_to_search(self):
-        ucb_scores = [(az_ucb_score(self, child), move, child)
-                      for move, child in self.children.items()]
-        _, move, child = max(ucb_scores)
-        self.top5_ucb = sorted(ucb_scores, key=lambda e: -e[0])
-        self.top5_ucb = self.top5_ucb[:len(self.top5)]
-        return move, child
+        best_score = -1
+        best_move, best_child = None, None
+        has_fresh_child = False
+        for move, child in self.children.items():
+            score = az_ucb_score(self, child)
+            if best_move is None or best_score < score:
+                best_score, best_move, best_child = score, move, child
+            if child.visit_count + child.unobserved == 0:
+                has_fresh_child = True
+        if not has_fresh_child and self.waiting:
+            prob, move = heapq.heappop(self.waiting)
+            prob = -prob
+            child = Node(self, prob)
+            self.children[move] = child
+            score = az_ucb_score(self, child)
+            if best_move is None or best_score < score:
+                best_score, best_move, best_child = score, move, child
+        return best_move, best_child
 
     def info(self):
         """summary of node statistics"""
@@ -163,7 +183,7 @@ class Node:
     def tree_stat(self):
         max_depth = 0
         node_count = 1
-        unobserved_total = 0
+        unobserved_total = abs(self.unobserved)
         if self.visit_count > 0:
             for move, child in self.children.items():
                 depth, nodes, unobserved = child.tree_stat()
@@ -175,47 +195,48 @@ class Node:
 
 
 Record = collections.namedtuple('Record',
-                                ('path', 'node', 'features', 'legal_moves'))
-
-
-def process_batch_seq(batch, model):
-    for r in batch:
-        mp, value01 = r.node.eval_by_model(r.features, r.legal_moves, model)
-        r.node.eval1(r.legal_moves, mp, value01)
-        update_path(r.path, value01, r.node)
+                                ('path', 'node', 'features', 'legal_moves',
+                                 'duplicate'))
 
 
 def process_batch(batch, model):
     batch_input = np.vstack([[r.features] for r in batch])
-    mps, values, _ = model.infer_int8(batch_input)
+    mps, values, *_ = model.infer_int8(batch_input)
     value01s = az_value_transform(values)
     for i, record in enumerate(batch):
-        mp = miniosl.softmax(mps[i]).tolist()
-        value01 = value01s[i].item()
-        record.node.eval1(record.legal_moves, mp, value01)
-        update_path(record.path, value01, record.node)
+        value01 = value01s[i][0].item()
+        if not record.duplicate:
+            mp = np.array([mps[i][_.policy_move_label()]
+                           for _ in record.legal_moves])
+            mp = miniosl.softmax(mp)
+            mp = (-mp).tolist()  # for heapq
+            record.node.eval1(record.legal_moves, mp, value01)
+        update_path(record.path, value01, record.node, record.duplicate)
 
 
-def update_path(path, value, leaf):
+def update_path(path, value, leaf, duplicate=False):
     node, child = leaf, None
     last_move = None
     while node is not None:
-        if child and child.is_terminal():
-            if value == 1:
-                node.terminal_value = 1
-                if last_move:
+        if not duplicate:
+            if child and child.is_terminal():
+                if value == 1:
+                    node.terminal_value = 1
+                    if last_move:
+                        assert node.children[last_move] == child
+                        node.winning_move = last_move
+                elif value == 0:
                     assert node.children[last_move] == child
-                    node.winning_move = last_move
-            elif value == 0:
-                assert node.children[last_move] == child
-                node.loss_children[last_move] = child
-                del node.children[last_move]
-                if len(node.children) == 0:
-                    node.terminal_value = 0
+                    node.loss_children[last_move] = child
+                    del node.children[last_move]
+                    if len(node.children) + len(node.waiting) == 0:
+                        node.terminal_value = 0
 
-        node.value_subtree_sum += value
-        node.visit_count += 1
-        node.unobserved -= 1
+        if not duplicate:
+            node.value_subtree_sum += value
+            node.visit_count += 1
+        if node.parent:         # no benefit for counting this at root
+            node.unobserved -= 1
 
         node, child = node.parent, node
         value = 1 - value
@@ -252,20 +273,22 @@ def run_mcts(game: miniosl.GameManager, budget: int,
             continue
 
         # batch_size > 1
-        node.eval0(search)
+        new_visit = not node.stage
+        if new_visit:
+            node.eval0(search)
         if node.is_terminal():
             value = node.terminal_value
-            update_path(path, value, node)
+            update_path(path, value, node, new_visit)
             continue
 
         features = search.export_heuristic_feature8()
         batch.append(Record(copy.copy(path), node, features,
-                            search.legal_moves))
+                            search.legal_moves, new_visit))
 
         if len(batch) >= batch_size:
             process_batch(batch, model)
             batch = []
-    if len(batch) >= batch_size:
+    if len(batch) >= 1:
         # if any remains
         process_batch(batch, model)
     return root

@@ -68,6 +68,14 @@ if(BUILD_TEST)
   target_compile_options(minitest-file-record PRIVATE -Wno-deprecated-declarations)
   target_link_libraries(minitest-file-record PRIVATE minioslcc20)
   add_test(NAME run_test_file_record COMMAND minitest-file-record)
+
+  add_executable(test816k test/test816k.cc)
+  target_include_directories(test816k PRIVATE src)
+  target_include_directories(test816k PRIVATE acutest/include)
+  target_compile_options(test816k PRIVATE -Wno-deprecated-declarations)
+  target_link_libraries(test816k PRIVATE minioslcc20)
+  add_test(NAME run_test_816k COMMAND test816k)
+
 endif()
 
 option(OPTIMIZE_FOR_NATIVE "Build with -march=native" OFF)
@@ -76,5 +84,6 @@ if (OPTIMIZE_FOR_NATIVE)
   CHECK_CXX_COMPILER_FLAG("-march=native" COMPILER_SUPPORTS_MARCH_NATIVE)
   if(COMPILER_SUPPORTS_MARCH_NATIVE)
     set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -march=native")
-  endif()  
+  endif()
 endif()
+

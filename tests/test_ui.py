@@ -88,14 +88,6 @@ def test_to_np_cover():
     assert feature.shape == (2, 9, 9)
 
 
-def test_np_pack():
-    board = miniosl.UI()
-    binary = board.to_np_pack()
-    assert isinstance(binary, np.ndarray)
-    assert binary.shape == (4,)
-    assert binary.dtype == np.uint64
-
-
 def test_board_csa():
     board = miniosl.UI()
     csa = board.to_csa()

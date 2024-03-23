@@ -9,7 +9,7 @@ from .record import np_array_to_sfen_file, sfen_file_to_np_array, \
     SfenBlockStat
 from .drawing import show_channels, state_to_png, state_to_svg, to_png_bytes, \
     ptype_to_ja, hand_pieces_to_ja
-from .dataset import load_torch_dataset, PositionwiseDataset, GameDataset
+from .dataset import load_torch_dataset, GameDataset
 from .network import StandardNetwork
 from .usi_process import UsiProcess
 from .player import UsiPlayer, make_player
@@ -44,5 +44,20 @@ def pretrained_eval_path():
     import importlib.resources
     return importlib.resources.files('miniosl').joinpath('pretrained/eval.onnx')
 
+
+def has_pretrained_eval():
+    import os.path
+    return os.path.exists(pretrained_eval_path())
+
+
+def install_coloredlogs(level: str = 'INFO'):
+    import coloredlogs
+    fmt = '%(asctime)s %(hostname)s %(levelname)s %(message)s'
+    field_styles = {
+        'asctime': {'color': 96, 'background': 'white'},
+        'hostname': {'color': 39},
+        'levelname': {'color': 247},
+    }
+    coloredlogs.install(level=level, fmt=fmt, field_styles=field_styles)
 
 # flake8: noqa

@@ -3,15 +3,18 @@
 
 #include "basic-type.h"
 #include "impl/details.h"
+#include <optional>
 
 
 namespace osl
 {
   enum Handicap{
     HIRATE,
+    Shogi816K,
     //    KYOUOCHI,
     //    KAKUOCHI,
   };
+  constexpr int Shogi816K_Size = 72 * 22680;
   class BaseState;
   std::ostream& operator<<(std::ostream& os,const BaseState& state);
   /**
@@ -34,10 +37,11 @@ namespace osl
     PieceMask used_mask;
   public:
     explicit BaseState();
-    explicit BaseState(Handicap h);
+    explicit BaseState(Handicap h, int additional_param=-1);
     // public継承させるので，virtual destructorを定義する．
     virtual ~BaseState();
 
+    std::optional<int> shogi816kID() const;
     Piece pieceOf(int num) const { return pieces[num]; }
     inline auto all_pieces() const {
       return std::views::iota(0, Piece::SIZE)
@@ -123,7 +127,8 @@ namespace osl
     }
     // edit board
     /** @internal set predefined initial state */
-    void init(Handicap h);
+    void init(Handicap h, int additional_param=-1);
+    void init816K(int id);
     /** @internal
      * make empty board for incremental initialization, typically consists of
      *  - setPiece() x40, and then
