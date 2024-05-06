@@ -72,24 +72,6 @@ Game record
 .. autofunction:: miniosl.usi_file
 
 
-Machine learning
-----------------
-
-.. autoclass:: miniosl.StateRecord256
-    :members:
-    :undoc-members:
-
-.. autoclass:: miniosl.StateRecord320
-    :members:
-    :undoc-members:
-
-.. autofunction:: miniosl.to_state_label_tuple256
-
-.. autofunction:: miniosl.to_state_label_tuple320
-
-
-
-
 Details
 --------------
 

@@ -8,7 +8,6 @@ import os.path
 import copy
 import urllib
 import logging
-import math
 from typing import Tuple
 
 Value_Scale = 1000
@@ -141,7 +140,8 @@ class UI:
         return "<UI '" + self.to_usi_history() + "'>"
 
     def __str__(self):
-        return self._state.to_csa() if self.default_format == 'csa' else self._state.to_usi()
+        return self._state.to_csa() \
+            if self.default_format == 'csa' else self._state.to_usi()
 
     def __copy__(self):
         return UI(self)
@@ -173,7 +173,8 @@ class UI:
 
     def previous_repeat_index(self) -> int:
         """the latest repeating state the history"""
-        return self._record.previous_repeat_index(self.cur) if self.cur > 0 else 0
+        return self._record.previous_repeat_index(self.cur) \
+            if self.cur > 0 else 0
 
     def repeat_count(self) -> int:
         """number of occurrence of the state in the history"""
@@ -190,7 +191,9 @@ class UI:
 
     def read_japanese_move(self, move_rep: str,
                            last_to: Square | None = None) -> Move:
-        return self._state.read_japanese_move(move_rep, last_to or Square())
+        tbl = str.maketrans('123456789', '１２３４５６７８９')
+        return self._state.read_japanese_move(move_rep.translate(tbl),
+                                              last_to or Square())
 
     def genmove(self):
         """generate legal moves in the state"""
@@ -262,7 +265,8 @@ class UI:
                 raise ValueError('please check syntax '+copy)
         if not self._state.is_legal(move):
             raise ValueError('illegal move '+str(move))
-        if self.cur < len(self._record) and self._record.moves[self.cur] == move:
+        if self.cur < len(self._record) \
+           and self._record.moves[self.cur] == move:
             self._do_make_move(move, self.last_to())
         else:
             if self.cur < len(self._record):
@@ -467,7 +471,8 @@ class UI:
                 return self.show_channels(self._features[id:], 1, 6, flip)
             latest_history = 64
             if plane_id == "lastmove":
-                return self.show_channels(self._features[latest_history:], 1, 3, flip)
+                return self.show_channels(self._features[latest_history:],
+                                          1, 3, flip)
             plane_id = miniosl.channel_id[plane_id]
         if not is_in_notebook():
             print(self._features[plane_id])
@@ -520,7 +525,10 @@ class UI:
         values = []
         for i in range(min(len(mp), width)):
             move = mp[i][1]
-            f, terminal = self._record.initial_state.export_features_after_move(history, move)
+            f, terminal = \
+                self._record.initial_state.export_features_after_move(
+                    history, move
+                )
             _, v, *_ = self.model.infer_one(f)
             logit = logits[move.policy_move_label()]
             v = -v[0].item()       # negamax
@@ -562,9 +570,11 @@ class UI:
                 pv = root.pv(ratio=0.25)
                 if pv:
                     m = pv[0]
-                    pbar.set_postfix(pv=f'{m[0].to_csa()} {m[1]:.3f}'
-                                     + f' {"".join([_[0].to_csa() for _ in pv[1:]])}'
-                                     + f' {m[2]/sim_done*100:4.1f}%')
+                    pbar.set_postfix(
+                        pv=f'{m[0].to_csa()} {m[1]:.3f}'
+                        + f' {"".join([_[0].to_csa() for _ in pv[1:]])}'
+                        + f' {m[2]/sim_done*100:4.1f}%'
+                    )
                 pbar.update(1)
         if sim_done < budget:   # in case report == 0
             root = miniosl.run_mcts(mgr, budget-sim_done,

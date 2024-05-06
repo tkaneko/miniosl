@@ -460,22 +460,25 @@ def main():
     parser.add_argument("--device", help="torch device", default="cuda:0")
     grp_nn = parser.add_argument_group("nn options")
     grp_nn.add_argument("--n-block", help="#residual block",
-                        type=int, default=4)
-    grp_nn.add_argument("--n-channel", help="#channel", type=int, default=128)
+                        type=int, default=9)
+    grp_nn.add_argument("--n-channel", help="#channel", type=int, default=256)
     grp_nn.add_argument("--broadcast-every",
                         help="insert broadcast periodically",
-                        type=int, default=4)
-    grp_nn.add_argument("--bn-momentum",
-                        help="momentum in BatchNorm", type=float,
-                        default=0.1)
+                        type=int, default=3)
     grp_nn.add_argument("--compiled", action='store_true')
     grp_nn.add_argument("--remove-aux-head", action='store_true')
     grp_l = parser.add_argument_group("training options")
-    grp_l.add_argument("--policy-commit", type=float, default=1.0)  # smoothing in CE
-    grp_l.add_argument("--entropy-bonus", type=float, default=0.0)
+    grp_l.add_argument("--policy-commit", type=float,
+                       help="smoothing in cross entropy loss if <1",
+                       default=127/128)
+    grp_l.add_argument("--entropy-bonus", type=float,
+                       help="add entropy bonus for policy if >0",
+                       default=0.0)
     grp_l.add_argument("--topk", type=int, default=1)
     grp_l.add_argument("--ablate-aux-loss", action='store_true')
-    grp_l.add_argument("--batch-size", type=int, default=1024)
+    grp_l.add_argument("--batch-size", type=int,
+                       help="batch size",
+                       default=1024)
     grp_l.add_argument("--epoch-limit", help="maximum epoch",
                        type=int, default=2)
     grp_l.add_argument("--step-limit", help="maximum #update, 0 for inf",
@@ -511,7 +514,6 @@ def main():
                    'channels': args.n_channel, 'out_channels': 27,
                    'auxout_channels': miniosl.aux_unit//81,
                    'num_blocks': args.n_block,
-                   'bn_momentum': args.bn_momentum,
                    'broadcast_every': args.broadcast_every}
     model = miniosl.StandardNetwork(**network_cfg).to(args.device)
     if args.loadfile:
@@ -544,8 +546,11 @@ def main():
             train(0, 0, model, args, loader_class, deterministic_mode)
     else:
         if not args.loadfile:
-            parser.print_help(sys.stderr)
-            raise ValueError('need to load model for validation or export')
+            if args.export:
+                logger.warning('export without loading weights')
+            else:
+                parser.print_help(sys.stderr)
+                raise ValueError('need to load model for validation')
 
         if args.export:
             miniosl.export_model(model, device=args.device,

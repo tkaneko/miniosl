@@ -35,7 +35,7 @@ void pyosl::init_basic(py::module_& m) {
     .def("to_csa", [](osl::Square sq) { return osl::to_csa(sq); })
     .def("is_onboard", &osl::Square::isOnBoard)
     .def("is_piece_stand", &osl::Square::isPieceStand)
-    .def("is_promote_area", &osl::Square::isPromoteArea, "color"_a, "test this is promote area for `color`\n\n"
+    .def("is_promote_area", &osl::Square::isPromoteArea, "color"_a, "test this is in promote area for `color`\n\n"
          ">>> miniosl.Square(1, 3).is_promote_area(miniosl.black)\n"
          "True\n"
          ">>> miniosl.Square(1, 3).is_promote_area(miniosl.white)\n"
@@ -97,6 +97,10 @@ void pyosl::init_basic(py::module_& m) {
     .def("ptype", &osl::Piece::ptype)
     .def("color", &osl::Piece::owner)
     .def("is_piece", &osl::Piece::isPiece)
+    .def("has", [](osl::Piece piece, osl::Ptype ptype, osl::Player color) {
+      return piece.ptype() == ptype && piece.owner() == color;
+    }, "ptype"_a, "color"_a,
+      "test if piece has a specified piece type with color")
     .def("equals", &osl::Piece::equalPtyeO,
          "equality w.r.t. PtypeO (i.e., ignoring piece id or location)"
          )

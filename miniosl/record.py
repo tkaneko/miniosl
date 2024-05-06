@@ -42,7 +42,8 @@ def subrecord_replay(self: miniosl.SubRecord, n: int) -> miniosl.State:
     return s
 
 
-def state_to_png(state: miniosl.State | miniosl.UI, decorate: bool) -> apng.PNG:
+def state_to_png(state: miniosl.State | miniosl.UI,
+                 decorate: bool) -> apng.PNG:
     """return png object of state"""
     bytes = miniosl.to_png_bytes(state.to_png(decorate=decorate))
     return apng.PNG.from_bytes(bytes)
@@ -89,7 +90,8 @@ def sfen_file_to_training_np_array(filename: str, *,
             record = miniosl.usi_record(line)
             if ignore_in_game and record.result == miniosl.InGame:
                 continue
-            data += record.export_all320() if with_history else record.export_all()
+            data += record.export_all320() \
+                if with_history else record.export_all()
     return np.array(data, dtype=np.uint64)
 
 
@@ -195,7 +197,8 @@ class SfenBlockStat:
 
     def add(self, record: miniosl.MiniRecord | miniosl.SubRecord) -> None:
         self.counts[int(record.result)] += 1
-        if record.result == miniosl.Draw and len(record.moves) < miniosl.draw_limit:
+        if record.result == miniosl.Draw \
+           and len(record.moves) < miniosl.draw_limit:
             self.short_draw += 1
         self.total += 1
         if record.final_move == miniosl.Move.declare_win():
@@ -231,3 +234,25 @@ class SfenBlockStat:
         if not self.total:
             return 0
         return len(self.uniq40) / self.total
+
+
+def load_ki2(path: str):
+    with open(path) as file:
+        text = file.read()
+    return read_ki2(text)
+
+
+def read_ki2(text: str):
+    import re
+    import logging
+    text = text.replace(' ', '').replace('\n', '')
+    text = re.sub(r'([☗☖▲△])', r' \1', text)
+    ja_moves = text.split()
+    state = miniosl.UI()
+    for ja in ja_moves:
+        move = state.read_japanese_move(ja, state.last_to())
+        if not move.is_normal():
+            logging.warning(f'stop reading at {ja}')
+            break
+        state.make_move(move)
+    return state._record

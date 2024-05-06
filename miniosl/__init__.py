@@ -6,7 +6,7 @@ from minioslcc import *
 from .ui import UI
 from .record import np_array_to_sfen_file, sfen_file_to_np_array, \
     sfen_file_to_training_np_array, load_record_set, load_opening_tree, \
-    SfenBlockStat
+    SfenBlockStat, load_ki2, read_ki2
 from .drawing import show_channels, state_to_png, state_to_svg, to_png_bytes, \
     ptype_to_ja, hand_pieces_to_ja
 from .dataset import load_torch_dataset, GameDataset

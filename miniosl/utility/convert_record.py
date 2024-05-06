@@ -27,7 +27,14 @@ def load_records(path: str):
         return miniosl.RecordSet([miniosl.csa_file(path)])
     if path.endswith('.kif'):
         logger.warn('handling of .kif files is an experimental feature')
-        return miniosl.RecordSet([miniosl.kif_file(path)])
+        return miniosl.RecordSet(miniosl.MiniRecordVector(
+            [miniosl.kif_file(path)]
+        ))
+    if path.endswith('.ki2'):
+        logger.warn('handling of .ki2 files is an experimental feature')
+        return miniosl.RecordSet(miniosl.MiniRecordVector(
+            [miniosl.load_ki2(path)]
+        ))
     if os.path.isdir(path):
         paths = glob.iglob(path + '/*.csa')
         records = []

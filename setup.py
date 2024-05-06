@@ -7,8 +7,9 @@ from pathlib import Path
 from setuptools import Extension, setup
 from setuptools.command.build_ext import build_ext
 
-### Most codes in this file are copied from https://github.com/pybind/cmake_example/blob/master/setup.py
-### Here are its license.
+# Most codes in this file are copied from
+# https://github.com/pybind/cmake_example/blob/master/setup.py
+# Here are its license.
 """
 Copyright (c) 2016 The Pybind Development Team, All rights reserved.
 
@@ -166,11 +167,13 @@ class CMakeBuild(build_ext):
         )
 
 
-# follow https://packaging.python.org/en/latest/guides/making-a-pypi-friendly-readme/
+# follow
+# https://packaging.python.org/en/latest/guides/making-a-pypi-friendly-readme/
 this_directory = Path(__file__).parent
 
-# The information here can also be placed in setup.cfg - better separation of
-# logic and declaration, and simpler if you include description/version in a file.
+# The information here can also be placed in setup.cfg - better
+# separation of logic and declaration, and simpler if you include
+# description/version in a file.
 setup(
     name="miniosl",
     packages=[
@@ -191,7 +194,7 @@ setup(
     ],
     long_description=(this_directory / "README.md").read_text(),
     long_description_content_type='text/markdown',
-    version="0.0.17",
+    version="0.0.18",
     author="T. Kaneko",
     author_email="kaneko@graco.c.u-tokyo.ac.jp",
     ext_modules=[CMakeExtension(

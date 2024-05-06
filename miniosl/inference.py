@@ -328,7 +328,7 @@ def export_torch_script(model, *, device, filename):
         inputs = torch.rand(8, feature_channels, 9, 9).to(device)
         ts_module = torch.jit.trace(model, inputs)
     else:
-        ts_module = torch.jit.script(model)
+        ts_module = torch.jit.optimize_for_inference(torch.jit.script(model))
 
     if not filename.endswith('.pts'):
         filename = f'{filename}.pts'

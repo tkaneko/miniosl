@@ -20,11 +20,6 @@ Training with torch
     :members:
     :undoc-members:
 
-.. autoclass:: miniosl.PositionwiseDataset
-    :show-inheritance:
-    :members:
-    :undoc-members:
-
 Handle game records
 -------------------
 see also :py:class:`MiniRecord` and :py:class:`RecordSet` 
