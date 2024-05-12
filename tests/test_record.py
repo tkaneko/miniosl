@@ -191,7 +191,7 @@ def test_construct():
     moves = state.genmove()
     um = unpack_moves(legalmove0)
     for m in moves:
-        id = m.policy_move_label()
+        id = m.policy_move_label
         q, r = id // 8, id % 8
         assert legalmove0[q] & (1 << r)
         assert um[id] == 1

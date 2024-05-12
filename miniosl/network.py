@@ -206,7 +206,7 @@ class BasicNetwork(nn.Module):
 class PVNetwork(nn.Module):
     def __init__(self, *, in_channels: int, channels: int, out_channels: int,
                  num_blocks: int,
-                 value_head_hidden: int = 256, broadcast_every: int = 8,
+                 value_head_hidden: int = 256, broadcast_every: int = 3,
                  auxout_channels=None):
         super().__init__()
         self.body = BasicBody(in_channels=in_channels, channels=channels,
@@ -235,7 +235,7 @@ class StandardNetwork(PVNetwork):
     """
     def __init__(self, *, in_channels: int, channels: int, out_channels: int,
                  auxout_channels: int, num_blocks: int,
-                 value_head_hidden: int = 256, broadcast_every: int = 8):
+                 value_head_hidden: int = 256, broadcast_every: int = 3):
         super().__init__(in_channels=in_channels, channels=channels,
                          out_channels=out_channels,
                          num_blocks=num_blocks,

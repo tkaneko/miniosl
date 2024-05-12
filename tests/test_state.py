@@ -146,5 +146,5 @@ def test_policy_move_label():
     board = miniosl.State()
     moves = board.genmove()
     for move in moves:
-        code = move.policy_move_label()
+        code = move.policy_move_label
         assert board.decode_move_label(code) == move

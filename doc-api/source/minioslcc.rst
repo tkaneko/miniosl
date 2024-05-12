@@ -9,10 +9,6 @@ Basic datatype
 .. autoclass:: miniosl.Player
     :members:
 
-.. autofunction:: miniosl.alt
-
-.. autofunction:: miniosl.sign
-
 .. autoclass:: miniosl.Square
     :members:
     :undoc-members:
@@ -76,5 +72,8 @@ Details
 --------------
 
 .. autoclass:: miniosl.Direction
+    :members:
+
+.. autoclass:: miniosl.Offset
     :members:
 

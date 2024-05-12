@@ -23,28 +23,195 @@ PYBIND11_MODULE(minioslcc, m) {
 
 void pyosl::init_basic(py::module_& m) {
   using namespace pybind11::literals;
+  typedef osl::EffectState state_t;
+
+  // enums
+  py::enum_<osl::Player>(m, "Player", py::arithmetic())
+    .value("black", osl::BLACK, "first player").value("white", osl::WHITE, "second player")
+    .export_values()
+    .def("alt", py::overload_cast<osl::Player>(osl::alt),
+         "opponent or alternative player color\n\n"
+         ">>> miniosl.black.alt() == miniosl.white\nTrue")
+    .def("sign", py::overload_cast<osl::Player>(osl::sign), "+1 for black or -1 for white")
+    .def("to_csa", py::overload_cast<osl::Player>(&osl::to_csa))
+    .def("win_result", &osl::win_result)
+    .def("loss_result", &osl::loss_result)
+    ;
+  py::enum_<osl::Ptype>(m, "Ptype", py::arithmetic(), "piece type")
+    .value("pawn",   osl::PAWN).value("lance",  osl::LANCE).value("knight", osl::KNIGHT)
+    .value("silver", osl::SILVER).value("gold",   osl::GOLD).value("bishop", osl::BISHOP)
+    .value("rook",   osl::ROOK).value("king",   osl::KING)
+    .value("ppawn",   osl::PPAWN, "promoted pawn").value("plance",  osl::PLANCE, "promoted lance")
+    .value("pknight", osl::PKNIGHT, "promoted knight").value("psilver", osl::PSILVER, "promoted silver")
+    .value("pbishop", osl::PBISHOP, "promoted bishop").value("prook",   osl::PROOK, "promoted rook")
+    .value("empty", osl::Ptype_EMPTY).value("edge",  osl::Ptype_EDGE)
+    .export_values()
+    .def("promote", py::overload_cast<osl::Ptype>(&osl::promote),
+         "return promoted type if legal\n\n"
+         ">>> miniosl.rook.promote() == miniosl.prook\n"
+         "True\n"
+         ">>> miniosl.prook.promote() == miniosl.prook\n"
+         "True\n"
+         )
+    .def("unpromote", py::overload_cast<osl::Ptype>(&osl::unpromote),
+         "return the original type if promoted\n\n"
+         ">>> miniosl.prook.unpromote() == miniosl.rook\n"
+         "True\n"
+         )
+    .def("is_piece", py::overload_cast<osl::Ptype>(&osl::is_piece),
+         "True (False) is a normal piece type (empty or edge)\n\n"
+         ">>> miniosl.rook.is_piece()\n"
+         "True\n"
+         ">>> miniosl.empty.is_piece()\n"
+         "False\n"
+         )
+    .def("to_csa", py::overload_cast<osl::Ptype>(&osl::to_csa),
+         "return csa representation\n\n"
+         ">>> miniosl.rook.to_csa()\n"
+         "'HI'\n"
+         )
+    .def("to_ja", py::overload_cast<osl::Ptype>(&osl::to_ki2),
+         "return Japanese representation\n\n"
+         ">>> miniosl.pawn.to_ja()\n"
+         "'歩'\n"
+         )
+    // `miniosl.pawn.name` -> ppawn
+    // .def("to_en", [](osl::Ptype ptype) { return osl::ptype_en_names[idx(ptype)]; })
+    .def("count", [](osl::Ptype ptype) { return osl::ptype_piece_count(ptype); },
+         "number of pieces in the standard rule")
+    .def("has_long_move", &osl::ptype_has_long_move)
+    .def("one_hot", py::overload_cast<osl::Ptype>(&osl::one_hot))
+    .def("direction_set", [](osl::Ptype ptype) { return osl::ptype_move_direction[idx(ptype)]; },
+         "bitset of :py:class:`Direction` indicating legal moves\n\n"
+         ">>> miniosl.pawn.direction_set() == miniosl.U.one_hot()\n"
+         "True\n"
+         )
+    .def("move_type", [](osl::Ptype ptype) { return osl::ptype_move_type[idx(ptype)]; })
+    ;
+  py::enum_<osl::Direction>(m, "Direction", py::arithmetic(), "direction.\n\n"
+                            ">>> direction_set = miniosl.pawn.direction_set()\n"
+                            ">>> bin(direction_set)\n"
+                            "'0b10'\n"
+                            ">>> (direction_set & miniosl.U.one_hot()) != 0\n"
+                            "True\n"
+                            )
+    .value("UL", osl::UL, "up left").value("U",  osl::U).value("UR", osl::UR)
+    .value("L",  osl::L).value("R",  osl::R)
+    .value("DL", osl::DL).value("D",  osl::D).value("DR", osl::DR)
+    .value("UUL", osl::UUL, "up of up left for knight").value("UUR", osl::UUR)
+    .value("Long_UL", osl::Long_UL, "UL for bishops").value("Long_U",  osl::Long_U).value("Long_UR", osl::Long_UR)
+    .value("Long_L",  osl::Long_L).value("Long_R",  osl::Long_R)
+    .value("Long_DL", osl::Long_DL).value("Long_D",  osl::Long_D).value("Long_DR", osl::Long_DR)
+    .export_values()
+    .def("is_long", &osl::is_long,
+         "True if long direction\n\n"
+         ">>> miniosl.U.is_long()\n"
+         "False\n"
+         ">>> miniosl.Long_U.is_long()\n"
+         "True\n"
+         )
+    .def("is_base8", &osl::is_base8,
+         "True if eight neighbors\n\n"
+         ">>> miniosl.UL.is_base8()\n"
+         "True\n"
+         ">>> miniosl.UUL.is_base8()\n"
+         "False\n"
+         )
+    .def("to_base8", &osl::long_to_base8,
+         "make corresponding base8 direction from long one\n\n"
+         ">>> miniosl.Long_U.to_base8() == miniosl.U\n"
+         "True\n"
+         )
+    .def("to_long", &osl::to_long,
+         "make corresponding long direction from base8\n\n"
+         ">>> miniosl.U.to_long() == miniosl.Long_U\n"
+         "True\n"
+         )
+    .def("inverse", &osl::inverse,
+         "make inverse direction\n\n"
+         ">>> miniosl.UL.inverse() == miniosl.DR\n"
+         "True\n"
+         ">>> miniosl.Long_D.inverse() == miniosl.Long_U\n"
+         "True\n"
+         ">>> miniosl.UUL.inverse() == miniosl.UUL  # DDR is not defined\n"
+         "True\n"
+         )
+    .def("one_hot", py::overload_cast<osl::Direction>(&osl::one_hot))
+    .def("black_dx", &osl::black_dx)
+    .def("black_dy", &osl::black_dy)
+    .def("to_offset", [](osl::Direction dir, osl::Player c){ return osl::to_offset(c, dir); },
+         "color"_a=osl::BLACK,
+         "obtain move offset for color\n\n"
+         ">>> sq, dir = miniosl.Square(7, 7), miniosl.U\n"
+         ">>> sq.add(dir.to_offset()) == miniosl.Square(7, 6)\n"
+         "True\n"
+         ">>> sq.add(dir.to_offset(miniosl.white)) == miniosl.Square(7, 8)\n"
+         "True\n"
+         )
+    ;
+  py::enum_<osl::Offset>(m, "Offset", py::arithmetic(), "relative square location")
+    ;
+
+  py::enum_<osl::GameResult>(m, "GameResult")
+    .value("BlackWin", osl::BlackWin).value("WhiteWin", osl::WhiteWin)
+    .value("Draw", osl::Draw).value("InGame", osl::InGame)
+    .export_values()
+    .def("flip", &osl::flip, "invert winner")
+    .def("has_winner", &osl::has_winner)
+    ;
 
   // classes
-  py::class_<osl::Square>(m, "Square", py::dynamic_attr(), "square (x, y) with onboard range in (1, 1) to (9, 9) and with some invalid ranges outside the board for sentinels and piece stand.\n\n>>> sq = miniosl.Square(2, 6)\n>>> sq.x()\n2\n>>> sq.y()\n6\n>>> sq.is_onboard()\nTrue\n>>> sq.to_xy()\n(2, 6)")
+  py::class_<osl::Square>(m, "Square", py::dynamic_attr(),
+                          "square (x, y) with onboard range in (1, 1) to (9, 9) and with some invalid ranges outside the board for sentinels and piece stand.\n\n"
+                          ">>> sq = miniosl.Square(2, 6)\n"
+                          ">>> sq.x\n"
+                          "2\n"
+                          ">>> sq.y\n"
+                          "6\n"
+                          ">>> sq.is_onboard()\n"
+                          "True\n"
+                          ">>> sq.to_xy()\n"
+                          "(2, 6)")
     .def(py::init<>())
     .def(py::init<int,int>())
-    .def("x", &osl::Square::x, "in [1,9]")
-    .def("y", &osl::Square::y, "in [1,9]")
+    .def_property_readonly("x", &osl::Square::x, "int in [1, 9]")
+    .def_property_readonly("y", &osl::Square::y, "int in [1, 9]")
     .def("to_xy", [](osl::Square sq) { return std::make_pair<int,int>(sq.x(), sq.y()); })
     .def("to_usi", [](osl::Square sq) { return osl::to_psn(sq); })
     .def("to_csa", [](osl::Square sq) { return osl::to_csa(sq); })
+    .def("to_ja", [](osl::Square sq) { return osl::to_ki2(sq); }, "Japanese label")
     .def("is_onboard", &osl::Square::isOnBoard)
     .def("is_piece_stand", &osl::Square::isPieceStand)
-    .def("is_promote_area", &osl::Square::isPromoteArea, "color"_a, "test this is in promote area for `color`\n\n"
+    .def("is_promote_area", &osl::Square::isPromoteArea, "color"_a=osl::BLACK,
+         "test this is in promote area for `color`\n\n"
          ">>> miniosl.Square(1, 3).is_promote_area(miniosl.black)\n"
+         "True\n"
+         ">>> miniosl.Square(1, 3).is_promote_area()  # default for black\n"
          "True\n"
          ">>> miniosl.Square(1, 3).is_promote_area(miniosl.white)\n"
          "False\n"
          ">>> miniosl.Square(5, 5).is_promote_area(miniosl.black)\n"
          "False\n"
          )
-    .def("rotate180", &osl::Square::rotate180, "return a square after rotation.\n\n>>> sq = miniosl.Square(2, 6)\n>>> sq.rotate180().to_xy()\n(8, 4)")
+    .def("rotate180", &osl::Square::rotate180,
+         "return a square after rotation.\n\n"
+         ">>> sq = miniosl.Square(2, 6)\n"
+         ">>> sq.rotate180().to_xy()\n"
+         "(8, 4)")
     .def("index81", py::overload_cast<>(&osl::Square::index81, py::const_), "return index in range [0, 80]")
+    .def("neighbor",
+         [](osl::Square sq, osl::Direction dir, osl::Player color){
+           return sq + osl::to_offset(color, dir);
+         },
+         "dir"_a, "color"_a=osl::BLACK, "return a neighbor for direction\n\n\n"
+         ">>> miniosl.Square(7, 7).neighbor(miniosl.U) == miniosl.Square(7, 6)\n"
+         "True\n"
+         )
+    .def("add", [](osl::Square sq, osl::Offset o){ return sq + o; },
+         "offset"_a, "[advanced] return a square with location offset\n\n\n"
+         ">>> miniosl.Square(7, 7).add(miniosl.U.to_offset()) == miniosl.Square(7, 6)\n"
+         "True\n"
+         )
     .def("__repr__", [](osl::Square sq) { return "<Square '"+osl::to_psn(sq) + "'>"; })
     .def("__str__", [](osl::Square sq) { return osl::to_csa(sq); })
     .def(py::self == py::self)
@@ -53,13 +220,13 @@ void pyosl::init_basic(py::module_& m) {
   py::class_<osl::Move>(m, "Move", py::dynamic_attr(), "move in shogi.\n\ncontaining the source and destination positions, moving piece, and captured one if any\n\n"
                         ">>> shogi = miniosl.UI()\n"
                         ">>> move = shogi.to_move('+7776FU')\n"
-                        ">>> move.src() == miniosl.Square(7, 7)\n"
+                        ">>> move.src == miniosl.Square(7, 7)\n"
                         "True\n"
-                        ">>> move.dst() == miniosl.Square(7, 6)\n"
+                        ">>> move.dst == miniosl.Square(7, 6)\n"
                         "True\n"
-                        ">>> move.ptype() == miniosl.pawn\n"
+                        ">>> move.ptype == miniosl.pawn\n"
                         "True\n"
-                        ">>> move.color() == miniosl.black\n"
+                        ">>> move.color == miniosl.black\n"
                         "True\n"
                         ">>> move.is_drop()\n"
                         "False\n"
@@ -68,20 +235,29 @@ void pyosl::init_basic(py::module_& m) {
                         ">>> move.to_usi()\n"
                         "'7g7f'\n"
                         )
-    .def("src", &osl::Move::from)
-    .def("dst", &osl::Move::to)
-    .def("ptype", &osl::Move::ptype, "piece type after move")
-    .def("old_ptype", &osl::Move::oldPtype, "piece type before move")
-    .def("capture_ptype", &osl::Move::capturePtype)
+    .def_property_readonly("src", &osl::Move::from, "departed :py:class:`Square` (can be piece stand)")
+    .def_property_readonly("dst", &osl::Move::to, "arrived :py:class:`Square`")
+    .def_property_readonly("ptype", &osl::Move::ptype, "piece :py:class:`Ptype` after move")
+    .def_property_readonly("old_ptype", &osl::Move::oldPtype, "piece :py:class:`Ptype` before move")
+    .def_property_readonly("capture_ptype", &osl::Move::capturePtype,
+                           "captured :py:class:`Ptype` by move")
     .def("is_promotion", &osl::Move::isPromotion)
     .def("is_drop", &osl::Move::isDrop)
     .def("is_normal", &osl::Move::isNormal)
     .def("is_capture", &osl::Move::isCapture)
-    .def("color", &osl::Move::player)
+    .def_property_readonly("color", &osl::Move::player,
+                           ":py:class:`Player` after move")
     .def("rotate180", &osl::Move::rotate180)
     .def("to_usi", [](osl::Move m) { return osl::to_usi(m); })
     .def("to_csa", [](osl::Move m) { return osl::to_csa(m); })
-    .def("policy_move_label", &osl::ml::policy_move_label, "move index for cross-entropy loss in training")
+    .def("to_ja",
+         [](osl::Move m, const state_t& state, std::optional<osl::Square> prev_to) {
+           return osl::to_ki2(m, state, prev_to.value_or(osl::Square()));
+         },
+      "state"_a, "prev_to"_a=std::nullopt,
+      "Japanese for human")
+    .def_property_readonly("policy_move_label", &osl::ml::policy_move_label,
+                           "move index in `int` for cross-entropy loss in training")
     .def("__repr__", [](osl::Move m) { return "<Move '"+osl::to_psn(m) + "'>"; })
     .def("__str__", [](osl::Move m) { return osl::to_csa(m); })
     .def("__hash__", [](osl::Move m) { return m.intValue(); })
@@ -93,18 +269,19 @@ void pyosl::init_basic(py::module_& m) {
     ;
   py::class_<osl::Piece>(m, "Piece", py::dynamic_attr(),
                          "a state of piece placed in a corresponding :py:class:`BaseState`")
-    .def("square", &osl::Piece::square)
-    .def("ptype", &osl::Piece::ptype)
-    .def("color", &osl::Piece::owner)
+    .def_property_readonly("square", &osl::Piece::square, ":py:class:`Square`")
+    .def_property_readonly("ptype", &osl::Piece::ptype, ":py:class:`Ptype`")
+    .def_property_readonly("color", &osl::Piece::owner, ":py:class:`Player`")
     .def("is_piece", &osl::Piece::isPiece)
-    .def("has", [](osl::Piece piece, osl::Ptype ptype, osl::Player color) {
-      return piece.ptype() == ptype && piece.owner() == color;
-    }, "ptype"_a, "color"_a,
-      "test if piece has a specified piece type with color")
+    .def("has",
+         [](osl::Piece piece, osl::Ptype ptype, osl::Player color) {
+           return piece.ptype() == ptype && piece.owner() == color;
+         }, "ptype"_a, "color"_a,
+         "test if piece has a specified piece type with color")
     .def("equals", &osl::Piece::equalPtyeO,
          "equality w.r.t. PtypeO (i.e., ignoring piece id or location)"
          )
-    .def("id", &osl::Piece::id)
+    .def_property_readonly("id", &osl::Piece::id)
     .def("__repr__", [](osl::Piece p) {
       std::stringstream ss;
       ss << p;
@@ -190,9 +367,6 @@ void pyosl::init_basic(py::module_& m) {
     ;
   
   // functions
-  typedef osl::EffectState state_t;
-  m.def("alt", py::overload_cast<osl::Player>(osl::alt), "color"_a, "alternative player color\n\n>>> miniosl.alt(miniosl.black) == miniosl.white\nTrue");
-  m.def("sign", py::overload_cast<osl::Player>(osl::sign), "color"_a, "+1 for black or -1 for white");
   m.def("csa_board", [](std::string input){
     try { return osl::csa::read_board(input); }
     catch (std::exception& e) { std::cerr << e.what() << '\n'; } return state_t();
@@ -213,53 +387,11 @@ void pyosl::init_basic(py::module_& m) {
     getline(is, line);
     return osl::usi::read_record(line); }, "path"_a, "line_id"_a=0, "load a game record");
   m.def("kif_file", py::overload_cast<const std::filesystem::path&>(&osl::kifu::read_record), "filepath"_a);
-  m.def("to_csa", py::overload_cast<osl::Ptype>(&osl::to_csa));
-  m.def("to_csa", py::overload_cast<osl::Player>(&osl::to_csa));
-  m.def("to_ja", py::overload_cast<osl::Square>(&osl::to_ki2));
-  m.def("to_ja", py::overload_cast<osl::Ptype>(&osl::to_ki2));
-  m.def("to_ja", py::overload_cast<osl::Move, const state_t&, osl::Square>(&osl::to_ki2),
-        "move"_a, "state"_a, "prev_to"_a=osl::Square());
   m.def("hash_after_move", &osl::make_move);
   m.def("win_result", &osl::win_result);
 
-  // enums
-  py::enum_<osl::Player>(m, "Player", py::arithmetic())
-    .value("black", osl::BLACK, "first player").value("white", osl::WHITE, "second player")
-    .export_values();
-  py::enum_<osl::Ptype>(m, "Ptype", py::arithmetic(), "piece type")
-    .value("pawn",   osl::PAWN).value("lance",  osl::LANCE).value("knight", osl::KNIGHT)
-    .value("silver", osl::SILVER).value("gold",   osl::GOLD).value("bishop", osl::BISHOP)
-    .value("rook",   osl::ROOK).value("king",   osl::KING)
-    .value("ppawn",   osl::PPAWN, "promoted pawn").value("plance",  osl::PLANCE, "promoted lance")
-    .value("pknight", osl::PKNIGHT, "promoted knight").value("psilver", osl::PSILVER, "promoted silver")
-    .value("pbishop", osl::PBISHOP, "promoted bishop").value("prook",   osl::PROOK, "promoted rook")
-    .value("empty", osl::Ptype_EMPTY).value("edge",  osl::Ptype_EDGE)
-    .export_values();
-  py::enum_<osl::Direction>(m, "Direction", py::arithmetic(), "direction.\n\n"
-                            ">>> direction_set = miniosl.ptype_move_direction[int(miniosl.pawn)]\n"
-                            ">>> bin(direction_set)\n"
-                            "'0b10'\n"
-                            ">>> (direction_set & (1 << int(miniosl.U))) != 0\n"
-                            "True\n"
-                            )
-    .value("UL", osl::UL, "up left").value("U",  osl::U).value("UR", osl::UR)
-    .value("L",  osl::L).value("R",  osl::R)
-    .value("DL", osl::DL).value("D",  osl::D).value("DR", osl::DR)
-    .value("UUL", osl::UUL, "up up left for knight").value("UUR", osl::UUR)
-    .value("Long_UL", osl::Long_UL, "UL for bishops").value("Long_U",  osl::Long_U).value("Long_UR", osl::Long_UR)
-    .value("Long_L",  osl::Long_L).value("Long_R",  osl::Long_R)
-    .value("Long_DL", osl::Long_DL).value("Long_D",  osl::Long_D).value("Long_DR", osl::Long_DR)
-    .export_values();
-  py::enum_<osl::GameResult>(m, "GameResult")
-    .value("BlackWin", osl::BlackWin).value("WhiteWin", osl::WhiteWin)
-    .value("Draw", osl::Draw).value("InGame", osl::InGame)
-    .export_values();
-
   // data
-  m.attr("ptype_move_direction") = &osl::ptype_move_direction;
   m.attr("ptype_piece_id") = &osl::ptype_piece_id;
-  m.attr("ptype_csa_names") = &osl::ptype_csa_names;
-  m.attr("ptype_en_names") = &osl::ptype_en_names;
   m.attr("piece_stand_order") = &osl::piece_stand_order;
   m.attr("channel_id") = &osl::ml::channel_id;
   m.attr("draw_limit") = &osl::MiniRecord::draw_limit;

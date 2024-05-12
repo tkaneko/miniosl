@@ -8,6 +8,7 @@ import base64
 
 css = ".piece { font-family: Noto Serif CJK JP; }"  # prevent tofu in png
 
+# a bit different from ptype.to_ja() to show promoted pieces in a single letter
 csadict = {
     'FU': '歩', 'KY': '香', 'KE': '桂', 'GI': '銀', 'KI': '金',
     'KA': '角', 'HI': '飛', 'OU': '王',
@@ -31,7 +32,7 @@ scale = 20
 
 
 def ptype_to_ja(ptype: miniosl.Ptype) -> str:
-    return csadict[miniosl.to_csa(ptype)]
+    return csadict[ptype.to_csa()]
 
 
 def hand_pieces_to_ja(state, player):
@@ -40,7 +41,7 @@ def hand_pieces_to_ja(state, player):
         cnt = state.count_hand(player, ptype)
         if cnt == 0:
             continue
-        ret += csadict[miniosl.to_csa(ptype)] * cnt
+        ret += csadict[ptype.to_csa()] * cnt
     return ret
 
 
@@ -127,13 +128,13 @@ class ShogiSVG:
         piece = self.state.piece_at(miniosl.Square(x, y))
         if not piece.is_piece():
             return
-        kanji = ptype_to_ja(piece.ptype())
-        if piece.color() == miniosl.black:
+        kanji = ptype_to_ja(piece.ptype)
+        if piece.color == miniosl.black:
             self.add(dw.Text(kanji, font_size=scale*.875,
                              x=gx(x)+scale*.05, y=gy(y)-scale*.125,
                              **char_property))
         else:
-            assert piece.color() == miniosl.white
+            assert piece.color == miniosl.white
             self.add(dw.Text(kanji, font_size=scale*.875,
                              x=gx(x)+scale*.9, y=gy(y)-scale*.8,
                              rotate='180', **char_property))

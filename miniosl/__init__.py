@@ -10,7 +10,7 @@ from .record import np_array_to_sfen_file, sfen_file_to_np_array, \
 from .drawing import show_channels, state_to_png, state_to_svg, to_png_bytes, \
     ptype_to_ja, hand_pieces_to_ja
 from .dataset import load_torch_dataset, GameDataset
-from .network import StandardNetwork
+from .network import StandardNetwork, PVNetwork
 from .usi_process import UsiProcess
 from .player import UsiPlayer, make_player
 from .inference import export_model, softmax, InferenceModel, p2elo

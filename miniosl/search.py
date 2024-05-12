@@ -106,7 +106,7 @@ class Node:
                       model: miniosl.InferenceModel):
         logits, value, *_ = model.infer_one(features)
         value01 = az_value_transform(value[0].item())
-        mp = np.array([logits[_.policy_move_label()]
+        mp = np.array([logits[_.policy_move_label]
                        for _ in legal_moves])
         mp = miniosl.softmax(mp)
         mp = (-mp).tolist()  # for heapq
@@ -206,7 +206,7 @@ def process_batch(batch, model):
     for i, record in enumerate(batch):
         value01 = value01s[i][0].item()
         if not record.duplicate:
-            mp = np.array([mps[i][_.policy_move_label()]
+            mp = np.array([mps[i][_.policy_move_label]
                            for _ in record.legal_moves])
             mp = miniosl.softmax(mp)
             mp = (-mp).tolist()  # for heapq

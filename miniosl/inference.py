@@ -15,7 +15,7 @@ def p2elo(p, eps=1e-4):
 
 def sort_moves(moves, policy):
     flatten = policy.flatten()
-    prob = [(flatten[move.policy_move_label()], move) for move in moves]
+    prob = [(flatten[move.policy_move_label], move) for move in moves]
     prob.sort(key=lambda e: -e[0])
     return prob
 
@@ -261,6 +261,8 @@ class InferenceForGameArray(miniosl.InferenceModelStub):
 
 
 def export_onnx(model, *, device, filename, remove_aux_head=False):
+    import onnx                 # to detect import error eaelier
+    onnx.__version__
     import torch.onnx
     model.eval()
     dtype = torch.float

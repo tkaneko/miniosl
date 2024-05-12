@@ -11,7 +11,7 @@ def minirecord_replay(self: miniosl.MiniRecord, n: int) -> miniosl.State:
 
     >>> record = miniosl.usi_record('startpos moves 7g7f')
     >>> s = record.replay(-1)
-    >>> s.piece_at(miniosl.Square(7, 6)).ptype() == miniosl.pawn
+    >>> s.piece_at(miniosl.Square(7, 6)).ptype == miniosl.pawn
     True
     """
     if n < 0:
@@ -31,7 +31,7 @@ def subrecord_replay(self: miniosl.SubRecord, n: int) -> miniosl.State:
 
     >>> record = miniosl.usi_record('startpos moves 7g7f')
     >>> s = record.replay(-1)
-    >>> s.piece_at(miniosl.Square(7, 6)).ptype() == miniosl.pawn
+    >>> s.piece_at(miniosl.Square(7, 6)).ptype == miniosl.pawn
     True
     """
     if len(self.moves) < n:

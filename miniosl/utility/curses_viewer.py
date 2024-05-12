@@ -327,14 +327,14 @@ class TUI:
     def piece_to_ja(self, piece):
         if not piece.is_piece():
             return '　'
-        return miniosl.ptype_to_ja(piece.ptype())
+        return piece.ptype.to_ja()
 
     def draw_piece(self, x, y, piece):
         kanji = self.piece_to_ja(piece)
         tx, ty = (9-x)*3 + 1, y  # 1 for boarder
         if not piece.is_piece():
             self.board.addstr(ty, tx, " "+kanji, Color.board())
-        elif piece.color() == miniosl.white:
+        elif piece.color == miniosl.white:
             self.board.addstr(ty, tx, "v", Color.gote())
             self.board.addstr(ty, tx+1, kanji, Color.gote())
         else:
@@ -364,7 +364,7 @@ class TUI:
                     squares.append(sq)
         for sq in squares:
             piece = self.UI._state.piece_at(sq)
-            self.draw_piece(sq.x(), sq.y(), piece)
+            self.draw_piece(sq.x, sq.y, piece)
         hand_b, hand_w = [miniosl.hand_pieces_to_ja(self.UI._state, _)
                           for _ in (miniosl.black, miniosl.white)]
         if (not self.state_shown
@@ -434,7 +434,7 @@ class TUI:
         for i, c in enumerate(children):
             if i > 2:
                 break
-            move = miniosl.to_ja(c[1], self.UI._state)
+            move = c[1].to_ja(self.UI._state)
             self.opening_panel.addstr(i+1, 4, f'{move:11s}')
             self.opening_panel.addstr(f'{c[0].count()/all*100:5.1f}%')
         self.opening_panel.refresh()
@@ -451,14 +451,14 @@ class TUI:
             f'評価値 {value[0]:5.0f} {value[1]:5.0f} {value[2]:5.0f}'
             f'  {value[3]:5.0f}')
         for i in range(min(len(mp), 3)):
-            mp_ja = miniosl.to_ja(mp[i][1], self.UI._state)
+            mp_ja = mp[i][1].to_ja(self.UI._state)
             self.policy_panel.addstr(2+i, 4, f'{mp_ja:11s}')
             self.policy_panel.addstr(2+i, 18, f'{mp[i][0]*100:5.1f}%')
         self.policy_panel.addstr(5, 0, 'one-ply')
         values = self.UI.gumbel_one()
         best = values[0][0]
         for i, item in enumerate(values):
-            move = miniosl.to_ja(item[1], self.UI._state)
+            move = item[1].to_ja(self.UI._state)
             diff = item[0] - item[2]
             cp = Color.sente() \
                 if item[0]+4 > best else curses.color_pair(0)

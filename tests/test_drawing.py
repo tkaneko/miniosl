@@ -23,7 +23,7 @@ def test_draw_after_make_move():
     board = miniosl.State()
     m7g7f = board.to_move('7g7f')
     board.make_move(m7g7f)
-    svg = board.to_svg(last_to=m7g7f.dst())
+    svg = board.to_svg(last_to=m7g7f.dst)
     assert svg
     board.make_move('-3334FU')
     svg = board.to_svg(last_to=miniosl.Square(3, 4))

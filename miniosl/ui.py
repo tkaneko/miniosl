@@ -285,8 +285,7 @@ class UI:
 
     def genmove_ja(self) -> list[str]:
         """generate legal moves in Japanese"""
-        return [miniosl.to_ja(move, self._state, Square())
-                for move in self._state.genmove()]
+        return [move.to_ja(self._state) for move in self._state.genmove()]
 
     def pv_to_ja(self, pv: list[Move]) -> list[str]:
         """show moves in Japanese"""
@@ -294,10 +293,10 @@ class UI:
         last_to = self.last_to()
         state = State(self._state)
         for move in pv:
-            s = miniosl.to_ja(move, state, last_to or Square())
+            s = move.to_ja(state, last_to)
             ret.append(s)
             state.make_move(move)
-            last_to = move.dst()
+            last_to = move.dst
         return ret
 
     def last_move(self) -> Move | None:
@@ -316,7 +315,7 @@ class UI:
         True
         """
         move = self.last_move()
-        return move.dst() if move else None
+        return move.dst if move else None
 
     def count_hand(self, color: miniosl.Player, ptype: miniosl.Ptype) -> int:
         """number of pieces in hand"""
@@ -360,17 +359,14 @@ class UI:
         for i, move in enumerate(self._record.moves):
             last_to = None
             if i+1 == idx:
-                last_to = self._record.moves[i-1].dst() if i > 0 else Square()
+                last_to = self._record.moves[i-1].dst if i > 0 else Square()
             self._do_make_move(move, last_to)
             if i+1 >= idx:
                 break
         return self.hint()
 
     def legal_move_to_ja(self, move: Move, last_to: Square | None = None):
-        if last_to is not None:
-            return miniosl.to_ja(move, self._state, last_to)
-        else:
-            return miniosl.to_ja(move, self._state)
+        return move.to_ja(self._state, last_to)
 
     def _do_make_move(self, move: Move, last_to: Square | None = None):
         self._features = None
@@ -398,7 +394,7 @@ class UI:
         else:
             plane = np.zeros((9, 9))
             for c in children:
-                x, y = c[1].dst().to_xy()
+                x, y = c[1].dst.to_xy()
                 plane[y-1][x-1] = c[0].count()/all
             return self.hint(plane=plane)
 
@@ -429,6 +425,8 @@ class UI:
 
     def show_channels(self, *args, **kwargs):
         if not hasattr(UI, 'japanese_available_in_plt'):
+            # might need addfont in Colab
+            # https://matplotlib.org/stable/api/font_manager_api.html#matplotlib.font_manager.FontManager.addfont
             fontname = 'Noto Sans CJK JP'
             import matplotlib.font_manager as fm
             font = fm.findfont(fontname)
@@ -443,7 +441,7 @@ class UI:
         """visualize features in matplotlib.
 
         :param plane_id: ``'pieces'`` | ``'hands'`` | ``'lastmove'`` \
-        | ``'long'`` | ``'safety'``, or indeger id (in internal representation)
+        | ``'long'`` | ``'safety'``, or integer id (in internal representation)
         """
         self.update_features()
         turn = self.turn()
@@ -513,7 +511,7 @@ class UI:
         if verbose:
             for i in range(min(len(mp), 3)):
                 print(mp[i][1], f'{mp[i][0]*100:6.1f}%',
-                      miniosl.to_ja(mp[i][1], self._state))
+                      mp[i][1].to_ja(self._state))
         return value*Value_Scale, mp
 
     def gumbel_one(self, width: int = 4):
@@ -530,11 +528,11 @@ class UI:
                     history, move
                 )
             _, v, *_ = self.model.infer_one(f)
-            logit = logits[move.policy_move_label()]
+            logit = logits[move.policy_move_label]
             v = -v[0].item()       # negamax
             if terminal == miniosl.win_result(self.turn()):
                 v = 1.0
-            elif terminal == miniosl.win_result(miniosl.alt(self.turn())):
+            elif terminal == miniosl.win_result(self.turn().alt()):
                 v = -1.0
             elif terminal == miniosl.Draw:
                 v = 0
