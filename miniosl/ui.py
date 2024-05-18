@@ -38,8 +38,7 @@ class UI:
     enhanced with move history (:py:class:`MiniRecord`) and other utilities
 
     :param init: initial contents handled by :py:meth:`load_record`
-    :param prefer_png: preference of state visualization in notebook
-    :param prefer_svg: preference of state visualization in notebook
+    :param prefer_text: preference of state visualization
     :param default_format: preference in `__str__`
 
     make the initial state in shogi
@@ -63,21 +62,19 @@ class UI:
     P9+KY+KE+GI * +OU+KI * +KE+KY
     +
     """
-    prefer_svg = False  # shared preference on board representation
-    prefer_png = False
+    prefer_text = False  # shared preference on board representation
 
     def __init__(self, init: str | BaseState | MiniRecord = '',
-                 *, prefer_png=False, prefer_svg=False, default_format='usi'):
-        if not UI.prefer_svg:
-            UI.prefer_svg = prefer_svg or is_in_notebook()
-        if not UI.prefer_png:
-            UI.prefer_png = prefer_png
+                 *, prefer_text=False, default_format='usi'):
+        if prefer_text:
+            UI.prefer_text = prefer_text
         self.default_format = default_format
         self.opening_tree = None
         self.nn = None
         self._features = None
         self._infer_result = None
         self.model = None
+        self.fig = None
 
         if isinstance(init, UI):
             self._record = copy.copy(init._record)
@@ -152,10 +149,11 @@ class UI:
     def __len__(self) -> int:
         return self._record.state_size()  # state-size, that is, move-size + 1
 
-    def hint(self, *args, **kwargs):
-        if UI.prefer_png:
-            return self.to_png(*args, **kwargs)
-        return self.to_svg(*args, **kwargs) if UI.prefer_svg else self.to_usi()
+    def hint(self, show_hint: bool = True, **kwargs):
+        if show_hint and not UI.prefer_text:
+            self.to_img(**kwargs)
+            # return self.fig
+        return self.to_usi()
 
     # delegation for self._record
     def to_usi_history(self) -> str:
@@ -178,11 +176,11 @@ class UI:
 
     def repeat_count(self) -> int:
         """number of occurrence of the state in the history"""
-        return self._record.repeat_count(self.cur)
+        return self._record.repeat_count(self.cur) if len(self._record) else 0
 
-    def to_apng(self, *args, **kwargs):
-        """make animated png for the history"""
-        return self._record.to_apng(*args, **kwargs)
+    def to_anim(self, *args, **kwargs):
+        """make matplotlib animation showing current game record"""
+        return self._record.to_anim(*args, **kwargs)
 
     # delegation for self._state
     def to_move(self, move_rep: str) -> Move:
@@ -217,25 +215,14 @@ class UI:
         dict['repeat_distance'] = self.cur - self.previous_repeat_index()
         dict['repeat_count'] = self.repeat_count()
 
-    def to_svg(self, *args, **kwargs):
-        """show state in svg
+    def to_img(self, *args, **kwargs):
+        """show state in matplotlib image
 
-        parameters will be passed to :py:func:`state_to_svg`
-
-        :return: svg image to be shown in colab or jupyter notebooks
+        :return: an image shown in colab or jupyter notebooks
         """
         self._add_drawing_properties(kwargs)
-        return miniosl.state_to_svg(self._state, *args, **kwargs)
-
-    def to_png(self, *args, **kwargs):
-        """show state in png
-
-        parameters will be passed to :py:func:`state_to_png`
-
-        :return: png image to be shown in colab or jupyter notebooks
-        """
-        self._add_drawing_properties(kwargs)
-        return miniosl.state_to_png(self._state, *args, **kwargs)
+        self.fig = miniosl.state_to_img(self._state, *args, **kwargs)
+        return self.fig.fig
 
     # original / modified methods
     def first(self):
@@ -346,7 +333,7 @@ class UI:
         """compress state information"""
         return self._state.to_np_pack()
 
-    def replay(self, idx: int):
+    def replay(self, idx: int, show_hint: bool = False):
         """move to idx-th state in the history"""
         self._state = State(self._record.initial_state)
         self._features = None
@@ -363,7 +350,7 @@ class UI:
             self._do_make_move(move, last_to)
             if i+1 >= idx:
                 break
-        return self.hint()
+        return self.hint(show_hint)
 
     def legal_move_to_ja(self, move: Move, last_to: Square | None = None):
         return move.to_ja(self._state, last_to)
@@ -425,8 +412,6 @@ class UI:
 
     def show_channels(self, *args, **kwargs):
         if not hasattr(UI, 'japanese_available_in_plt'):
-            # might need addfont in Colab
-            # https://matplotlib.org/stable/api/font_manager_api.html#matplotlib.font_manager.FontManager.addfont
             fontname = 'Noto Sans CJK JP'
             import matplotlib.font_manager as fm
             font = fm.findfont(fontname)
@@ -484,7 +469,7 @@ class UI:
         parameters will be passed to :py:func:`inference.load`.
         """
         import miniosl.inference
-        if not path:
+        if not path and miniosl.has_pretrained_eval():
             path = miniosl.pretrained_eval_path()
         path = os.path.expanduser(path)
         if os.path.exists(path):
@@ -590,7 +575,7 @@ class UI:
                 self._do_make_move(self._record.moves[i-1])
             self.cur = i
             value, *_ = self.eval(False)
-            evals.append(value * miniosl.sign(self.turn()))
+            evals.append(value * self.turn().sign())
         self.replay(now)
         plt.axhline(y=0, linestyle='dotted')
         return plt.plot(np.array(evals), '+')
@@ -601,25 +586,22 @@ class UI:
         return self.show_channels(self._infer_result['aux'], 2, 6)
 
     def ipywidget(self):
+        """make an interactive widget for colab or jupyter notebooks"""
         import ipywidgets
-        image = ipywidgets.Image(
-            value=miniosl.to_png_bytes(self.to_png()),
-            format='png',
-            width=290,
-            height=250,
-        )
-        shogi_range = ipywidgets.IntSlider(
+        slider = ipywidgets.IntSlider(
             min=0,
             max=len(self._record),
             value=self.cur,
-            description='Move number:',
+            description='Move number',
         )
+        if not self.fig:
+            self.to_img()
+        fig = self.fig
 
-        def shogi_value_change(change):
-            id = int(change['new'])
-            self.replay(id)
-            image.value = miniosl.to_png_bytes(self.to_png())
-
-        shogi_range.observe(shogi_value_change, names='value')
-        box = ipywidgets.VBox([image, shogi_range])
-        return box
+        def update(n):
+            self.replay(n)
+            cfg = {}
+            self._add_drawing_properties(cfg)
+            fig.set_state(self._state, **cfg)
+            return fig.fig
+        ipywidgets.interact(update, n=slider)

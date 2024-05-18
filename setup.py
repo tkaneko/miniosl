@@ -194,7 +194,7 @@ setup(
     ],
     long_description=(this_directory / "README.md").read_text(),
     long_description_content_type='text/markdown',
-    version="0.1.0",
+    version="0.1.1",
     author="T. Kaneko",
     author_email="kaneko@graco.c.u-tokyo.ac.jp",
     ext_modules=[CMakeExtension(

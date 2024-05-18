@@ -24,7 +24,9 @@ def load_records(path: str):
     if 'sfen' in path:
         return miniosl.RecordSet.from_usi_file(path)
     if path.endswith('.csa'):
-        return miniosl.RecordSet([miniosl.csa_file(path)])
+        return miniosl.RecordSet(miniosl.MiniRecordVector(
+            [miniosl.csa_file(path)]
+        ))
     if path.endswith('.kif'):
         logger.warn('handling of .kif files is an experimental feature')
         return miniosl.RecordSet(miniosl.MiniRecordVector(

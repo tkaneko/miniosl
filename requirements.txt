@@ -1,7 +1,4 @@
 numpy
 matplotlib
-drawsvg
-cairosvg
-apng
 coloredlogs
 tqdm

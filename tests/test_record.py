@@ -27,14 +27,15 @@ def test_copy():
     assert r != c
 
 
-def test_anim():
+def test_anim(tmp_path):
     r = miniosl.usi_record(sfen)
     assert len(r) > 10
     assert r.to_usi() != ''
     s = r.replay(15)
     assert isinstance(s, miniosl.State)
-    anim = r.to_apng(10)
+    anim = r.to_anim(10)
     assert anim
+    anim.save(f'{tmp_path}/test.gif', writer='PillowWriter')
 
 
 def test_channel_name():

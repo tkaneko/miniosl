@@ -143,11 +143,11 @@ def test_hash_code():
     assert b == 0
 
 
-def test_drawing():
+def test_drawing(tmp_path):
     board = miniosl.UI()
-    board.to_svg()
-    board.to_png()
-    board.to_apng()
+    board.to_img()
+    anim = board.to_anim()
+    anim.save(f'{tmp_path}/test.gif', writer='PillowWriter')
 
 
 def test_usi_history():
@@ -195,3 +195,10 @@ def test_show_features():
     for i in range(54):
         print(i)
         board.show_features(i)
+
+
+def test_analyze():
+    shogi = miniosl.UI()
+    if miniosl.has_pretrained_eval():
+        shogi.load_eval()
+        shogi.analyze()

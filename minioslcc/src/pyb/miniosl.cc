@@ -293,6 +293,7 @@ void pyosl::init_basic(py::module_& m) {
   
   py::class_<osl::MiniRecord>(m, "MiniRecord", py::dynamic_attr(), "a game record")
     .def(py::init<>())
+    .def(py::init<const osl::MiniRecord&>())
     .def_readonly("initial_state", &osl::MiniRecord::initial_state)
     .def_readonly("moves", &osl::MiniRecord::moves, "list of :py:class:`Move` s")
     .def_readonly("result", &osl::MiniRecord::result, ":py:class:`GameResult`")

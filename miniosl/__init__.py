@@ -7,8 +7,8 @@ from .ui import UI
 from .record import np_array_to_sfen_file, sfen_file_to_np_array, \
     sfen_file_to_training_np_array, load_record_set, load_opening_tree, \
     SfenBlockStat, load_ki2, read_ki2
-from .drawing import show_channels, state_to_png, state_to_svg, to_png_bytes, \
-    ptype_to_ja, hand_pieces_to_ja
+from .drawing import show_channels, state_to_img, \
+    ptype_to_ja, hand_pieces_to_ja, ShogiFig, ShogiAnimation
 from .dataset import load_torch_dataset, GameDataset
 from .network import StandardNetwork, PVNetwork
 from .usi_process import UsiProcess
@@ -18,15 +18,13 @@ from .search import run_mcts
 
 
 setattr(MiniRecord, 'replay', record.minirecord_replay)
-setattr(MiniRecord, 'to_apng', record.minirecord_to_apng)
+setattr(MiniRecord, 'to_anim', record.minirecord_to_anim)
 
 setattr(SubRecord, 'replay', record.subrecord_replay)
 
-setattr(BaseState, 'to_svg', state_to_svg)
-setattr(BaseState, 'to_png', state_to_png)
+setattr(BaseState, 'to_img', state_to_img)
 
-setattr(State, 'to_svg', state_to_svg)
-setattr(State, 'to_png', state_to_png)
+setattr(State, 'to_img', state_to_img)
 
 setattr(RecordSet, 'save_npz', record.save_record_set)
 setattr(RecordSet, 'from_npz', record.load_record_set)

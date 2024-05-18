@@ -111,9 +111,23 @@ namespace osl {
     int value_mix = 0;
     float depth_weight = 0.5;
     static constexpr int mc = 0, td = 1, ave = 2, max = 3;
+
+    float take_value(const value_vector_t& values) const {
+      auto cv = values[0];      // default mc return
+      // balance between mc and td1
+      if (value_mix == GumbelPlayerConfig::td)
+        cv = values[1];
+      else if (value_mix == GumbelPlayerConfig::ave)
+        cv = values[0]*0.75 + values[1]*0.25;
+      else if (value_mix == GumbelPlayerConfig::max)
+        cv = std::min(values[0], values[1]); // optimistic
+      // compose soft value
+      cv += softalpha * values[2];
+      return cv;
+    }
   };
   
-  struct FlatGumbelPlayer : public PlayerArray {
+  struct FlatGumbelPlayer : public PlayerArray, private GumbelPlayerConfig {
     FlatGumbelPlayer(GumbelPlayerConfig config);
     ~FlatGumbelPlayer();
 
@@ -135,11 +149,12 @@ namespace osl {
       auto maxnb = (second_width > 0) ? 2.0 : 1.0;
       return transformQ_formula(nnQ, cvisit, maxnb);
     }
-
+    float& root_gumbel_value(int idx) { return get<0>(root_children[idx]); } 
+    Move& root_move(int idx) { return get<1>(root_children[idx]); } 
+    int& root_reply(int idx) { return get<2>(root_children[idx]); } 
+    float& root_half_value(int idx) { return get<3>(root_children[idx]); } 
     std::vector<std::tuple<float,Move,int,float>> root_children; // (logits+value, move, reply-code, half-value)
     std::vector<GameResult> root_children_terminal;
-    const int root_width, second_width, greedy_threshold, value_mix;
-    const float noise_scale, softalpha, depth_weight;
   };
 
   struct SingleCPUPlayer {

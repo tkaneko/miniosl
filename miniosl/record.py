@@ -1,5 +1,4 @@
 import miniosl
-import apng
 import numpy as np
 from collections import Counter
 
@@ -42,28 +41,15 @@ def subrecord_replay(self: miniosl.SubRecord, n: int) -> miniosl.State:
     return s
 
 
-def state_to_png(state: miniosl.State | miniosl.UI,
-                 decorate: bool) -> apng.PNG:
-    """return png object of state"""
-    bytes = miniosl.to_png_bytes(state.to_png(decorate=decorate))
-    return apng.PNG.from_bytes(bytes)
-
-
-def minirecord_to_apng(self: miniosl.MiniRecord,
-                       n: int = 0, start: int = 0, delay: int = 1000,
-                       decorate: bool = False) -> apng.APNG:
-    """return animation of the specified range of record as apng"""
-    im = apng.APNG(1)
-    s = miniosl.UI(self.initial_state)
-    if start <= 0:
-        im.append(state_to_png(s, decorate), delay=delay)
-    for i, move in enumerate(self.moves):
-        s.make_move(move)
-        if start < i+1:
-            im.append(state_to_png(s, decorate), delay=delay)
-        if n > 0 and i >= start+n:
-            break
-    return im
+def minirecord_to_anim(
+        self: miniosl.MiniRecord,
+        n: int = -1, start: int = 0,
+        decorate: bool = False):
+    """return animation of the specified range of record"""
+    if n < 0:
+        n = self.move_size() + 1
+    anim = miniosl.ShogiAnimation(self, start)
+    return anim.animate(n + 1)
 
 
 def sfen_file_to_np_array(filename: str) -> (np.ndarray, int):

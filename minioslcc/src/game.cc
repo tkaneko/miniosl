@@ -242,11 +242,7 @@ bool osl::PolicyPlayer::recv_result(int,
 
 osl::FlatGumbelPlayer::FlatGumbelPlayer(GumbelPlayerConfig config)
   : PlayerArray(/* greedy */ config.noise_scale == 0),
-    root_width(config.root_width), second_width(config.second_width),
-    greedy_threshold(config.greedy_after),
-    noise_scale(config.noise_scale),
-    softalpha(config.softalpha), value_mix(config.value_mix),
-    depth_weight(config.depth_weight) {
+    GumbelPlayerConfig(config) {
 }
 
 osl::FlatGumbelPlayer::~FlatGumbelPlayer() {
@@ -291,7 +287,7 @@ bool osl::FlatGumbelPlayer::make_request(int phase, nn_input_element *ptr) {
         for (int i=0; i<root_width; ++i) {
           int idx = g*root_width + i;
           auto terminated_by_move
-            = (*_games)[g].export_heuristic_feature_after(get<1>(root_children[idx]),
+            = (*_games)[g].export_heuristic_feature_after(root_move(idx),
                                                           ptr + idx*ml::input_unit);
           root_children_terminal[idx] = terminated_by_move;
         }
@@ -308,11 +304,11 @@ bool osl::FlatGumbelPlayer::make_request(int phase, nn_input_element *ptr) {
         int idx_child = g*root_width + i;
         int idx_input = g*second_width + i;
         bool ok = 
-          (*_games)[g].export_heuristic_feature_after(get<1>(root_children[idx_child]),
-                                                      get<2>(root_children[idx_child]),
+          (*_games)[g].export_heuristic_feature_after(root_move(idx_child),
+                                                      root_reply(idx_child),
                                                       ptr + idx_input*ml::input_unit);
         if (! ok)
-          get<2>(root_children[idx_child]) = 0;
+          root_reply(idx_child) = 0;
       }
     }
   };
@@ -333,7 +329,7 @@ bool osl::FlatGumbelPlayer::recv_result(int phase,
     auto run = [&](int l, int r, TID tid) {
       for (int g=l; g<r; ++g) {
         auto ns = noise_scale;
-        if ((*_games)[g].record.move_size() >= greedy_threshold)
+        if ((*_games)[g].record.move_size() >= greedy_after)
           ns = 0.0;
         auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width,
                                           &rngs[idx(tid)], ns);
@@ -347,7 +343,7 @@ bool osl::FlatGumbelPlayer::recv_result(int phase,
     run_range_parallel_tid(n_parallel(), run);
     return false;
   }
-  auto turn = get<1>(root_children[0]).player();
+  auto turn = root_move(0).player();
   // phase 1
   if (phase == 1) {
     check_size(values.size(), root_width, "FlatGumbelPlayer recv phase1");
@@ -356,15 +352,7 @@ bool osl::FlatGumbelPlayer::recv_result(int phase,
         int offset = g*root_width;
         int c_visit = std::max(50, (*_games)[g].record.move_size());
         for (int i=0; i<root_width; ++i) {
-          const auto& vec = values[offset + i];
-          auto cv = vec[0];
-          if (value_mix == GumbelPlayerConfig::td)
-            cv = vec[1];
-          else if (value_mix == GumbelPlayerConfig::ave)
-            cv = vec[0]*0.75 + vec[1]*0.25;
-          else if (value_mix == GumbelPlayerConfig::max)
-            cv = std::min(vec[0], vec[1]); // optimistic
-          auto value = /* negamax */ - (cv + softalpha*vec[2]);
+          auto value = /* negamax */ - take_value(values[offset + i]);
           auto terminal = root_children_terminal[offset + i];
           if (terminal != InGame) {
             if (! has_winner(terminal))
@@ -372,13 +360,14 @@ bool osl::FlatGumbelPlayer::recv_result(int phase,
             else
               value = (terminal == win_result(turn)) ? 1.0 : -1.0;
           }
-          get<0>(root_children[offset + i]) += transformQ(value, c_visit);
+          value = transformQ(value, c_visit);
+          root_gumbel_value(offset + i) += value; // after transformed
           if (second_width > 0) {
             // check policy for the opponent
             auto best_reply = std::ranges::max_element(logits[offset + i]) - logits[offset + i].begin();
-            get<2>(root_children[offset + i]) = best_reply;
+            root_reply(offset + i) = best_reply;
             // store child value for later adustment
-            get<3>(root_children[offset + i]) = value * depth_weight;
+            root_half_value(offset + i) = value * depth_weight; // after transformed
           }
         }
         if (second_width == 0) {
@@ -393,7 +382,7 @@ bool osl::FlatGumbelPlayer::recv_result(int phase,
                             [](auto l, auto r){ return std::get<0>(l) > std::get<0>(r); } );
           // prepare for final decision by logits + transformQ(average(depth1_value, depth2_value))
           for (int c=0; c<second_width; ++c)
-            get<0>(root_children[offset+c]) -= get<3>(root_children[offset+c]);
+            root_gumbel_value(offset+c) -= root_half_value(offset+c);
         }
       }
     };
@@ -409,20 +398,15 @@ bool osl::FlatGumbelPlayer::recv_result(int phase,
       int offset = g*root_width, index_offset = g*second_width;
       int c_visit = std::max(50, (*_games)[g].record.move_size());
       for (int i=0; i<second_width; ++i) {
-        if (get<2>(root_children[offset + i]) == 0 // invalid id for reply
-            || root_children_terminal[offset + i] != InGame)
+        if (root_reply(offset + i) == 0 // invalid id for reply
+            || root_children_terminal[offset + i] != InGame) {
+          // recover 100% value at phase 1
+          root_gumbel_value(offset+i) += root_half_value(offset+i);
           continue;
-        const auto& vec = values[index_offset + i];
-        auto cv = vec[0];
-        if (value_mix == GumbelPlayerConfig::td)
-          cv = vec[1];
-        else if (value_mix == GumbelPlayerConfig::ave)
-          cv = vec[0]*0.75 + vec[1]*0.25;
-        else if (value_mix == GumbelPlayerConfig::max)
-          cv = std::min(vec[0], vec[1]); // optimistic
-        auto value = /* negamax*2 */ (cv + softalpha*vec[2]);
+        }
+        auto value = /* negamax*2 */ take_value(values[/* care here! */ index_offset + i]);
         // the final value consists of logits + transformQ((value-of-depth1 + value-of-depth2)/2.0);
-        get<0>(root_children[offset + i]) += transformQ(value, c_visit) * depth_weight;
+        root_gumbel_value(offset + i) += transformQ(value, c_visit) * depth_weight;
       }
       auto best = std::max_element(&root_children[offset], &root_children[offset+second_width]);
       _decision[g] = get<1>(*best);

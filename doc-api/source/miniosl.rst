@@ -31,9 +31,7 @@ see also :py:class:`MiniRecord` and :py:class:`RecordSet`
 Visualization
 -------------------
 		  
-.. autofunction:: miniosl.state_to_svg
-
-.. autofunction:: miniosl.state_to_png
+.. autofunction:: miniosl.state_to_img
 
 
 Use external engines

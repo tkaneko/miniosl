@@ -6,28 +6,24 @@ def test_draw_basestate():
     r = miniosl.usi_record('startpos moves 7g7f')
     t = r.initial_state
     assert isinstance(t, miniosl.BaseState)
-    assert t.to_png()
-    assert t.to_png(id=3)
-    assert t.to_png(plane=np.zeros((9, 9)))
+    assert t.to_img()
+    assert t.to_img(id=3)
+    assert t.to_img(plane=np.zeros((9, 9)))
 
 
 def test_draw_state():
     board = miniosl.State()
-    svg = board.to_svg()
-    assert svg
-    png = board.to_png()
-    assert png
+    img = board.to_img()
+    assert img
 
 
 def test_draw_after_make_move():
     board = miniosl.State()
     m7g7f = board.to_move('7g7f')
     board.make_move(m7g7f)
-    svg = board.to_svg(last_to=m7g7f.dst)
-    assert svg
+    img = board.to_img(last_to=m7g7f.dst)
+    assert img
     board.make_move('-3334FU')
-    svg = board.to_svg(last_to=miniosl.Square(3, 4))
-    svg = board.to_svg(decorate=True)
-    assert svg
-    png = board.to_png(decorate=True)
-    assert png
+    img = board.to_img(last_to=miniosl.Square(3, 4))
+    img = board.to_img(decorate=True)
+    assert img
