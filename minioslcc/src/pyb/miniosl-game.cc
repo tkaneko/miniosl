@@ -112,7 +112,8 @@ void pyosl::init_game(py::module_& m) {
     .def("export_heuristic_feature16", &pyosl::export_heuristic_feature16)
     .def_static("from_record", &osl::GameManager::from_record)
     .def("__copy__",  [](const osl::GameManager& g) { return osl::GameManager(g);})
-    .def("__deepcopy__",  [](const osl::GameManager& g) { return osl::GameManager(g);})
+    .def("__deepcopy__",  [](const osl::GameManager& g, py::dict) { return osl::GameManager(g);},
+         "memo"_a)
     ;
   py::class_<osl::ParallelGameManager>(m, "ParallelGameManager", py::dynamic_attr())
     .def(py::init<int,std::optional<osl::GameConfig>>(), "N"_a, "config"_a=std::nullopt)
@@ -198,7 +199,8 @@ void pyosl::init_game(py::module_& m) {
     ;
 
   // function
-  m.def("transformQ", &osl::FlatGumbelPlayer::transformQ_formula, "q_by_nn"_a, "cvisit"_a=50.0, "maxnb"_a=1);
+  m.def("transformQ", &osl::FlatGumbelPlayer::transformQ_formula,
+        "q_by_nn"_a, "cvisit"_a=50.0, "maxnb"_a=1, "cscale"_a=1.0);
 
   py::bind_vector<std::vector<osl::GameManager>>(m, "GameManagerVector");
 }

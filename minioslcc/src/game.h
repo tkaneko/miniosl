@@ -105,7 +105,7 @@ namespace osl {
 
   struct GumbelPlayerConfig {
     int root_width=8, second_width=0;
-    float noise_scale=1.0;
+    float noise_scale=1.0, cscale=1.0;
     int greedy_after=999;
     float softalpha=0.0;
     int value_mix = 0;
@@ -140,14 +140,13 @@ namespace osl {
     std::string name() const override;
 
     /** transform nnQ in [-1,1] to > 0 following Gumbel MuZero paper */
-    static float transformQ_formula(float nnQ, float cvisit, float maxnb) {
+    static float transformQ_formula(float nnQ, float cvisit, float maxnb, float cscale=1.0) {
       auto Q = nnQ/2.0 + 0.5;
-      // const auto cscale=1.0;
-      return (cvisit + maxnb) * Q;
+      return (cvisit + maxnb) * cscale * Q;
     }
     float transformQ(float nnQ, float cvisit=50.0) const {
       auto maxnb = (second_width > 0) ? 2.0 : 1.0;
-      return transformQ_formula(nnQ, cvisit, maxnb);
+      return transformQ_formula(nnQ, cvisit, maxnb, cscale);
     }
     float& root_gumbel_value(int idx) { return get<0>(root_children[idx]); } 
     Move& root_move(int idx) { return get<1>(root_children[idx]); } 

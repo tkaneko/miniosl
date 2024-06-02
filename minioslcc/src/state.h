@@ -134,12 +134,17 @@ namespace osl
     // ----------------------------------------------------------------------
     // 2. 駒に関する情報
     // ----------------------------------------------------------------------
+    /** @internal return the furthest square of piece id num for direction d. */
     Square pieceReach(Direction d, int num) const {
       return effects.long_piece_reach.get(d,num);
     }
-    /** return the furthest square of piece p for direction d. */
-    Square pieceReach(Direction d, Piece p) const  {
-      return pieceReach(d, p.id());
+    /** return the furthest square of piece p for direction d.
+     * i.e., assert(is_base8(d) && is_long_piece_id(piece.id()));
+     * @param piece must have long move
+     * @param dir must be consistent with p's move
+     */
+    Square pieceReach(Direction black_dir, Piece piece) const  {
+      return pieceReach(black_dir, piece.id());
     }
     Square kingVisibilityBlackView(Player p, Direction d) const {
       return Square::makeDirect(king_visibility[p][d]);
@@ -219,9 +224,8 @@ namespace osl
     // ----------------------------------------------------------------------
     // 3.1 集合を返す
     // ----------------------------------------------------------------------
-    template <Ptype PTYPE>
-    mask_t ptypeEffectAt(Player P, Square target) const {
-      return effectAt(target).selectBit<PTYPE>() & piecesOnBoard(P).to_ullong();
+    mask_t covering_pieces(Player P, Square target, Ptype ptype) const {
+      return effectAt(target).selectBit(ptype) & piecesOnBoard(P).to_ullong();
     }
     template <Ptype PTYPE> const mask_t longEffectAt(Square target) const {
       return effectAt(target).selectLong<PTYPE>() >> 8;

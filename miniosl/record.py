@@ -7,11 +7,6 @@ def minirecord_replay(self: miniosl.MiniRecord, n: int) -> miniosl.State:
     """return state after n-th move
 
     :param n: number of moves from initial state or the last state if negative
-
-    >>> record = miniosl.usi_record('startpos moves 7g7f')
-    >>> s = record.replay(-1)
-    >>> s.piece_at(miniosl.Square(7, 6)).ptype == miniosl.pawn
-    True
     """
     if n < 0:
         n = len(self.moves) + n + 1

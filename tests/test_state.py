@@ -31,6 +31,8 @@ def test_make_move():
     board.make_move('7g7f')
     copied = miniosl.State(board)
     copied2 = copy.copy(board)
+    copied3 = copy.deepcopy(board)
+    assert copied2 == copied3
     assert board.turn() == miniosl.white
     assert board.to_usi() == copied.to_usi()
     assert board.to_usi() == copied2.to_usi()
@@ -39,6 +41,9 @@ def test_make_move():
     assert board.turn() == miniosl.black
     assert board.to_usi() != copied.to_usi()
     assert board.to_usi() != copied2.to_usi()
+    assert copied.turn() == miniosl.white
+    assert copied2.turn() == miniosl.white
+    assert copied2 == copied3
     board.make_move('+8822UM')
     assert board.turn() == miniosl.white
     assert board.count_hand(miniosl.black, miniosl.pawn) == 0

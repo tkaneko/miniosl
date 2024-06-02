@@ -37,12 +37,16 @@ State
     :members:
     :undoc-members:
 
+Game record
+--------------
+
 .. autoclass:: miniosl.MiniRecord
     :members:
     :undoc-members:
 
-Game record
---------------
+.. autoclass:: miniosl.SubRecord
+    :members:
+    :undoc-members:
 
 .. autoclass:: miniosl.GameResult
     :members:

@@ -65,16 +65,7 @@ void pyosl::init_state_np(py::module_& m) {
   // define the base class prior to the main state class
   typedef osl::BaseState base_t;
   py::class_<base_t>(m, "BaseState", py::dynamic_attr(),
-                     "parent of :py:class:`State`.   Please use `State` for usual cases.\n\n"
-                     ">>> state = miniosl.State()\n"
-                     ">>> state.turn() == miniosl.black\n"
-                     "True\n"
-                     ">>> state.piece_at(miniosl.Square(5, 9)).ptype == miniosl.king\n"
-                     "True\n"
-                     ">>> state.king_square(miniosl.white) == miniosl.Square(5, 1)\n"
-                     "True\n"
-                     ">>> state.count_hand(miniosl.black, miniosl.pawn)\n"
-                     "0\n"
+                     "parent of :py:class:`State`.   Please use `State` for usual cases.\n"
                      )
     .def("turn", &base_t::turn, "player to move")
     .def("oturn", [](const base_t& s){ return osl::alt(s.turn()); }, "opponent side to move")
@@ -134,12 +125,25 @@ void pyosl::init_state_np(py::module_& m) {
     .def(py::self == py::self)
     .def(py::self != py::self)
     .def("__copy__",  [](const base_t& s) { return base_t(s);})
-    .def("__deepcopy__",  [](const base_t& s) { return base_t(s);})
+    .def("__deepcopy__",  [](const base_t& s, py::dict) { return base_t(s);}, "memo"_a)
     ;
   // state
   typedef osl::EffectState state_t;
   py::class_<state_t, base_t>(m, "State", py::dynamic_attr(),
-                              "shogi state = board position + pieces in hand (mochigoma)")
+                              "primary class of shogi state\n\n"
+                              "functions: \n\n"
+                              "- main: board position + pieces in hand (mochigoma)\n"
+                              "- additional: covering pieces of each square, pins, etc\n\n"
+                              ">>> state = miniosl.State()\n"
+                              ">>> state.turn() == miniosl.black\n"
+                              "True\n"
+                              ">>> state.piece_at(miniosl.Square(5, 9)).ptype == miniosl.king\n"
+                              "True\n"
+                              ">>> state.king_square(miniosl.white) == miniosl.Square(5, 1)\n"
+                              "True\n"
+                              ">>> state.count_hand(miniosl.black, miniosl.pawn)\n"
+                              "0\n"
+                              )
     .def(py::init())
     .def(py::init<const state_t&>())
     .def(py::init<const osl::BaseState&>())
@@ -192,10 +196,70 @@ void pyosl::init_state_np(py::module_& m) {
          "3\n"
          )
     .def("pieces_cover",
-         [](const state_t& s, osl::Player P, osl::Square target) {
-           return (s.piecesOnBoard(P)&s.effectAt(target)).to_ullong();
+         [](const state_t& s, osl::Player P, osl::Square target,
+            std::optional<osl::Ptype> ptype, bool strict) {
+           auto all = (s.piecesOnBoard(P)&s.effectAt(target)).to_ullong();
+           if (ptype) {
+             all &= piece_id_set(*ptype);
+             if (strict) {
+               auto promoted = s.promotedPieces().to_ullong();
+               if (is_basic(*ptype))
+                 all &= ~promoted;
+               else
+                 all &= promoted;
+             }
+           }
+           return all;
          },
-         "color"_a, "square"_a, "the bitset of piece-ids reachable to given square")
+         "color"_a, "square"_a, "ptype"_a=std::nullopt, "strict_promotion"_a=false,
+         "the bitset of piece-ids covering (reachable to) given square\n\n"
+         ">>> s = miniosl.State()\n"
+         ">>> pieces = s.pieces_cover(miniosl.black, miniosl.Square(5, 8))\n"
+         ">>> bin(pieces).count('1')\n"
+         "4\n"
+         ">>> pieces = s.pieces_cover(miniosl.black, miniosl.Square(5, 8), miniosl.gold)\n"
+         ">>> bin(pieces).count('1')\n"
+         "2\n"
+         )
+    .def("pieces_on_board",
+         [](const state_t& s, osl::Player P) { return s.piecesOnBoard(P).to_ullong(); },
+         "color"_a, "the bitset of piece-ids on board (not captured) of color\n\n"
+         ">>> s = miniosl.State()\n"
+         ">>> bin(s.pieces_on_board(miniosl.black)).count('1')\n"
+         "20\n"
+         )
+    .def("pieces_promoted",
+         [](const state_t& s) { return s.promotedPieces().to_ullong(); },
+         "the bitset of promoted piece-ids\n\n"
+         ">>> s = miniosl.State()\n"
+         ">>> s.pieces_promoted()\n"
+         "0\n"
+         )
+    .def("long_piece_reach",
+         [](const state_t& state, osl::Piece piece) {
+           std::vector<std::pair<osl::Direction,osl::Square>> ret;
+           auto color = piece.owner();
+           if (piece.ptype() == osl::LANCE)
+             ret.emplace_back(U, state.pieceReach(change_view(color, U), piece));
+           else if (piece.ptype() == osl::BISHOP || piece.ptype() == osl::PBISHOP)
+             for (auto d: {osl::UL, osl::UR, osl::DL, osl::DR})
+               ret.emplace_back(d, state.pieceReach(change_view(color, d), piece));
+           else if (piece.ptype() == osl::ROOK || piece.ptype() == osl::PROOK)
+             for (auto d: {osl::U, osl::D, osl::L, osl::R})
+               ret.emplace_back(d, state.pieceReach(change_view(color, d), piece));
+           for (auto& e: ret)
+             if (! e.second.isOnBoard())
+               e.second -= to_offset(color, e.first);
+           return ret;
+         },
+         "inspect furthest square reachable by long move of piece\n\n"
+         ">>> s = miniosl.State()\n"
+         ">>> s.long_piece_reach(s.piece_at(miniosl.Square(1, 9)))\n"
+         "[(<Direction.U: 1>, <Square '1g'>)]\n"
+         )
+    .def("pinned",
+         [](const state_t& s, osl::Player king) { return s.pin(king).to_ullong(); },
+         "color"_a, "the bitset of pinned piece-ids of color")
     .def("in_check", py::overload_cast<>(&state_t::inCheck, py::const_))
     .def("in_checkmate", &state_t::inCheckmate)
     .def("in_no_legalmoves", &state_t::inNoLegalMoves)
@@ -218,12 +282,13 @@ void pyosl::init_state_np(py::module_& m) {
          ":meta private: uncompress move from 12bits uint generated by :py:meth:`encode_move`")
     .def("try_checkmate_1ply", &state_t::tryCheckmate1ply, "try to find a checkmate move")
     .def("__copy__",  [](const state_t& s) { return state_t(s);})
-    .def("__deepcopy__",  [](const state_t& s) { return state_t(s);})
+    .def("__deepcopy__",  [](const state_t& s, py::dict) { return state_t(s);}, "memo"_a)
     .def("to_np_state_feature", &pyosl::to_np_state_feature, "flipped"_a=false, 
          "a subset of features without history information")
     ;
 
-  py::class_<osl::SubRecord>(m, "SubRecord", py::dynamic_attr(), "subset of MiniRecord")
+  py::class_<osl::SubRecord>(m, "SubRecord", py::dynamic_attr(),
+                             "subset of MiniRecord, suitable when initial state is known")
     .def(py::init<const MiniRecord&>())
     .def_readonly("moves", &osl::SubRecord::moves, "list of :py:class:`Move` s")
     .def_readonly("result", &osl::SubRecord::result, ":py:class:`GameResult`")

@@ -871,7 +871,7 @@ namespace osl
 	if(!pos.isOnBoard()) continue;
 	Piece p=state.pieceAt(pos);
 	if(!p.canMoveOn<P>()) continue;
-	mask_t mask=state.ptypeEffectAt<KNIGHT>(P, pos);
+	mask_t mask=state.covering_pieces(P, pos, KNIGHT);
 	mask &= ~state.promotedPieces().to_ullong();
 	// pinnedなknightは動けない
 	mask &= ~state.pinOrOpen(P).to_ullong();

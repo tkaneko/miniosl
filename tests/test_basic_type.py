@@ -4,8 +4,8 @@ import copy
 
 def test_color():
     assert miniosl.black != miniosl.white
-    assert miniosl.black.alt() == miniosl.white
-    assert miniosl.black == miniosl.white.alt()
+    assert miniosl.black.alt == miniosl.white
+    assert miniosl.black == miniosl.white.alt
     assert miniosl.black.sign() == 1
     assert miniosl.white.sign() == -1
     assert miniosl.black.to_csa() == '+'
@@ -141,6 +141,6 @@ def test_move():
 
 
 def test_bitset():
-    mobility = miniosl.knight.direction_set()
-    one_hot = miniosl.UUR.one_hot()
+    mobility = miniosl.knight.direction_set
+    one_hot = miniosl.UUR.one_hot
     assert (mobility & one_hot) != 0

@@ -29,9 +29,10 @@ void pyosl::init_basic(py::module_& m) {
   py::enum_<osl::Player>(m, "Player", py::arithmetic())
     .value("black", osl::BLACK, "first player").value("white", osl::WHITE, "second player")
     .export_values()
-    .def("alt", py::overload_cast<osl::Player>(osl::alt),
-         "opponent or alternative player color\n\n"
-         ">>> miniosl.black.alt() == miniosl.white\nTrue")
+    .def_property_readonly("alt", py::overload_cast<osl::Player>(osl::alt),
+                           "opponent or alternative player color\n\n"
+                           ":type: :py:class:`minioslcc.Player`\n\n"
+                           ">>> miniosl.black.alt == miniosl.white\nTrue")
     .def("sign", py::overload_cast<osl::Player>(osl::sign), "+1 for black or -1 for white")
     .def("to_csa", py::overload_cast<osl::Player>(&osl::to_csa))
     .def("win_result", &osl::win_result)
@@ -77,22 +78,44 @@ void pyosl::init_basic(py::module_& m) {
          )
     // `miniosl.pawn.name` -> ppawn
     // .def("to_en", [](osl::Ptype ptype) { return osl::ptype_en_names[idx(ptype)]; })
-    .def("count", [](osl::Ptype ptype) { return osl::ptype_piece_count(ptype); },
-         "number of pieces in the standard rule")
-    .def("has_long_move", &osl::ptype_has_long_move)
-    .def("one_hot", py::overload_cast<osl::Ptype>(&osl::one_hot))
-    .def("direction_set", [](osl::Ptype ptype) { return osl::ptype_move_direction[idx(ptype)]; },
-         "bitset of :py:class:`Direction` indicating legal moves\n\n"
-         ">>> miniosl.pawn.direction_set() == miniosl.U.one_hot()\n"
-         "True\n"
-         )
-    .def("move_type", [](osl::Ptype ptype) { return osl::ptype_move_type[idx(ptype)]; })
+    .def_property_readonly("count", [](osl::Ptype ptype) { return osl::ptype_piece_count(ptype); },
+                           "number of pieces in the standard rule")
+    .def_property_readonly("has_long_move", &osl::ptype_has_long_move, "True if lance, bishop, rook, pbishop, or prook\n\n"
+                           ":type: bool")
+    .def_property_readonly("one_hot", py::overload_cast<osl::Ptype>(&osl::one_hot),
+                           "building block for bitset\n\n"
+                           ":type: int")
+    .def_property_readonly("direction_set",
+                           [](osl::Ptype ptype) { return osl::ptype_move_direction[idx(ptype)]; },
+                           "bitset of :py:class:`Direction` indicating legal moves\n\n"
+                           ">>> miniosl.pawn.direction_set == miniosl.U.one_hot\n"
+                           "True\n"
+                           )
+    .def_property_readonly("move_type", [](osl::Ptype ptype) { return osl::ptype_move_type[idx(ptype)]; },
+                           "return gold if move type is equivalent\n\n"
+                           ":type: :py:class:`minioslcc.Ptype`\n\n"
+                           ">>> miniosl.pawn.move_type == miniosl.gold\n"
+                           "False\n"
+                           ">>> miniosl.ppawn.move_type == miniosl.gold\n"
+                           "True\n"
+                           )
+    .def_property_readonly("piece_id", [](osl::Ptype ptype) { return osl::ptype_piece_id[idx(ptype)]; },
+                           "range of piece id [0,39] assigned to the ptype\n\n"
+                           ">>> miniosl.rook.piece_id\n"
+                           "(38, 40)\n"
+                           )
+    .def_property_readonly("piece_id_set", &osl::piece_id_set, "bitset of piece_id\n\n"
+                           ">>> miniosl.rook.piece_id_set\n"
+                           "824633720832\n"
+                           ">>> miniosl.rook.piece_id_set == ((1<<38) | (1<<39))\n"
+                           "True\n"
+                           )
     ;
   py::enum_<osl::Direction>(m, "Direction", py::arithmetic(), "direction.\n\n"
-                            ">>> direction_set = miniosl.pawn.direction_set()\n"
+                            ">>> direction_set = miniosl.pawn.direction_set\n"
                             ">>> bin(direction_set)\n"
                             "'0b10'\n"
-                            ">>> (direction_set & miniosl.U.one_hot()) != 0\n"
+                            ">>> (direction_set & miniosl.U.one_hot) != 0\n"
                             "True\n"
                             )
     .value("UL", osl::UL, "up left").value("U",  osl::U).value("UR", osl::UR)
@@ -127,18 +150,24 @@ void pyosl::init_basic(py::module_& m) {
          ">>> miniosl.U.to_long() == miniosl.Long_U\n"
          "True\n"
          )
-    .def("inverse", &osl::inverse,
+    .def_property_readonly("inverse", &osl::inverse,
          "make inverse direction\n\n"
-         ">>> miniosl.UL.inverse() == miniosl.DR\n"
+         ">>> miniosl.UL.inverse == miniosl.DR\n"
          "True\n"
-         ">>> miniosl.Long_D.inverse() == miniosl.Long_U\n"
+         ">>> miniosl.Long_D.inverse == miniosl.Long_U\n"
          "True\n"
-         ">>> miniosl.UUL.inverse() == miniosl.UUL  # DDR is not defined\n"
+         ">>> miniosl.UUL.inverse == miniosl.UUL  # DDR is not defined\n"
          "True\n"
          )
-    .def("one_hot", py::overload_cast<osl::Direction>(&osl::one_hot))
-    .def("black_dx", &osl::black_dx)
-    .def("black_dy", &osl::black_dy)
+    .def_property_readonly("one_hot", py::overload_cast<osl::Direction>(&osl::one_hot),
+                           "building block for bitset\n\n"
+                           ":type: int")
+    .def_property_readonly("black_dx", &osl::black_dx,
+                           "delta x in black's view\n\n"
+                           ":type: int")
+    .def_property_readonly("black_dy", &osl::black_dy,
+                           "delta y in black's view\n\n"
+                           ":type: int")
     .def("to_offset", [](osl::Direction dir, osl::Player c){ return osl::to_offset(c, dir); },
          "color"_a=osl::BLACK,
          "obtain move offset for color\n\n"
@@ -246,7 +275,7 @@ void pyosl::init_basic(py::module_& m) {
     .def("is_normal", &osl::Move::isNormal)
     .def("is_capture", &osl::Move::isCapture)
     .def_property_readonly("color", &osl::Move::player,
-                           ":py:class:`Player` after move")
+                           ":py:class:`Player` of move")
     .def("rotate180", &osl::Move::rotate180)
     .def("to_usi", [](osl::Move m) { return osl::to_usi(m); })
     .def("to_csa", [](osl::Move m) { return osl::to_csa(m); })
@@ -281,7 +310,8 @@ void pyosl::init_basic(py::module_& m) {
     .def("equals", &osl::Piece::equalPtyeO,
          "equality w.r.t. PtypeO (i.e., ignoring piece id or location)"
          )
-    .def_property_readonly("id", &osl::Piece::id)
+    .def_property_readonly("id", &osl::Piece::id, "id in [0,39]\n\n"
+                           ":type: int")
     .def("__repr__", [](osl::Piece p) {
       std::stringstream ss;
       ss << p;
@@ -291,7 +321,16 @@ void pyosl::init_basic(py::module_& m) {
     .def(py::self != py::self)
     ;
   
-  py::class_<osl::MiniRecord>(m, "MiniRecord", py::dynamic_attr(), "a game record")
+  py::class_<osl::MiniRecord>(m, "MiniRecord", py::dynamic_attr(), "a game record\n\n"
+                              ">>> record = miniosl.usi_record('startpos moves 7g7f')\n"
+                              ">>> record.move_size()\n"
+                              "1\n"
+                              ">>> record.moves[0].to_usi()\n"
+                              "'7g7f'\n"
+                              ">>> s = record.replay(-1)\n"
+                              ">>> s.piece_at(miniosl.Square(7, 6)).ptype == miniosl.pawn\n"
+                              "True\n"
+                              )
     .def(py::init<>())
     .def(py::init<const osl::MiniRecord&>())
     .def_readonly("initial_state", &osl::MiniRecord::initial_state)
@@ -327,7 +366,8 @@ void pyosl::init_basic(py::module_& m) {
     .def(py::self == py::self)
     .def(py::self != py::self)
     .def("__copy__",  [](const osl::MiniRecord& r) { return osl::MiniRecord(r);})
-    .def("__deepcopy__",  [](const osl::MiniRecord& r) { return osl::MiniRecord(r);})
+    .def("__deepcopy__",  [](const osl::MiniRecord& r, py::dict) { return osl::MiniRecord(r);},
+         "memo"_a)
     ;
   
   // minor classes 

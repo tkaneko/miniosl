@@ -330,7 +330,9 @@ namespace osl
     bool any() const { return ! none(); }
 
     /** unpromote(PTYPE) の駒のbit だけ取り出す */
-    template <Ptype PTYPE> mask_t selectBit() const { return mask & piece_id_set(PTYPE); }
+    template <Ptype PTYPE>
+    mask_t selectBit() const { return mask & piece_id_set(PTYPE); }
+    mask_t selectBit(Ptype ptype) const { return mask & piece_id_set(ptype); }
     /** unpromote(PTYPE) の駒のbit を消す */
     template <Ptype PTYPE> void clearBit() { mask &= ~piece_id_set(PTYPE); }
     /** unpromote(PTYPE) の駒のbit を立てる */

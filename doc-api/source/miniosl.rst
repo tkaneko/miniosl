@@ -33,6 +33,9 @@ Visualization
 		  
 .. autofunction:: miniosl.state_to_img
 
+.. autoclass:: miniosl.ShogiFig
+    :members:
+
 
 Use external engines
 ---------------------

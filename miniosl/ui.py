@@ -517,7 +517,7 @@ class UI:
             v = -v[0].item()       # negamax
             if terminal == miniosl.win_result(self.turn()):
                 v = 1.0
-            elif terminal == miniosl.win_result(self.turn().alt()):
+            elif terminal == miniosl.win_result(self.turn().alt):
                 v = -1.0
             elif terminal == miniosl.Draw:
                 v = 0

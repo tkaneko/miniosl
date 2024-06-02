@@ -204,7 +204,10 @@ def radius(cnt):
 
 
 class ShogiFig:
-    """data for drawing state"""
+    """data holding state and matplotlib objects
+
+    use `self.fig` for completed image.
+    """
 
     def __init__(self, state: miniosl.BaseState, last_move_ja: str = '',
                  move_number: int = 0, id: int = 4081):
@@ -388,6 +391,7 @@ class ShogiFig:
                   move_number: int = 0,
                   repeat_distance: int = 0,
                   repeat_count: int = 0, flipped: bool = False):
+        # for internal use
         self.state = miniosl.State(state)
         self.last_move_ja = last_move_ja
         self.last_to = last_to
@@ -405,6 +409,7 @@ class ShogiFig:
         return changed
 
     def make_move(self, move: miniosl.Move | str):
+        """update board and figure"""
         changed = []
         if isinstance(move, str):
             move = self.state.to_move(move)
@@ -455,7 +460,7 @@ def state_to_img(state: miniosl.BaseState, *,
                  flip_if_white: bool = False,
                  id: int = 4081,
                  ) -> matplotlib.figure.Figure:
-    """make an illustration of state as matplotlib figure
+    """make :py:class:`ShogiFig` object including matplotlib figure as `.fig`
 
     :param state: state,
     :param decorate: highlight king location and piece covers for each color,
