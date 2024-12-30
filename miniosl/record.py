@@ -18,12 +18,12 @@ def minirecord_replay(self: miniosl.MiniRecord, n: int) -> miniosl.State:
     return s
 
 
-def subrecord_replay(self: miniosl.SubRecord, n: int) -> miniosl.State:
+def subrecord_replay(self: miniosl.SubRecord, n: int) -> miniosl.BaseState:
     """return state after n-th move
 
     :param n: number of moves from initial state or the last state if negative
 
-    >>> record = miniosl.usi_record('startpos moves 7g7f')
+    >>> record = miniosl.usi_sub_record('startpos moves 7g7f')
     >>> s = record.replay(-1)
     >>> s.piece_at(miniosl.Square(7, 6)).ptype == miniosl.pawn
     True
@@ -58,22 +58,6 @@ def sfen_file_to_np_array(filename: str) -> (np.ndarray, int):
             data += record.pack_record()
             record_count += 1
     return np.array(data, dtype=np.uint64), record_count
-
-
-def sfen_file_to_training_np_array(filename: str, *,
-                                   with_history: bool = True,
-                                   ignore_in_game: bool = True) -> np.ndarray:
-    """[obsolete] return positionwise training data in sfen file"""
-    data = []
-    with open(filename, 'r') as f:
-        for line in f:
-            line = line.strip()
-            record = miniosl.usi_record(line)
-            if ignore_in_game and record.result == miniosl.InGame:
-                continue
-            data += record.export_all320() \
-                if with_history else record.export_all()
-    return np.array(data, dtype=np.uint64)
 
 
 def np_array_to_sfen_file(data: np.ndarray, filename: str) -> int:

@@ -2,21 +2,23 @@
 import miniosl
 import miniosl.network
 import numpy as np
-import argparse
-import logging
+import click
+import tqdm
+import tqdm.contrib.logging
+import recordclass
 import torch
-import json
-import sys
+import logging
+import collections
 import os
 import os.path
 import csv
 import datetime
-import tqdm
-import recordclass
+import json
 
 
 loader_class = torch.utils.data.DataLoader
 deterministic_mode = "MINIOSL_DETERMINISTIC" in os.environ
+global_config = {}
 
 
 def np_mse(a, b):
@@ -39,7 +41,7 @@ LossStats = recordclass.recordclass(
 
 
 def make_loss_stats():
-    return LossStats(*np.zeros(len(LossStats())).tolist())
+    return LossStats(*np.zeros(len(LossStats())))
 
 
 def record_vloss(validation_csv, name, vloss):
@@ -134,7 +136,14 @@ BatchOutput = recordclass.recordclass(
     'BatchOutput', ('move', 'value', 'aux'))
 
 
-def validate(model, loader, cfg, *, pbar=None, name=None, main=False):
+ValidationCfg = collections.namedtuple(
+    'ValidationCfg',
+    ('device', 'validation_size', 'validation_csv')
+)
+
+
+def do_validate(model, loader, cfg: ValidationCfg,
+                *, pbar=None, name=None, main=False):
     import torch.nn.functional as F
     if loader is None:
         return
@@ -192,7 +201,7 @@ def validate(model, loader, cfg, *, pbar=None, name=None, main=False):
         update_validation_pbar(pbar, vloss, main)
     else:
         log_vloss(vloss)
-    record_vloss(cfg.validation_csv, name or cfg.loadfile, vloss)
+    record_vloss(cfg.validation_csv, name, vloss)
     return vloss
 
 
@@ -221,17 +230,25 @@ def save_model(model, filename, is_single):
     torch.save(learned, filename)
 
 
-def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
+TrainingCfg = collections.namedtuple(
+    'TrainingCfg', ValidationCfg._fields + (
+        'trainfiles', 'savefile',
+        'batch_size', 'step_limit', 'epoch_limit', 'report_interval',
+        'policy_commit', 'ablate_aux_loss',
+        'validation_data', 'validation_interval',
+     )
+)
+
+
+def do_train(rank, world_size, model, cfg: TrainingCfg, loader_class,
+             deterministic_mode):
     device_is_cuda = cfg.device.startswith('cuda')
-    """training.  may be spawned by multiprocessing if world_size > 0"""
+    """do training.  may be spawned by multiprocessing if world_size > 0"""
     import torch
     torch.set_float32_matmul_precision('high')
-    # 2.0
-    import torch._dynamo
-    if hasattr(torch._dynamo.config, 'log_level'):
-        torch._dynamo.config.log_level = logging.WARNING
     from torch.utils.tensorboard import SummaryWriter
     primary = True
+    logging.info(f'{world_size=}')
     if world_size > 0:
         from torch.nn.parallel import DistributedDataParallel as DDP
         ddp_setup(rank, world_size)
@@ -239,11 +256,11 @@ def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
     if primary:
         logging.info('start training')
         with open(f'{cfg.savefile}.json', 'w') as file:
-            json.dump(cfg.__dict__, file)
-        msg = [os.path.basename(_) for _ in cfg.train] \
-            if isinstance(cfg.train, list) else cfg.train
+            json.dump((cfg._asdict() | model.config), file, indent=4)
+        msg = [os.path.basename(_) for _ in cfg.trainfiles] \
+            if isinstance(cfg.trainfiles, tuple) else cfg.trainfiles
         logging.info(f'loading {msg}')
-    dataset = miniosl.load_torch_dataset(cfg.train)
+    dataset = miniosl.load_torch_dataset(list(cfg.trainfiles))
 
     centropy = torch.nn.CrossEntropyLoss()
     mse = torch.nn.MSELoss()
@@ -262,9 +279,9 @@ def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
         collate_fn=lambda indices: dataset.collate(indices),
         shuffle=shuffle, sampler=sampler, num_workers=0)
     v_dataset, validate_loader = None, None
-    if cfg.validate_data:
-        logging.info(f'loading {cfg.validate_data} for validation')
-        v_dataset = miniosl.load_torch_dataset(cfg.validate_data)
+    if cfg.validation_data:
+        logging.info(f'loading {cfg.validation_data} for validation')
+        v_dataset = miniosl.load_torch_dataset(cfg.validation_data)
         if world_size > 0:
             sampler = torch.utils.data.distributed.DistributedSampler(
                 v_dataset)
@@ -295,8 +312,8 @@ def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
                        disable=not primary) as pbar:
             if validate_loader and primary:
                 vname = f'{cfg.savefile}-{epoch}-0'
-                vloss = validate(model, validate_loader,
-                                 cfg, pbar=pbar, name=vname)
+                vloss = do_validate(model, validate_loader,
+                                    cfg, pbar=pbar, name=vname)
                 send_vloss(writer, vloss,
                            cumulative_step=epoch*steps_per_epoch)
             rloss = make_loss_stats()
@@ -344,7 +361,9 @@ def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
                         tdtarget = -succ_value[:, 0].flatten().detach()
                         tdtarget2 = -succ_value[:, 1].flatten().detach()
                         softtarget = -succ_value[:, 2].flatten().detach()
-                        logp = torch.nn.functional.log_softmax(out.move, dim=-1)
+                        logp = torch.nn.functional.log_softmax(
+                            out.move, dim=-1
+                        )
                         logp = logp.gather(1, batch.move.unsqueeze(-1)
                                            ).squeeze(-1)
                         logp = torch.minimum(-logp,
@@ -367,7 +386,8 @@ def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
                 scaler.update()
 
                 add_to_loss_stat(
-                    rloss, move_loss.item(), value_loss.item(), aux_loss.item(),
+                    rloss,
+                    move_loss.item(), value_loss.item(), aux_loss.item(),
                     td1_loss.item(), td1_loss2, soft=soft_loss.item()
                 )
                 if at_the_end_of_interval(i, cfg.report_interval) and primary:
@@ -380,8 +400,8 @@ def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
                    and at_the_end_of_interval(i, cfg.validation_interval):
                     if validate_loader:
                         vname = f'{cfg.savefile}-{epoch}-{i+1}'
-                        vloss = validate(model, validate_loader, cfg,
-                                         pbar=pbar, name=vname)
+                        vloss = do_validate(model, validate_loader, cfg,
+                                            pbar=pbar, name=vname)
                         send_vloss(writer, vloss,
                                    cumulative_step=epoch*steps_per_epoch+i)
                     save_model(model, f'interim-{cfg.savefile}.pt',
@@ -399,135 +419,196 @@ def train(rank, world_size, model, cfg, loader_class, deterministic_mode):
         torch.distributed.destroy_process_group()
 
 
-def main():
+@click.group(chain=True,
+             epilog=f'The script is a part of miniosl (r{miniosl.version()}).')
+@click.option('--log-level',
+              type=click.Choice(['debug', 'verbose', 'warning', 'quiet'],
+                                case_sensitive=False))
+def main(log_level):
+    """manage neural networks for miniosl
+
+    \b
+    Commands can be chainned in a squences, e.g.,
+    - shogimodel build (network options) train (training options)
+    - shogimodel load (filename) train (training options)
+    - shogimodel load (filename) validate (validatioon options)
+    - shogimodel load (filename) export (filename)
+    """
     os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
     import torch._dynamo
     if hasattr(torch._dynamo.config, 'log_level'):
         torch._dynamo.config.log_level = logging.WARNING
-    parser = argparse.ArgumentParser(
-        description="training with extended features",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter
-    )
-    group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument("--train", nargs='*',
-                       help="npz or sfen filename for training")
-    group.add_argument("--validate", help="only validation",
-                       action='store_true')
-    group.add_argument("--export",
-                       help="filename to export the model, extension"
-                       " should be .onnx/.ts (tensorrt)/.pts (torch script)")
-    parser.add_argument("--savefile", help="filename of output")
-    parser.add_argument("--loadfile", help="load filename", default='')
-    parser.add_argument("--no-load-strict", action='store_true')
-    parser.add_argument("--device", help="torch device", default="cuda:0")
-    grp_nn = parser.add_argument_group("nn options")
-    grp_nn.add_argument("--n-block", help="#residual block",
-                        type=int, default=9)
-    grp_nn.add_argument("--n-channel", help="#channel", type=int, default=256)
-    grp_nn.add_argument("--broadcast-every",
-                        help="insert broadcast periodically",
-                        type=int, default=3)
-    grp_nn.add_argument("--compiled", action='store_true')
-    grp_nn.add_argument("--remove-aux-head", action='store_true')
-    grp_l = parser.add_argument_group("training options")
-    grp_l.add_argument("--policy-commit", type=float,
-                       help="smoothing in cross entropy loss if <1",
-                       default=127/128)
-    grp_l.add_argument("--ablate-aux-loss", action='store_true')
-    grp_l.add_argument("--batch-size", type=int,
-                       help="batch size",
-                       default=1024)
-    grp_l.add_argument("--epoch-limit", help="maximum epoch",
-                       type=int, default=2)
-    grp_l.add_argument("--step-limit", help="maximum #update, 0 for inf",
-                       type=int, default=100000)
-    grp_l.add_argument("--report-interval", type=int, default=200)
-    grp_l.add_argument("--validation-interval", type=int, default=1000)
-    parser.add_argument("--validate-data",
-                        help="file for validation", default="")
-    parser.add_argument("--validation-csv",
-                        help="file to append validation result",
-                        default="validation.csv")
-    parser.add_argument("--validation-size", type=int,
-                        help="#batch", default=100)
-    parser.add_argument("--quiet", action='store_true')
+
+    level = logging.INFO
+    match log_level:
+        case 'debug': level = logging.DEBUG
+        case 'verbose': level = logging.INFO
+        case 'warning': level = logging.WARNING
+        case 'quiet': level = logging.CRITICAL
+    global_config['log_level'] = log_level
+    miniosl.install_coloredlogs(level=level)
+    global_config['logger'] = logging.getLogger(__name__)
 
     if deterministic_mode:
         torch.manual_seed(0)
         np.random.seed(0)
         # random.seed(0)
 
-    args = parser.parse_args()
-    miniosl.install_coloredlogs(level=('ERROR' if args.quiet else 'INFO'))
-    logger = logging.getLogger(__name__)
 
-    if args.validate_data and not os.path.exists(args.validate_data):
-        raise ValueError(f'file not found {args.validate_data}')
-
-    if args.train and not args.savefile:
-        args.savefile = (f'model-blk{args.n_block}-ch{args.n_channel}'
-                         + f'{"-noaux" if args.ablate_aux_loss else ""}')
-
-    network_cfg = {'in_channels': len(miniosl.channel_id),
-                   'channels': args.n_channel, 'out_channels': 27,
-                   'auxout_channels': miniosl.aux_unit//81,
-                   'num_blocks': args.n_block,
-                   'broadcast_every': args.broadcast_every}
-    model = miniosl.StandardNetwork(**network_cfg).to(args.device)
-    if args.loadfile:
-        logging.info(f'load {args.loadfile}')
-        model = miniosl.inference.load(args.loadfile, args.device, network_cfg,
-                                       compiled=args.compiled,
-                                       strict=not args.no_load_strict,
-                                       remove_aux_head=args.remove_aux_head)
-        if not args.validate:
-            if not isinstance(model, miniosl.inference.TorchInfer):
-                raise ValueError(f'{type(model)} is not trainable/exportable')
-            model = model.model
-
-    if args.train:
-        params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-        logging.info(f'#trainable parameters = {params}')
-        if args.device.startswith('cuda') and torch.cuda.device_count() > 1 \
-           and not deterministic_mode:
-            world_size = torch.cuda.device_count()
-            port = 29500
-            os.environ["MASTER_ADDR"] = "localhost"
-            os.environ["MASTER_PORT"] = str(29500)
-            logger.info(f'run ddp {world_size} port {port}')
-            torch.multiprocessing.spawn(
-                train,
-                args=(world_size, model, args, loader_class, False),
-                nprocs=world_size,
-                join=True)
-        else:
-            train(0, 0, model, args, loader_class, deterministic_mode)
+@main.command()
+@click.argument('data', nargs=-1)
+@click.option("--output", help="output path", default='')
+@click.option('--device', default='cuda:0', help='device to place')
+@click.option("--batch-size", type=int,
+              help="batch size",
+              default=1024)
+@click.option("--epoch-limit", help="maximum epoch",
+              type=int, default=2)
+@click.option("--step-limit", help="maximum #update, 0 for inf",
+              type=int, default=100000)
+@click.option("--policy-commit", type=float,
+              help="smoothing in cross entropy loss if <1",
+              default=127/128)
+@click.option("--ablate-aux-loss/--no-ablate-aux-loss", default=False)
+@click.option("--report-interval", type=int, default=200)
+@click.option("--validation-data", default='')
+@click.option("--validation-interval", type=int, default=1000)
+@click.option("--validation-step", type=int, default=100)
+@click.option('--csv', default="validation.csv",
+              help="file to append validation result")
+def train(data, output, device, batch_size, epoch_limit, step_limit,
+          policy_commit, ablate_aux_loss,
+          report_interval,
+          validation_data, validation_step, validation_interval, csv):
+    """train a model (loaded or built in advance) with DATA (npz or sfen)"""
+    if 'torch_model' in global_config:
+        model = global_config['torch_model']
     else:
-        if not args.loadfile:
-            if args.export:
-                logger.warning('export without loading weights')
-            else:
-                parser.print_help(sys.stderr)
-                raise ValueError('need to load model for validation')
+        logging.warn('Please load or build networks in advance')
+        exit(1)
+    network_cfg = model.config
+    if not output:
+        output = (f'model-blk{network_cfg["num_blocks"]}'
+                  f'-ch{network_cfg["channels"]}'
+                  f'{"-noaux" if ablate_aux_loss else ""}')
 
-        if args.export:
-            miniosl.export_model(model, device=args.device,
-                                 filename=args.export,
-                                 quiet=args.quiet,
-                                 remove_aux_head=args.remove_aux_head)
-        elif args.validate:
-            if not args.validate_data:
-                raise ValueError('validate_data not specified')
-            v_dataset = miniosl.load_torch_dataset(args.validate_data)
-            v_loader = loader_class(
-                v_dataset, batch_size=args.batch_size,
-                shuffle=not deterministic_mode,
-                collate_fn=lambda indices: v_dataset.collate(indices),
-                num_workers=0)
-            logging.info(f'validation with {args.validate_data},'
-                         f' concurrency {miniosl.parallel_threads()}')
-            ret = validate(model, v_loader, args, main=True)
-            logging.debug(f'{ret=}')
+    params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    logging.info(f'#trainable parameters = {params}')
+    cfg = TrainingCfg(
+        device=device, trainfiles=data, savefile=output,
+        batch_size=batch_size, step_limit=step_limit, epoch_limit=epoch_limit,
+        report_interval=report_interval,
+        policy_commit=policy_commit, ablate_aux_loss=ablate_aux_loss,
+        validation_data=validation_data, validation_size=validation_step,
+        validation_csv=csv, validation_interval=validation_interval,
+     )
+
+    if device.startswith('cuda') and torch.cuda.device_count() > 1 \
+       and not deterministic_mode:
+        world_size = torch.cuda.device_count()
+        port = 29500
+        os.environ["MASTER_ADDR"] = "localhost"
+        os.environ["MASTER_PORT"] = str(29500)
+        global_config['logger'].info(f'run ddp {world_size} port {port}')
+        torch.multiprocessing.spawn(
+            do_train,
+            args=(world_size, model, cfg, loader_class, False),
+            nprocs=world_size,
+            join=True)
+    else:
+        do_train(0, 0, model, cfg, loader_class, deterministic_mode)
+    miniosl.export_model(model, device=device,
+                         filename=output + '.ptd',
+                         quiet=True, remove_aux_head=False)
+
+
+@main.command()
+@click.option("--n-block", help="#residual block",
+              type=int, default=9)
+@click.option("--n-channel", help="#channel", type=int, default=256)
+@click.option("--broadcast-every",
+              help="insert broadcast periodically",
+              type=int, default=3)
+@click.option('--device', default='cuda:0', help='device to place')
+def build(n_block, n_channel, broadcast_every, device):
+    network_cfg = {'in_channels': len(miniosl.channel_id),
+                   'channels': n_channel, 'out_channels': 27,
+                   'auxout_channels': miniosl.aux_unit//81,
+                   'num_blocks': n_block,
+                   'broadcast_every': broadcast_every}
+    model = miniosl.StandardNetwork(**network_cfg).to(device)
+    global_config['torch_model'] = model
+    global_config['network_cfg'] = model.config
+
+
+@main.command()
+@click.argument('model', type=click.Path(exists=True, dir_okay=False))
+@click.option('--model', type=click.Path(exists=True, dir_okay=False))
+@click.option('--device', default='cuda:0', help='device to load')
+@click.option('--load-strict/--no-load-strict', default=True)
+@click.option('--remove-aux-head/--no-remove-aux-head', default=False)
+def load(model, device, load_strict, remove_aux_head):
+    """load MODEL for subsequent commands"""
+    logging.info(f'loading {model}')
+    network_cfg = global_config.get('network_cfg', {})
+    model = miniosl.inference.load(model, device, network_cfg,
+                                   compiled=False,
+                                   strict=load_strict,
+                                   remove_aux_head=remove_aux_head)
+    global_config['model'] = model
+    if isinstance(model, miniosl.inference.TorchInfer):
+        global_config['torch_model'] = model.model
+
+
+@main.command()
+@click.argument('output', type=click.Path(exists=False, dir_okay=False))
+@click.option('--device', default='cuda:0',
+              help='not important except for tensorrt')
+@click.option('--remove-aux-head/--no-remove-aux-head', default=False)
+def export(output, device, remove_aux_head):
+    """export model to OUTPUT.
+    extension should be one of .onnx, .ts (tensorrt),
+    ' .pts (torch script), or .ptd (raw pytorch with dict)')
+    """
+    quiet = global_config['log_level'] == 'quit'
+    if 'torch_model' not in global_config:
+        logging.warn('please load model to export in advance')
+        exit(1)
+    model = global_config['torch_model']
+    miniosl.export_model(model, device=device,
+                         filename=output,
+                         quiet=quiet,
+                         remove_aux_head=remove_aux_head)
+
+
+@main.command()
+@click.argument('data', type=click.Path(exists=True, dir_okay=False))
+@click.option('--device', default='cuda:0', help='device to load')
+@click.option('--csv', default="validation.csv",
+              help="file to append validation result")
+@click.option("--batch-size", type=int, help="batch size", default=1024)
+@click.option('--step-limit', type=int, default=100,
+              help="validation size")
+def validate(data, device, csv, batch_size, step_limit):
+    """run (only) validation on DATA"""
+    v_dataset = miniosl.load_torch_dataset(data)
+    v_loader = loader_class(
+        v_dataset, batch_size=batch_size,
+        shuffle=not deterministic_mode,
+        collate_fn=lambda indices: v_dataset.collate(indices),
+        num_workers=0)
+
+    if 'model' not in global_config:
+        logging.warn('please load model to export in advance')
+        exit(1)
+    model = global_config['model']
+
+    logging.info(f'validation with {data},'
+                 f' concurrency {miniosl.parallel_threads()}')
+    cfg = ValidationCfg(device=device,
+                        validation_size=step_limit, validation_csv=csv)
+    ret = do_validate(model, v_loader, cfg, name='cli', main=True)
+    logging.debug(f'{ret=}')
 
 
 if __name__ == "__main__":

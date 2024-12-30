@@ -202,3 +202,24 @@ def test_analyze():
     if miniosl.has_pretrained_eval():
         shogi.load_eval()
         shogi.analyze()
+
+
+def test_checkmate():
+    mate1_sfen = 'sfen k8/9/P8/9/9/9/9/+P+P7/K8 b G2r2b3g4s4n4l15p 1'
+    shogi = miniosl.UI()
+    shogi.load_record(mate1_sfen)
+    assert not shogi.in_check()
+    assert not shogi.in_checkmate()
+    moves = shogi.genmove_check()
+    assert len(moves) == 4
+    csa_moves = [_.to_csa() for _ in moves]
+    assert '+9392TO' in csa_moves
+    assert '+0092KI' in csa_moves
+    shogi.make_move('+9392TO')
+    assert shogi.in_check()
+    assert not shogi.in_checkmate()
+    shogi.unmake_move()
+    shogi.make_move('+0092KI')
+    assert shogi.in_check()
+    assert shogi.in_checkmate()
+    shogi.unmake_move()

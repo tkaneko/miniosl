@@ -124,6 +124,7 @@ namespace osl {
                                   int32_t *policy_buf, float *value_buf, nn_input_element *aux_buf,
                                   nn_input_element *input2_buf,
                                   uint8_t *legalmove_buf,
+                                  uint16_t *sampled_id_buf,
                                   int decay=default_decay, TID tid=TID_ZERO) const;
 
     /** @internal make a state after the first `n` moves

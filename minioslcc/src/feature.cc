@@ -688,11 +688,13 @@ sample_feature_labels_to(int offset,
                          nn_input_element *input_buf,
                          int32_t *policy_buf, float *value_buf, nn_input_element *aux_buf,
                          nn_input_element *input2_buf,
-                         uint8_t *legalmove_buf,
+                         uint8_t *legalmove_buf, uint16_t *sampled_id_buf,
                          int decay, TID tid) const {
   if (shogi816k_id)
     decay = 0;
   int idx = weighted_sampling(moves.size(), decay, tid);
+  if (sampled_id_buf)
+    sampled_id_buf[offset] = idx;
   int move_label, value_label;
   MoveVector legal_moves;
   export_feature_labels(idx,

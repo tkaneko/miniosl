@@ -5,7 +5,6 @@ import numpy as np
 import logging
 import os
 import os.path
-from typing import Tuple
 
 
 def load_sfen_from_file(sfen, *,
@@ -131,11 +130,14 @@ class GameDataset(torch.utils.data.Dataset):
         aux_labels = np.zeros(N*miniosl.aux_unit, dtype=np.int8)
         legalmove_labels = np.zeros(N * miniosl.legalmove_bs_sz,
                                     dtype=np.uint8)
+        # sampled_ids = np.zeros(N, dtype=np.uint16)
         miniosl.collate_features(self.blocks, indices,
                                  inputs,
                                  policy_labels, value_labels, aux_labels,
                                  inputs2,
-                                 legalmove_labels)
+                                 legalmove_labels,
+                                 # sampled_ids
+                                 )
         # for offset, (p, s) in enumerate(indices):
         #     self.blocks[p][s].sample_feature_labels_to(
         #         offset,

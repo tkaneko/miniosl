@@ -36,6 +36,7 @@ State
     :show-inheritance:
     :members:
     :undoc-members:
+    :special-members: __init__
 
 Game record
 --------------
@@ -67,9 +68,13 @@ Game record
 
 .. autofunction:: miniosl.usi_record
 
+.. autofunction:: miniosl.usi_sub_record
+
 .. autofunction:: miniosl.csa_file
 
 .. autofunction:: miniosl.usi_file
+
+.. autofunction:: miniosl.kif_file
 
 
 Details
@@ -80,4 +85,7 @@ Details
 
 .. autoclass:: miniosl.Offset
     :members:
+
+.. autofunction:: miniosl.collate_features
+
 

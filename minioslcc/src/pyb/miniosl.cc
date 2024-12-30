@@ -417,9 +417,11 @@ void pyosl::init_basic(py::module_& m) {
   }, "state_string"_a, "parse and return State");
   m.def("csa_record", py::overload_cast<std::string>(&osl::csa::read_record), "record_string"_a, "read str as a game record");
   m.def("csa_file", [](std::string filepath){
-    return osl::csa::read_record(std::filesystem::path(filepath)); }, "path"_a, "load a game record");
+    return osl::csa::read_record(std::filesystem::path(filepath)); }, "path"_a,
+    "load a game record");
   m.def("usi_record", &osl::usi::read_record, "record_string"_a, "read str as a game record");
-  m.def("usi_sub_record", [](std::string s){ auto ret = osl::usi::read_record(s); return osl::SubRecord(ret); },
+  m.def("usi_sub_record",
+        [](std::string s){ auto ret = osl::usi::read_record(s); return osl::SubRecord(ret); },
         "record_string"_a, "read str as a game record in SubRecord");
   m.def("usi_file", [](std::string filepath, int id=0){
     std::ifstream is(filepath);
@@ -427,9 +429,18 @@ void pyosl::init_basic(py::module_& m) {
     for (int i=0; i<id; ++i) getline(is, line);
     getline(is, line);
     return osl::usi::read_record(line); }, "path"_a, "line_id"_a=0, "load a game record");
-  m.def("kif_file", py::overload_cast<const std::filesystem::path&>(&osl::kifu::read_record), "filepath"_a);
+  m.def("kif_file",
+        py::overload_cast<const std::filesystem::path&>(&osl::kifu::read_record),
+        "filepath"_a,
+        "load a game record");
   m.def("hash_after_move", &osl::make_move);
   m.def("win_result", &osl::win_result);
+  m.def("is_debug_build", [](){
+#ifdef NDEBUG
+    return false;
+#endif
+    return true;
+  }, "True if assertions in minioslcc is enabled");
 
   // data
   m.attr("ptype_piece_id") = &osl::ptype_piece_id;

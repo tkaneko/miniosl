@@ -119,9 +119,9 @@ class UI:
                     self._record = miniosl.csa_record(the_csa)
                 elif os.path.isfile(src):
                     if src.endswith('.csa'):
-                        self._record = miniosl.csa_record(src)
+                        self._record = miniosl.csa_file(src)
                     else:
-                        self._record = miniosl.usi_record(src)
+                        self._record = miniosl.usi_file(src)
                 elif len(src) >= 8:
                     if src[:2] == 'P1':
                         self._record.set_initial_state(miniosl.csa_board(src))
@@ -197,6 +197,18 @@ class UI:
         """generate legal moves in the state"""
         return self._state.genmove()
 
+    def genmove_check(self):
+        """generate legal moves giving check to the opponent"""
+        return self._state.genmove_check()
+
+    def in_check(self):
+        """return whether king of the side to move is in check"""
+        return self._state.in_check()
+
+    def in_checkmate(self):
+        """return whether king of the side to move is in checkmate"""
+        return self._state.in_checkmate()
+
     def hash_code(self):
         return self._state.hash_code()
 
@@ -259,7 +271,7 @@ class UI:
             if self.cur < len(self._record):
                 self._record = self._record.branch_at(self.cur)
             self._do_make_move(move, self.last_to())
-            self._record.append_move(move, self._state.in_check())
+            self._record.append_move(move, self.in_check())
             self._record.settle_repetition()  # better to improve performance
         self.cur += 1
         return self.hint()

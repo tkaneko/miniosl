@@ -9,7 +9,7 @@
 project = 'miniosl'
 copyright = '2023-2024, T. Kaneko (2003-2014 TeamGPS)'
 author = 'T. Kaneko'
-release = '0.1.2'
+release = '0.1.3'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration
@@ -21,7 +21,9 @@ extensions = [
     'sphinx.ext.mathjax',
     'sphinx.ext.doctest',
     'breathe',
+    'sphinx.ext.autosectionlabel'
 ]
+autosectionlabel_prefix_document = True
 
 breathe_projects = {
   "osl": '../xml',

@@ -102,6 +102,7 @@ class TUI:
                             ' p, b: prev state\n'
                             ' > (<): last (first) state\n'
                             ' s: run mcts\n'
+                            ' S: save board as png\n'
                             ' u: show board in usi\n'
                             ' c: show board in csa\n'
                             )
@@ -260,7 +261,12 @@ class TUI:
                 self.main_panel.addstr(self.UI.to_csa()[:-1])
                 self.main_panel.refresh()
                 continue
-            if key in 'sS':
+            if key in 'S':
+                fig = self.UI.to_img()
+                fig.savefig('shogi.png')
+                self.show_status('saved shogi.png')
+                continue
+            if key in 's':
                 search_root = self.search(search_root)
                 continue
             if key in 'hH':
@@ -508,10 +514,16 @@ def main():
         miniosl.MiniRecordVector([miniosl.MiniRecord()])
     )
     if args.sfen:
-        if args.sfen.endswith('.npz'):
-            record_set = miniosl.RecordSet.from_npz(args.sfen)
+        src = args.sfen
+        if not os.path.isfile(src):
+            raise RuntimeError(f'file not found {src}')
+        if src.endswith('.npz'):
+            record_set = miniosl.RecordSet.from_npz(src)
+        elif src.endswith('.csa'):
+            record = miniosl.csa_file(src)
+            record_set = miniosl.RecordSet(miniosl.MiniRecordVector([record]))
         else:
-            record_set = miniosl.RecordSet.from_usi_file(args.sfen)
+            record_set = miniosl.RecordSet.from_usi_file(src)
     ui = miniosl.UI()
     if not os.path.exists(args.eval):
         args.eval = ''

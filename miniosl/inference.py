@@ -229,6 +229,10 @@ def load(path: str, device: str = "", torch_cfg: dict = {},
         strict = strict and not remove_aux_head
         model.load_state_dict(saved_state, strict=strict)
         return TorchInfer(raw_model, device)
+    if path.endswith('.ptd'):
+        model = miniosl.StandardNetwork.load_with_dict(path)
+        model = model.to(device)
+        return TorchInfer(model, device)
     if path.endswith('.chpt'):
         checkpoint = torch.load(path, map_location=torch.device(device))
         cfg = checkpoint['cfg']
@@ -346,5 +350,7 @@ def export_model(model, *, device, filename, quiet=False,
         export_tensorrt(model, device=device, filename=filename, quiet=quiet)
     elif filename.endswith('.pts'):
         export_torch_script(model, device=device, filename=filename)
+    elif filename.endswith('.ptd'):
+        model.save_with_dict(filename)
     else:
         raise ValueError("unknown filetype")

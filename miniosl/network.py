@@ -206,8 +206,7 @@ class BasicNetwork(nn.Module):
 class PVNetwork(nn.Module):
     def __init__(self, *, in_channels: int, channels: int, out_channels: int,
                  num_blocks: int,
-                 value_head_hidden: int = 256, broadcast_every: int = 3,
-                 auxout_channels=None):
+                 value_head_hidden: int = 256, broadcast_every: int = 3):
         super().__init__()
         self.body = BasicBody(in_channels=in_channels, channels=channels,
                               num_blocks=num_blocks,
@@ -215,6 +214,12 @@ class PVNetwork(nn.Module):
         self.head = PolicyHead(channels=channels, out_channels=out_channels)
         self.value_head = ValueHead(channels=channels,
                                     hidden_layer_size=value_head_hidden)
+        self.config = {
+            'in_channels': in_channels, 'channels': channels,
+            'out_channels': out_channels,  # no aux
+            'num_blocks': num_blocks, 'value_head_hidden': value_head_hidden,
+            'broadcast_every': broadcast_every,
+        }
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor]:
         """take a batch of input features
@@ -222,6 +227,23 @@ class PVNetwork(nn.Module):
         """
         x = self.body(x)
         return self.head(x), self.value_head(x)
+
+    def save_with_dict(self, filename):
+        torch.save({'cfg': self.config,
+                    'model_state_dict': self.state_dict()},
+                   filename)
+
+    @classmethod
+    def load_with_dict(cls, filename):
+        import logging
+        import json
+        objs = torch.load(filename, map_location=torch.device('cpu'))
+        cfg = objs['cfg']
+        model = cls(**cfg)
+        logging.debug(json.dumps(cfg, indent=4))
+        if 'model_state_dict' in objs:
+            model.load_state_dict(objs['model_state_dict'])
+        return model
 
 
 class StandardNetwork(PVNetwork):
@@ -243,6 +265,7 @@ class StandardNetwork(PVNetwork):
                          broadcast_every=broadcast_every)
         self.aux_head = PolicyHead(channels=channels,
                                    out_channels=auxout_channels)
+        self.config['auxout_channels'] = auxout_channels
 
     def forward(self, x: torch.Tensor) -> Tuple[torch.Tensor, torch.Tensor,
                                                 torch.Tensor]:
@@ -251,6 +274,7 @@ class StandardNetwork(PVNetwork):
         """
         x = self.body(x)
         return self.head(x), self.value_head(x), self.aux_head(x)
+
 
 # Local Variables:
 # python-indent-offset: 4

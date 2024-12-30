@@ -132,18 +132,18 @@ def make_board_fig(id: int = 4081) -> tuple(
                 alpha=alpha, linewidth=lw, color=color)  # vert
         ax.plot([0.5, 9.5], [i+.5, i+.5],
                 alpha=alpha, linewidth=lw, color=color)  # horiz
-        ax.set_position([0, 0, 1, 1])
-        ax.set_axis_off()
-        ax.set_xlim(-2.5, 12)
-        ax.set_ylim(-.5, 12)
-        ax.invert_xaxis()
-        ax.invert_yaxis()
+    ax.set_position([0, 0, 1, 1])
+    ax.set_axis_off()
+    ax.set_xlim(-2.5, 12)
+    ax.set_ylim(-.5, 12)
+    ax.invert_xaxis()
+    ax.invert_yaxis()
     for x in range(1, 10):
         put_forward_char(ax, x, 0, str(x), size=10, alpha=0.7)
     for y, char in enumerate(['一', '二', '三', '四', '五', '六', '七', '八', '九']):
         put_forward_char(ax, 0, y+1, char, size=10, alpha=0.7)
-        put_forward_char(ax, -2, 0.5, '☗')
-        put_reversed_char(ax, 11.5, 9.5, '☖')
+    put_forward_char(ax, -2, 0.5, '☗')
+    put_reversed_char(ax, 11.5, 9.5, '☖')
     return fig, ax
 
 

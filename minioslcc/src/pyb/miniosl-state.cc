@@ -47,8 +47,10 @@ namespace pyosl {
                         py::array_t<int32_t> policy_labels,
                         py::array_t<float> value_labels,
                         py::array_t<int8_t> aux_labels,
-                        py::array_t<int8_t> inputs2,
-                        py::array_t<uint8_t> legalmove_labels);
+                        std::optional<py::array_t<int8_t>> inputs2,
+                        std::optional<py::array_t<uint8_t>> legalmove_labels,
+                        std::optional<py::array_t<uint16_t>> sampled_id
+                        );
 
   /** pack into 256bits */
   py::array_t<uint64_t> to_np_pack(const BaseState& state);
@@ -144,9 +146,9 @@ void pyosl::init_state_np(py::module_& m) {
                               ">>> state.count_hand(miniosl.black, miniosl.pawn)\n"
                               "0\n"
                               )
-    .def(py::init())
-    .def(py::init<const state_t&>())
-    .def(py::init<const osl::BaseState&>())
+    .def(py::init(), "make a initial state")
+    .def(py::init<const state_t&>(), "src"_a, "make a copy of src")
+    .def(py::init<const osl::BaseState&>(), "src"_a, "make a copy of src")
     .def("reset", &state_t::copyFrom, "src"_a, "re-initialize self copying `src`")
     .def("genmove",
          [](const state_t &s) {
@@ -295,14 +297,42 @@ void pyosl::init_state_np(py::module_& m) {
     .def_readonly("final_move", &osl::SubRecord::final_move, "resign or win declaration in :py:class:`Move`")
     .def("sample_feature_labels", &pyosl::sample_np_feature_labels,
          "idx"_a=std::nullopt,
-         "randomly samle index and call export_feature_labels()")
-    .def("sample_feature_labels_to", &pyosl::sample_np_feature_labels_to, "randomly samle index and export features to given ndarray (must be zerofilled in advance)")
+         "randomly samle index and call export_feature_labels()\n\n"
+         ":param idx: move id or None for random,\n"
+         ":returns: tuple of (input_features, move_label, value_label, aux_label, legal_moves).\n"
+         )
+    .def("sample_feature_labels_to", &pyosl::sample_np_feature_labels_to,
+         "offset"_a, "inputs"_a, "policy_labels"_a, "value_labels"_a,
+         "aux_labels"_a, "inputs2"_a, "legalmove_labels"_a,
+         "randomly samle index and export features to given ndarray (must be zerofilled in advance)\n\n"
+         ":param offset: offset in output index,\n"
+         ":param inputs: input features to store,\n"
+         ":param policy_labels: policy label to store,\n"
+         ":param value_labels: value label to store,\n"
+         ":param aux_labels: labels for auxiliary tasks to store,\n"
+         ":param inputs2: input features for successor state to store,\n"
+         ":param legalmove_labels: legal moves to store.\n"
+         )
     .def("make_state", &osl::SubRecord::make_state, "n"_a, "make a state after the first `n` moves")
     ;
   
   // functions depends on np
   m.def("unpack_record", &pyosl::unpack_record, "read record from np.array encoded by MiniRecord.pack_record");
-  m.def("collate_features", &pyosl::collate_features, "collate function for `GameDataset`");
+  m.def("collate_features",
+        &pyosl::collate_features,
+        "block_vector"_a, "indices"_a, "inputs"_a,
+        "policy_labels"_a, "value_labels"_a, "aux_labels"_a,
+        "inputs2"_a=std::nullopt, "legalmove_labels"_a=std::nullopt, "sampled_id"_a=std::nullopt,
+        "collate function for `GameDataset`\n\n"
+        ":param block_vector: game record db\n"
+        ":param indices: list of pairs each of which forms (block_id, record_id)\n"
+        ":param inputs: output buffer for all input features\n"
+        ":param policy_labels: output buffer for all policy labels\n"
+        ":param value_labels: output buffer for all value labels\n"
+        ":param inputs2: afterstate features (optional)\n"
+        ":param legalmoves: legal moves in bitset (optional)\n"
+        ":param sampled_id: list of move_id sampled for each game (optional)\n"
+        );
   m.def("parallel_threads", [](){ return osl::range_parallel_threads; },
         "internal concurrency");
   m.def("shogi816k",
@@ -418,7 +448,8 @@ void pyosl::sample_np_feature_labels_to(const SubRecord& record, int offset,
                                   static_cast<float*>(value_buf.ptr),
                                   static_cast<nn_input_element*>(aux_buf.ptr),
                                   static_cast<nn_input_element*>(input2_buf.ptr),
-                                  static_cast<uint8_t*>(legalmove_buf.ptr)
+                                  static_cast<uint8_t*>(legalmove_buf.ptr),
+                                  nullptr // sampled index
                                   );
 }
 
@@ -428,27 +459,35 @@ void pyosl::collate_features(const std::vector<std::vector<SubRecord>>& block_ve
                              py::array_t<int32_t> policy_labels,
                              py::array_t<float> value_labels,
                              py::array_t<int8_t> aux_labels,
-                             py::array_t<int8_t> inputs2,
-                             py::array_t<uint8_t> legalmove_labels)
+                             std::optional<py::array_t<int8_t>> inputs2_opt,
+                             std::optional<py::array_t<uint8_t>> legalmove_labels_opt,
+                             std::optional<py::array_t<uint16_t>> sampled_id_opt
+                             )
 {
   const int N = indices.size();
+  auto inputs2 = inputs2_opt.value_or(py::array_t<int8_t>());
+  auto legalmove_labels = legalmove_labels_opt.value_or(py::array_t<uint8_t>());
+  auto sampled_id = sampled_id_opt.value_or(py::array_t<uint16_t>());
+  
   auto input_buf = inputs.request(), policy_buf = policy_labels.request(),
     value_buf = value_labels.request(), aux_buf = aux_labels.request(),
     input2_buf = inputs2.request(),
-    legalmove_buf = legalmove_labels.request();
+    legalmove_buf = legalmove_labels.request(),
+    sampledid_buf = sampled_id.request();
   auto *iptr = static_cast<nn_input_element*>(input_buf.ptr);
   auto *pptr = static_cast<int32_t*>(policy_buf.ptr);
   auto *vptr = static_cast<float*>(value_buf.ptr);
   auto *aptr = static_cast<nn_input_element*>(aux_buf.ptr);
-  auto *i2ptr = static_cast<nn_input_element*>(input2_buf.ptr);
-  auto *lmptr = static_cast<uint8_t*>(legalmove_buf.ptr);
+  auto *i2ptr = inputs2_opt ? static_cast<nn_input_element*>(input2_buf.ptr) : nullptr;
+  auto *lmptr = legalmove_labels_opt ? static_cast<uint8_t*>(legalmove_buf.ptr) : nullptr;
+  auto *sidptr = sampled_id_opt ? static_cast<uint16_t*>(sampledid_buf.ptr) : nullptr;
 
   auto f = [&](int l, int r, TID tid) {
     for (int i=l; i<r; ++i) {
       py::tuple item = indices[i];
       int p = py::int_(item[0]), s = py::int_(item[1]);
       const SubRecord& record = block_vector[p][s];
-      record.sample_feature_labels_to(i, iptr, pptr, vptr, aptr, i2ptr, lmptr,
+      record.sample_feature_labels_to(i, iptr, pptr, vptr, aptr, i2ptr, lmptr, sidptr,
                                       SubRecord::default_decay, tid);
     }
   };

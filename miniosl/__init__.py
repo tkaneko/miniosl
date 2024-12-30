@@ -5,7 +5,7 @@ Many functions are imported from :py:mod:`minioslcc` implemented in C++20.
 from minioslcc import *
 from .ui import UI
 from .record import np_array_to_sfen_file, sfen_file_to_np_array, \
-    sfen_file_to_training_np_array, load_record_set, load_opening_tree, \
+    load_record_set, load_opening_tree, \
     SfenBlockStat, load_ki2, read_ki2
 from .drawing import show_channels, state_to_img, \
     ptype_to_ja, hand_pieces_to_ja, ShogiFig, ShogiAnimation
@@ -35,7 +35,10 @@ setattr(OpeningTree, 'retrieve_children', record.retrieve_children)
 
 def version():
     import importlib.metadata
-    return importlib.metadata.version('miniosl')
+    debug = ''
+    if is_debug_build():
+        debug = ' (minioslcc built with assertions enabled)' 
+    return importlib.metadata.version('miniosl') + debug
 
 
 def pretrained_eval_path():

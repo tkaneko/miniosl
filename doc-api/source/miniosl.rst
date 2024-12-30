@@ -20,17 +20,19 @@ Training with torch
     :members:
     :undoc-members:
 
+
 Handle game records
 -------------------
-see also :py:class:`MiniRecord` and :py:class:`RecordSet` 
-
-.. autofunction:: sfen_file_to_training_np_array
+see also :ref:`minioslcc:Game record` section, :py:class:`MiniRecord` and :py:class:`RecordSet` 
 
 .. autofunction:: miniosl.load_record_set
 
+
 Visualization
 -------------------
-		  
+
+.. image:: shogi.png
+
 .. autofunction:: miniosl.state_to_img
 
 .. autoclass:: miniosl.ShogiFig
