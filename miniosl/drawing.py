@@ -300,7 +300,7 @@ class ShogiFig:
         return art
 
     def show_side_to_move(self, flipped: bool):
-        player_to_move = "先手" if self.state.turn() == miniosl.black else "後手"
+        player_to_move = "先手" if self.state.turn == miniosl.black else "後手"
         if 'turn' in self.arts:
             self.arts['turn'].set(text=f'手番 {player_to_move}')
         else:
@@ -473,7 +473,7 @@ def state_to_img(state: miniosl.BaseState, *,
     :param flip_if_white: `rotate180()` if white to move
     """
     flipped = False
-    if flip_if_white and state.turn() == miniosl.white:
+    if flip_if_white and state.turn == miniosl.white:
         state = miniosl.State(state.rotate180())
         if last_to:
             last_to = last_to.rotate180()

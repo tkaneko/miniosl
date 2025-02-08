@@ -8,6 +8,7 @@ sfen = 'sfen lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL b - 1'
 
 
 def test_initial_state():
+    miniosl.UI.default_prefer_text = True
     ui = miniosl.UI()
     state = ui._state
     assert isinstance(state, miniosl.State)

@@ -38,6 +38,12 @@ def test_anim(tmp_path):
     anim.save(f'{tmp_path}/test.gif', writer='PillowWriter')
 
 
+def test_to_ja():
+    r = miniosl.usi_record(sfen)
+    ja = r.to_ja()
+    assert len(ja) == len(r.moves)
+
+
 def test_channel_name():
     assert miniosl.channel_id['black-pawn'] == int(miniosl.pawn)+14
 

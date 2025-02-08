@@ -145,6 +145,9 @@ void pyosl::init_game(py::module_& m) {
     .def_readwrite("value_mix", &osl::GumbelPlayerConfig::value_mix)
     .def_readwrite("second_width", &osl::GumbelPlayerConfig::second_width)
     .def_readwrite("depth_weight", &osl::GumbelPlayerConfig::depth_weight)
+    .def_readwrite("book_path", &osl::GumbelPlayerConfig::book_path)
+    .def_readwrite("book_weight_p", &osl::GumbelPlayerConfig::book_weight_p)
+    .def_readwrite("book_weight_v", &osl::GumbelPlayerConfig::book_weight_v)
     ;
 
   py::class_<osl::FlatGumbelPlayer, osl::PlayerArray>(m, "FlatGumbelPlayer", py::dynamic_attr())
@@ -177,7 +180,7 @@ void pyosl::init_game(py::module_& m) {
     .def_readwrite("force_declare", &osl::GameConfig::force_declare)
     .def_readwrite("ignore_draw", &osl::GameConfig::ignore_draw)
     .def_readwrite("random_opening", &osl::GameConfig::random_opening)
-    .def_readwrite("shogi816k", &osl::GameConfig::shogi816k)
+    .def_readwrite("variant", &osl::GameConfig::variant)
     ;
   
   py::class_<osl::GameArray>(m, "GameArray", py::dynamic_attr())

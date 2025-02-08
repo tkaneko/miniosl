@@ -7,6 +7,10 @@ import os
 import os.path
 import datetime
 import numpy as np
+import logging
+
+miniosl.install_coloredlogs()
+logger = logging.getLogger(__name__)
 
 parser = argparse.ArgumentParser(
     description="terminal ui for miniosl",
@@ -14,6 +18,9 @@ parser = argparse.ArgumentParser(
 parser.add_argument("--sfen", help="file to show")
 parser.add_argument("--eval", help="optional evaluation function",
                     default=os.path.expanduser(miniosl.pretrained_eval_path())
+                    )
+parser.add_argument("--book", help="optional opening book",
+                    default='book.bin'
                     )
 parser.add_argument("--device", help="device", default='cpu')
 parser.add_argument("--inspect-terminal", help="terminal property",
@@ -59,7 +66,7 @@ class Color:
 
 
 class TUI:
-    def __init__(self, ui, record_set):
+    def __init__(self, ui, record_set, book):
         self.UI = ui
         self.record_set = record_set
         self.record_id = 0
@@ -68,7 +75,10 @@ class TUI:
         if N > 0:
             ui.load_record(record_set.records[0])
             limit = 2 if N < 40000 else 10
-            self.tree = miniosl.OpeningTree.from_record_set(record_set, limit)
+            self.tree = miniosl.OpeningTreeEditable.from_record_set(record_set,
+                                                                    limit)
+        if os.path.exists(book):
+            self.tree = miniosl.load_opening_tree(book)
         self.state_shown = None
 
     def _init_screen(self, stdscr):
@@ -333,7 +343,7 @@ class TUI:
     def piece_to_ja(self, piece):
         if not piece.is_piece():
             return '　'
-        return piece.ptype.to_ja()
+        return piece.ptype.to_ja1()
 
     def draw_piece(self, x, y, piece):
         kanji = self.piece_to_ja(piece)
@@ -434,7 +444,9 @@ class TUI:
         self.opening_panel.clrtobot()
 
     def show_opening(self):
-        all = len(self.record_set.records)
+        all = self.tree.root_count()
+        if all == 0:
+            return
         children = self.tree.retrieve_children(self.UI._state)
         self.opening_panel.addstr(0, 0, '統計')
         for i, c in enumerate(children):
@@ -510,6 +522,7 @@ def main():
         print(f'{curses.COLS=}')
         print(f'{curses.LINES=}')
         exit()
+    logger.debug('loading records')
     record_set = miniosl.RecordSet(
         miniosl.MiniRecordVector([miniosl.MiniRecord()])
     )
@@ -524,12 +537,14 @@ def main():
             record_set = miniosl.RecordSet(miniosl.MiniRecordVector([record]))
         else:
             record_set = miniosl.RecordSet.from_usi_file(src)
-    ui = miniosl.UI()
+    logger.debug('initializing ui')
+    ui = miniosl.UI(prefer_text=True)
     if not os.path.exists(args.eval):
         args.eval = ''
     ui.load_eval(args.eval, device=args.device)
+    logger.debug('starting curses')
     try:
-        curses.wrapper(TUI(ui, record_set))
+        curses.wrapper(TUI(ui, record_set, args.book))
     except Exception as e:
         import traceback
         print(f'error: {e}')

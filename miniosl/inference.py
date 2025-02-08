@@ -75,6 +75,8 @@ class OnnxInfer(InferenceModel):
         import re
         super().__init__(device)
         import onnxruntime as ort
+        if device == '':
+            device = 'cpu'
         if device == 'cpu':
             provider = ['CPUExecutionProvider']
         elif device.startswith('cuda'):
@@ -92,10 +94,12 @@ class OnnxInfer(InferenceModel):
             logging.info(self.ort_session.get_providers())
             OnnxInfer.first_load = False
         self.binding = self.ort_session.io_binding()
+        logging.debug(f'{device=}')
+        self.device = device
 
     def infer(self, inputs: torch.Tensor):
-        # return self.infer_iobinding(inputs)
-        return self.infer_naive(inputs)
+        return self.infer_iobinding(inputs.to(self.device))
+        # return self.infer_naive(inputs)
 
     def infer_naive(self, inputs: torch.Tensor):
         """inefficient in gpu-cpu transfer if inputs are on already gpu"""
@@ -103,52 +107,49 @@ class OnnxInfer(InferenceModel):
         return out
 
     def infer_iobinding(self, inputs: torch.Tensor):
-        """work in progress: run correctly in small data, 
-        but diverges if batchsize x #batches goes beyond a threshold (e.g., 1500)
-
-        api: https://onnxruntime.ai/docs/api/python/api_summary.html#data-on-device
+        """work with torch 2.5.1, onnxruntime-gpu 1.20.1
         """
-        self.inputs = inputs.contiguous()
-        device = 'cuda' if inputs.device == torch.device('cuda') else 'cpu'
+        inputs = inputs.contiguous()
+        device = self.device
         self.binding.bind_input(
             name='input',
             device_type=device, device_id=0, element_type=np.float32,
             shape=tuple(inputs.shape), buffer_ptr=inputs.data_ptr(),
         )
-        self.move_tensor = torch.empty((inputs.shape[0], 2187),
-                                       dtype=torch.float32,
-                                       device=device).contiguous()
+        move_tensor = torch.empty((inputs.shape[0], 2187),
+                                  dtype=torch.float32,
+                                  device=device).contiguous()
         self.binding.bind_output(
             name='move',
             device_type=device, device_id=0, element_type=np.float32,
-            shape=tuple(self.move_tensor.shape),
-            buffer_ptr=self.move_tensor.data_ptr(),
+            shape=tuple(move_tensor.shape),
+            buffer_ptr=move_tensor.data_ptr(),
         )
         # binding.bind_output('move')
-        self.value_tensor = torch.empty((inputs.shape[0], 1),
-                                        dtype=torch.float32,
-                                        device=device).contiguous()
+        value_tensor = torch.empty((inputs.shape[0], 4),
+                                   dtype=torch.float32,
+                                   device=device).contiguous()
         self.binding.bind_output(
             name='value',
             device_type=device, device_id=0, element_type=np.float32,
-            shape=tuple(self.value_tensor.shape),
-            buffer_ptr=self.value_tensor.data_ptr(),
+            shape=tuple(value_tensor.shape),
+            buffer_ptr=value_tensor.data_ptr(),
         )
         # binding.bind_output('value')
-        self.aux_tensor = torch.empty((inputs.shape[0], 9*9*22),
-                                      dtype=torch.float32,
-                                      device=device).contiguous()
+        aux_tensor = torch.empty((inputs.shape[0], 9*9*22),
+                                 dtype=torch.float32,
+                                 device=device).contiguous()
         self.binding.bind_output(
             name='aux',
             device_type=device, device_id=0, element_type=np.float32,
-            shape=tuple(self.aux_tensor.shape),
-            buffer_ptr=self.aux_tensor.data_ptr(),
+            shape=tuple(aux_tensor.shape),
+            buffer_ptr=aux_tensor.data_ptr(),
         )
         # binding.bind_output('aux')
         self.ort_session.run_with_iobinding(self.binding)
-        return (self.move_tensor.to('cpu').numpy(),
-                self.value_tensor.to('cpu').numpy(),
-                self.aux_tensor.to('cpu').numpy())
+        return (move_tensor.to('cpu').numpy(),
+                value_tensor.to('cpu').numpy(),
+                aux_tensor.to('cpu').numpy())
         # out = binding.copy_outputs_to_cpu()
 
 
@@ -299,7 +300,7 @@ def export_tensorrt(model, *, device, filename, quiet=False):
         torch_tensorrt.logging.set_reportable_log_level(
             torch_tensorrt.logging.Level.Error
         )
-    torch_tensorrt.logging.set_is_colored_output_on(True)
+    torch_tensorrt.ts.logging.set_is_colored_output_on(True)
     if not device:
         device = 'cuda'
     elif not device.startswith('cuda'):
@@ -320,7 +321,7 @@ def export_tensorrt(model, *, device, filename, quiet=False):
             torch.jit.script(model),
             inputs=inputs, enabled_precisions=enabled_precisions,
             ir='ts',
-            device=torch.device(device)
+            # device=torch.device(device)
         )
         input_data = torch.randn(16, feature_channels, 9, 9, device=device)
         _ = trt_ts_module(input_data.half())
@@ -341,7 +342,7 @@ def export_torch_script(model, *, device, filename):
     torch.jit.save(ts_module, filename)
 
 
-def export_model(model, *, device, filename, quiet=False,
+def export_model(model: miniosl.PVNetwork, *, device, filename, quiet=False,
                  remove_aux_head=False):
     if filename.endswith('.onnx'):
         export_onnx(model, device=device, filename=filename,

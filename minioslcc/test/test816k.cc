@@ -52,7 +52,7 @@ void test_record() {
     int id = 7777;
     BaseState state(Shogi816K, id);
     TEST_ASSERT(BaseState(HIRATE) != state);
-    record.set_initial_state(state, id);
+    record.set_initial_state(state, Shogi816K, id);
     SubRecord sub(record);
     TEST_ASSERT(sub.initial_state() == state);
   }
@@ -61,7 +61,7 @@ void test_record() {
 void test_game() {
   {
     int id = 7778;
-    GameManager game(id);
+    GameManager game(Shogi816K, id);
     
   }
 }

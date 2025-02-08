@@ -1,13 +1,12 @@
 import miniosl
-import copy
 
 
 def test_color():
     assert miniosl.black != miniosl.white
     assert miniosl.black.alt == miniosl.white
     assert miniosl.black == miniosl.white.alt
-    assert miniosl.black.sign() == 1
-    assert miniosl.white.sign() == -1
+    assert miniosl.black.sign == 1
+    assert miniosl.white.sign == -1
     assert miniosl.black.to_csa() == '+'
     assert miniosl.white.to_csa() == '-'
 
@@ -105,7 +104,6 @@ def test_move():
     assert not m8822.is_drop()
     assert m8822.color == miniosl.black
 
-    prev = miniosl.State(board)
     board.make_move(m8822)
 
     m3122 = board.to_move('-3122GI')
@@ -144,3 +142,16 @@ def test_bitset():
     mobility = miniosl.knight.direction_set
     one_hot = miniosl.UUR.one_hot
     assert (mobility & one_hot) != 0
+
+
+def test_hash():
+    board = miniosl.State()
+    ha = board.hash_code()
+    assert miniosl.turn(ha) == miniosl.black
+    move = board.genmove()[0]
+    assert move.color == miniosl.black
+    board.make_move(move)
+
+    hb = board.hash_code()
+    assert miniosl.turn(hb) == miniosl.white
+    assert hb == miniosl.hash_after_move(ha, move)

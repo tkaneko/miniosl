@@ -17,7 +17,9 @@ namespace osl {
     /** legal moves in current state to detect game ends */
     MoveVector legal_moves;
 
-    explicit GameManager(std::optional<int> shogi816k_id=std::nullopt);
+    /** start a new game */
+    explicit GameManager(GameVariant kind=HIRATE,
+                         std::optional<int> shogi816k_id=std::nullopt);
     ~GameManager();
 
     /** make a move
@@ -47,6 +49,7 @@ namespace osl {
     static GameManager from_record(const MiniRecord& record);
   };
 
+  class OpeningTree;
   /**
    * array of homogeneous players for self-play
    * start thinking by the first call of make_request, after receiving data by recv_result,
@@ -76,6 +79,7 @@ namespace osl {
     const std::vector<GameManager> *_games = nullptr;
     std::vector<Move> _decision;
     rng::rng_array_t rngs;
+    std::shared_ptr<const OpeningTree> book;
     void check_ready() const;
     void check_size(int n, int scale=1, std::string where="") const;
   public:
@@ -91,11 +95,17 @@ namespace osl {
     template <bool with_noise> static std::vector<std::pair<float,Move>>
     sort_moves_impl(const osl::MoveVector& moves, const policy_logits_t& logits, int top_n,
                     rng_t *rng=nullptr, float noise_scale=1.0);
+    static std::vector<std::pair<float,Move>>
+    sort_moves_with_book(const OpeningTree& book, BasicHash state_key,
+                         const osl::MoveVector& moves, const policy_logits_t& logits, int top_n,
+                         rng_t *rng, float gumbel_noise_scale=1.0,
+                         float book_weight_p=1.0, float book_weight_v=1.0
+                         );
   };
   
   struct PolicyPlayer : public PlayerArray {
-    PolicyPlayer(bool greedy=false);
-    ~PolicyPlayer();
+    explicit PolicyPlayer(bool greedy=false);
+    ~PolicyPlayer() override;
     bool make_request(int phase, nn_input_element *) override;
     bool recv_result(int phase,
                      const std::vector<policy_logits_t>& logits,
@@ -111,6 +121,9 @@ namespace osl {
     int value_mix = 0;
     float depth_weight = 0.5;
     static constexpr int mc = 0, td = 1, ave = 2, max = 3;
+    std::string book_path = "";
+    int book_threshold = 16;
+    float book_weight_p = 1, book_weight_v = 1;
 
     float take_value(const value_vector_t& values) const {
       auto cv = values[0];      // default mc return
@@ -126,10 +139,10 @@ namespace osl {
       return cv;
     }
   };
-  
+
   struct FlatGumbelPlayer : public PlayerArray, private GumbelPlayerConfig {
-    FlatGumbelPlayer(GumbelPlayerConfig config);
-    ~FlatGumbelPlayer();
+    explicit FlatGumbelPlayer(GumbelPlayerConfig config);
+    ~FlatGumbelPlayer() override;
 
     bool make_request(int phase, nn_input_element *) override;
     bool recv_result(int phase,
@@ -152,6 +165,7 @@ namespace osl {
     Move& root_move(int idx) { return get<1>(root_children[idx]); } 
     int& root_reply(int idx) { return get<2>(root_children[idx]); } 
     float& root_half_value(int idx) { return get<3>(root_children[idx]); } 
+
     std::vector<std::tuple<float,Move,int,float>> root_children; // (logits+value, move, reply-code, half-value)
     std::vector<GameResult> root_children_terminal;
   };
@@ -164,7 +178,7 @@ namespace osl {
   
   struct CPUPlayer : public PlayerArray {
     CPUPlayer(std::shared_ptr<SingleCPUPlayer> player, bool greedy);
-    ~CPUPlayer();
+    ~CPUPlayer() override;
     bool make_request(int phase, nn_input_element *) override;
     bool recv_result(int phase,
                      const std::vector<policy_logits_t>& logits,
@@ -186,7 +200,7 @@ namespace osl {
     bool force_declare = true;
     bool ignore_draw = false;
     float random_opening = 0.0;
-    bool shogi816k = false;
+    GameVariant variant = HIRATE;
   };
   
   struct ParallelGameManager {
@@ -197,9 +211,7 @@ namespace osl {
     
     std::vector<GameResult> make_move_parallel(const std::vector<Move>& move);
     GameManager make_newgame() const {
-      if (config.shogi816k)
-        return GameManager(rngs[0]() % Shogi816K_Size);
-      return GameManager();
+      return GameManager(config.variant);
     }
     void reset(int g) {
       games.at(g) = make_newgame();

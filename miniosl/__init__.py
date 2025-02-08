@@ -19,6 +19,7 @@ from .search import run_mcts
 
 setattr(MiniRecord, 'replay', record.minirecord_replay)
 setattr(MiniRecord, 'to_anim', record.minirecord_to_anim)
+setattr(MiniRecord, 'to_ja', record.minirecord_to_ja)
 
 setattr(SubRecord, 'replay', record.subrecord_replay)
 
@@ -41,14 +42,17 @@ def version():
     return importlib.metadata.version('miniosl') + debug
 
 
-def pretrained_eval_path():
+def pretrained_eval_path(variant=Hirate):
     import importlib.resources
-    return importlib.resources.files('miniosl').joinpath('pretrained/eval.onnx')
+    name = 'eval'
+    if variant == Aozora:
+        name = 'eval-aozora'
+    return importlib.resources.files('miniosl').joinpath(f'pretrained/{name}.onnx')
 
 
-def has_pretrained_eval():
+def has_pretrained_eval(*, variant=None):
     import os.path
-    return os.path.exists(pretrained_eval_path())
+    return os.path.exists(pretrained_eval_path(variant=variant))
 
 
 def install_coloredlogs(level: str = 'INFO'):
@@ -60,5 +64,20 @@ def install_coloredlogs(level: str = 'INFO'):
         'levelname': {'color': 247},
     }
     coloredlogs.install(level=level, fmt=fmt, field_styles=field_styles)
+
+
+def jupyter_game():
+    shogi = UI()
+    return shogi.game_play()    
+
+
+def jupyter_aozora():
+    shogi = UI(aozora())
+    return shogi.game_play()    
+
+
+def jupyter_game_view(sfen):
+    ui = UI(sfen)
+    return ui.ipywidget()
 
 # flake8: noqa

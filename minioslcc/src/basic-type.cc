@@ -1,4 +1,5 @@
 #include "state.h"
+#include "record.h"
 #include <iostream>
 
 std::ostream& osl::operator<<(std::ostream& os, Player player) {
@@ -143,12 +144,13 @@ std::ostream& osl::operator<<(std::ostream& os,const Move move)
     }
     else {
       const Ptype capture_ptype=move.capturePtype();
-      os << "Move(" << turn << "," << move.ptype() << "," 
-	 << move.from() << "->" << move.to() ;
+      os << "Move(" << turn
+	 << to_csa(move.from()) << to_csa(move.to())
+         << to_csa(move.ptype());
       if (move.promoteMask())
-	os << ",promote";
+	os << "+";
       if (capture_ptype != Ptype_EMPTY)
-	os << ",capture=" << capture_ptype;
+	os << "x" << to_csa(capture_ptype);
       os << ")";
     }
   }

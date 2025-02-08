@@ -47,6 +47,19 @@ def minirecord_to_anim(
     return anim.animate(n + 1)
 
 
+def minirecord_to_ja(self: miniosl.MiniRecord) -> list[str]:
+    """return list of moves in Japanese
+    """
+    state = miniosl.State(self.initial_state)
+    last_to = None
+    ret = []
+    for i, move in enumerate(self.moves):
+        ret.append(move.to_ja(state, last_to))
+        state.make_move(move)
+        last_to = move.dst
+    return ret
+
+
 def sfen_file_to_np_array(filename: str) -> (np.ndarray, int):
     """return compressed binary moves written in sfen file"""
     data = []
@@ -123,20 +136,27 @@ def save_opening_tree(tree: miniosl.OpeningTree,
                       filename: str) -> (np.ndarray):
     """save :py:class:`OpeningTree` to npz"""
     filename = filename if filename.endswith('.npz') else filename+'.npz'
-    key_board, key_stand, node = tree.export_all()
+    key_board, key_stand, node, depth, value = tree.export_all()
     dict = {}
     dict['board'] = np.array(key_board, dtype=np.uint64)
-    dict['stand'] = np.array(key_stand, dtype=np.uint64)
-    dict['node'] = np.array(node, dtype=np.uint64)
+    dict['stand'] = np.array(key_stand, dtype=np.uint32)
+    dict['node'] = np.array(node, dtype=np.int32)
+    dict['depth'] = np.array(depth, dtype=np.int32)
+    dict['value'] = np.array(value, dtype=np.float32)
     np.savez_compressed(filename, **dict)
 
 
 def load_opening_tree(filename: str) -> miniosl.OpeningTree:
     """load :py:class:`OpeningTree` from npz file"""
+    if filename.endswith('.bin'):
+        tree = miniosl.OpeningTree.load_binary(filename)
+        return tree
     filename = filename if filename.endswith('.npz') else filename+'.npz'
     dict = np.load(filename)
-    return miniosl.OpeningTree.restore_from(dict['board'], dict['stand'],
-                                            dict['node'])
+    return miniosl.OpeningTreeEditable.restore_from((
+        dict['board'], dict['stand'], dict['node'],
+        dict['depth'], dict['value']
+    ))
 
 
 def retrieve_children(tree: miniosl.OpeningTree, state: miniosl.BaseState

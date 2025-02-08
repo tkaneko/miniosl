@@ -4,7 +4,9 @@ import numpy as np
 import copy
 import pytest
 
-sfen = 'sfen lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL b - 1'
+sfen = (
+    'sfen lnsgkgsnl/1r5b1/pppppp1pp/6p2/9/P8/1PPPPPPPP/1B5R1/LNSGKGSNL b - 1'
+)
 
 
 def test_state():
@@ -13,7 +15,7 @@ def test_state():
     assert isinstance(base, miniosl.BaseState)
     assert base.count_hand(miniosl.black, miniosl.pawn) == 0
     assert base.count_hand(miniosl.white, miniosl.pawn) == 0
-    assert base.turn() == miniosl.black
+    assert base.turn == miniosl.black
 
     board = miniosl.State()
     assert isinstance(board, miniosl.State)
@@ -21,7 +23,7 @@ def test_state():
     assert isinstance(board, minioslcc.BaseState)
     assert base.count_hand(miniosl.black, miniosl.pawn) == 0
     assert base.count_hand(miniosl.white, miniosl.pawn) == 0
-    assert base.turn() == miniosl.black
+    assert base.turn == miniosl.black
     b2 = miniosl.usi_board(sfen)
     assert b2
 
@@ -33,19 +35,19 @@ def test_make_move():
     copied2 = copy.copy(board)
     copied3 = copy.deepcopy(board)
     assert copied2 == copied3
-    assert board.turn() == miniosl.white
+    assert board.turn == miniosl.white
     assert board.to_usi() == copied.to_usi()
     assert board.to_usi() == copied2.to_usi()
     assert board.to_csa() == copied.to_csa()
     board.make_move('-3334FU')
-    assert board.turn() == miniosl.black
+    assert board.turn == miniosl.black
     assert board.to_usi() != copied.to_usi()
     assert board.to_usi() != copied2.to_usi()
-    assert copied.turn() == miniosl.white
-    assert copied2.turn() == miniosl.white
+    assert copied.turn == miniosl.white
+    assert copied2.turn == miniosl.white
     assert copied2 == copied3
     board.make_move('+8822UM')
-    assert board.turn() == miniosl.white
+    assert board.turn == miniosl.white
     assert board.count_hand(miniosl.black, miniosl.pawn) == 0
     assert board.count_hand(miniosl.black, miniosl.bishop) == 1
 
@@ -153,3 +155,45 @@ def test_policy_move_label():
     for move in moves:
         code = move.policy_move_label
         assert board.decode_move_label(code) == move
+
+
+def test_816k():
+    board = miniosl.State()
+    assert board.shogi816k_id() == miniosl.hirate_816k_id
+    board.make_move('+7776FU')
+    assert board.shogi816k_id() is None
+
+    id = 4081
+    state = miniosl.shogi816k(id)
+    assert id == state.shogi816k_id()
+
+    v, i = state.guess_variant()
+    assert v == miniosl.Shogi816K
+    assert i == id
+
+
+aozora_csa = \
+"""P1-KY-KE-GI-KI-OU-KI-GI-KE-KY
+P2 * -HI *  *  *  *  * -KA * 
+P3 *  *  *  *  *  *  *  *  * 
+P4 *  *  *  *  *  *  *  *  * 
+P5 *  *  *  *  *  *  *  *  * 
+P6 *  *  *  *  *  *  *  *  * 
+P7 *  *  *  *  *  *  *  *  * 
+P8 * +KA *  *  *  *  * +HI * 
+P9+KY+KE+GI+KI+OU+KI+GI+KE+KY
++
+"""
+
+
+def test_aozora():
+    board = miniosl.aozora()
+    csa_str = board.to_csa()
+    assert csa_str == aozora_csa
+
+    assert board.shogi816k_id() is None
+    board.make_move('+1911NY')
+    assert board.shogi816k_id() is None
+
+    v, id = board.guess_variant()
+    assert v == miniosl.Aozora

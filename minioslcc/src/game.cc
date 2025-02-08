@@ -1,20 +1,26 @@
 #include "game.h"
 #include "feature.h"
+#include "opening.h"
 #include "impl/range-parallel.h"
 #include "impl/rng.h"
 #include "impl/checkmate.h"
 #include <iostream>
 
-osl::GameManager::GameManager(std::optional<int> shogi816k_id) {
-  if (! shogi816k_id)
-    record.set_initial_state(BaseState(HIRATE));
-  else {
-    int id = shogi816k_id.value();
-    if (id < 0)
-      id = rngs[0]() % Shogi816K_Size;
-    state = EffectState(BaseState(Shogi816K, id));
-    record.set_initial_state(state, id);
+osl::GameManager::GameManager(GameVariant kind, std::optional<int> shogi816k_id) {
+  if (kind == Shogi816K) {
+    if (shogi816k_id.value_or(-1) < 0)
+      shogi816k_id.emplace(rngs[0]() % Shogi816K_Size);
+
+    state = EffectState(BaseState(Shogi816K, shogi816k_id.value()));
   }
+  else {
+    assert(kind == HIRATE || kind == Aozora);
+    if (shogi816k_id)
+      throw std::logic_error("game other than Shogi816K with shogi816k_id");
+
+    state = EffectState(BaseState(kind));
+  }
+  record.set_initial_state(state, kind, shogi816k_id);
   state.generateLegal(legal_moves);
 }
 
@@ -83,7 +89,7 @@ bool osl::GameManager::export_heuristic_feature_after(Move move, int reply_code,
       return true;
     }
   }
-  catch (std::domain_error& e) {
+  catch (const std::domain_error& e) {
     ;                           // fall through
   }
   return false;
@@ -114,7 +120,7 @@ export_heuristic_feature_after(Move latest, BaseState initial, MoveVector histor
 
 osl::GameManager osl::GameManager::from_record(const MiniRecord& record) {
   GameManager mgr;
-  mgr.record.set_initial_state(record.initial_state, record.shogi816k_id);
+  mgr.record.set_initial_state(record.initial_state, record.variant, record.shogi816k_id);
   mgr.state = record.initial_state;
   auto prev = InGame;
   for (auto move: record.moves) {
@@ -173,13 +179,62 @@ osl::PlayerArray::sort_moves_impl(const MoveVector& moves, const policy_logits_t
                                   rng_t *rng, float noise_scale) {
   std::extreme_value_distribution<> gumbel {0, 1};
   
-  std::vector<std::pair<float,Move>> pmv; // probability-move vector
+  std::vector<std::pair<float,Move>> pmv; // priority-move vector
   pmv.reserve(moves.size()); 
   for (auto move: moves) {
     auto p = logits[ml::policy_move_label(move)];
     if constexpr (with_noise)
       p += gumbel(*rng) * noise_scale;
     pmv.emplace_back(p, move);
+  }
+  std::partial_sort(pmv.begin(), pmv.begin()+std::min((int)pmv.size(), top_n), pmv.end(),
+                    [](auto l, auto r){ return l.first > r.first; } );
+  return pmv;
+}
+
+std::vector<std::pair<float,osl::Move>>
+osl::PlayerArray::sort_moves_with_book(const OpeningTree& book,
+                                       BasicHash state_key,
+                                       const MoveVector& moves, const policy_logits_t& logits, int top_n,
+                                       rng_t *rng, float noise_scale, float book_weight_p, float book_weight_v
+                                       ) {
+  auto node = book.edit(state_key);
+  if (! node)
+    return sort_moves_with_gumbel(moves, logits, top_n, rng, noise_scale);
+  // record visit
+  (*node)->result_count[InGame] += 1;
+
+  std::vector<std::pair<float,Move>> pmv; // priority-move vector
+  pmv.reserve(moves.size());
+  const int sgn = sign(turn(state_key));
+
+  // softmax of logits
+  std::vector<float> az_prior(moves.size(), 1./moves.size()); // assume uniform random policy
+  // scaling with visit counts towards az's prior
+  int total_visit = 0;
+  for (size_t i=0; i<moves.size(); ++i) {
+    auto q = book.read(make_move(state_key, moves[i]));
+    auto c = q ? q->count() : 0;
+    if (c == 0 || (q->depth > (*node)->depth)) {
+      total_visit += c;
+      az_prior[i] *= 1.0 / (c + 1.0); // remaining --- cs and sqrt term
+    }
+    else {
+      az_prior[i] = 0;          // zero out for uplink
+    }
+    auto badv = q ? (q->black_advantage(1) - 0.5) : 0.;
+    pmv.emplace_back(sgn * badv * book_weight_v, moves[i]);
+  }
+  const auto cs = 1.25 + std::log((total_visit + 19652 + 1.0) / 19652);
+  
+  std::extreme_value_distribution<> gumbel {0, 1};
+  
+  for (size_t i=0; i<moves.size(); ++i) {
+    az_prior[i] *= cs * std::sqrt(total_visit * 1.0f); // got puct's second term
+    auto p = logits[ml::policy_move_label(moves[i])];
+    p += gumbel(*rng) * noise_scale;
+    p += az_prior[i] * book_weight_p;
+    pmv[i].first += p;
   }
   std::partial_sort(pmv.begin(), pmv.begin()+std::min((int)pmv.size(), top_n), pmv.end(),
                     [](auto l, auto r){ return l.first > r.first; } );
@@ -243,6 +298,9 @@ bool osl::PolicyPlayer::recv_result(int,
 osl::FlatGumbelPlayer::FlatGumbelPlayer(GumbelPlayerConfig config)
   : PlayerArray(/* greedy */ config.noise_scale == 0),
     GumbelPlayerConfig(config) {
+  if (config.book_path != "") {
+    book = OpeningTree::load_binary(config.book_path, config.book_threshold);
+  } 
 }
 
 osl::FlatGumbelPlayer::~FlatGumbelPlayer() {
@@ -316,6 +374,7 @@ bool osl::FlatGumbelPlayer::make_request(int phase, nn_input_element *ptr) {
   return false;   // need value only
 }
 
+
 bool osl::FlatGumbelPlayer::recv_result(int phase,
                                         const std::vector<policy_logits_t>& logits,
                                         const std::vector<value_vector_t>& values) {
@@ -325,14 +384,23 @@ bool osl::FlatGumbelPlayer::recv_result(int phase,
     if (root_children.empty() != root_width * n_parallel()) {
       root_children.resize(root_width * n_parallel());
       root_children_terminal.resize(root_width * n_parallel());    
+      // root_children_expl.resize(root_width * n_parallel());    
     }
     auto run = [&](int l, int r, TID tid) {
+      // std::vector<float> expl_bonus(root_width);
       for (int g=l; g<r; ++g) {
         auto ns = noise_scale;
         if ((*_games)[g].record.move_size() >= greedy_after)
           ns = 0.0;
-        auto ret = sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width,
-                                          &rngs[idx(tid)], ns);
+        auto nb = 51 + (second_width > 0);
+        auto ret = book
+          ? sort_moves_with_book(*book,
+                                 (*_games)[g].record.history.back().basic(),
+                                 (*_games)[g].legal_moves, logits[g], root_width,
+                                 &rngs[idx(tid)], ns,
+                                 book_weight_p * nb, book_weight_v * nb)
+          : sort_moves_with_gumbel((*_games)[g].legal_moves, logits[g], root_width,
+                                   &rngs[idx(tid)], ns);
         while (ret.size() < root_width)
           ret.push_back(ret[0]);
         int offset = g*root_width;
@@ -435,8 +503,8 @@ bool osl::CPUPlayer::make_request(int, nn_input_element *) {
 }
 
 bool osl::CPUPlayer::recv_result(int,
-                                 const std::vector<policy_logits_t>& logits,
-                                 const std::vector<value_vector_t>& values) {
+                                 const std::vector<policy_logits_t>& /* logits */,
+                                 const std::vector<value_vector_t>& /* values */) {
   return true;
 }
 

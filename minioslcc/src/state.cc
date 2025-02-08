@@ -443,7 +443,7 @@ setPinOpen(Player defense){
 void osl::EffectState::copyFrom(const EffectState& src)
 {
 #ifndef MINIMAL
-  this->used_mask=src.used_mask;
+  this->active_set = src.active_set;
 #endif
   this->stand_mask=src.stand_mask;
   for(int y: board_y_range())

@@ -227,10 +227,10 @@ namespace osl
     mask_t covering_pieces(Player P, Square target, Ptype ptype) const {
       return effectAt(target).selectBit(ptype) & piecesOnBoard(P).to_ullong();
     }
-    template <Ptype PTYPE> const mask_t longEffectAt(Square target) const {
+    template <Ptype PTYPE> mask_t longEffectAt(Square target) const {
       return effectAt(target).selectLong<PTYPE>() >> 8;
     }
-    template <Ptype PTYPE> const mask_t longEffectAt(Square target, Player owner) const {
+    template <Ptype PTYPE> mask_t longEffectAt(Square target, Player owner) const {
       return longEffectAt<PTYPE>(target) & piecesOnBoard(owner).to_ullong();
     }
     mask_t longEffectAt(Square target) const { return effectAt(target).selectLong() >> 8; }

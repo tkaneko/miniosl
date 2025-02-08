@@ -31,6 +31,16 @@ def is_in_notebook() -> bool:
         return False      # Probably standard Python interpreter
 
 
+def default_device():
+    try:
+        import torch
+        if torch.cuda.is_available():
+            return "cuda"
+    except NameError:
+        pass
+    return "cpu"
+
+
 class UI:
     """
     general interface for \
@@ -62,12 +72,10 @@ class UI:
     P9+KY+KE+GI * +OU+KI * +KE+KY
     +
     """
-    prefer_text = False  # shared preference on board representation
+    default_prefer_text = False  # shared preference on board representation
 
     def __init__(self, init: str | BaseState | MiniRecord = '',
-                 *, prefer_text=False, default_format='usi'):
-        if prefer_text:
-            UI.prefer_text = prefer_text
+                 *, prefer_text=None, default_format='usi'):
         self.default_format = default_format
         self.opening_tree = None
         self.nn = None
@@ -75,6 +83,9 @@ class UI:
         self._infer_result = None
         self.model = None
         self.fig = None
+        self.prefer_text = (
+            UI.default_prefer_text if prefer_text is None else prefer_text
+        )
 
         if isinstance(init, UI):
             self._record = copy.copy(init._record)
@@ -150,7 +161,7 @@ class UI:
         return self._record.state_size()  # state-size, that is, move-size + 1
 
     def hint(self, show_hint: bool = True, **kwargs):
-        if show_hint and not UI.prefer_text:
+        if show_hint and not self.prefer_text:
             self.to_img(**kwargs)
             # return self.fig
         return self.to_usi()
@@ -322,7 +333,7 @@ class UI:
 
     def turn(self) -> miniosl.Player:
         """side to move"""
-        return self._state.turn()
+        return self._state.turn
 
     def to_np_state_feature(self) -> np.array:
         """make tensor of feature for the current state (w/o history).
@@ -384,12 +395,12 @@ class UI:
         """
         if self.opening_tree is None:
             raise RuntimeError("opening_tree not loaded")
-        all = self.opening_tree[self._state.hash_code()].count()
         children = self.opening_tree.retrieve_children(self._state)
+        all = sum([c[0].count() for c in children])
         if not is_in_notebook():
             for c in children:
                 print(c[1], f'{c[0].count()/all*100:5.2f}% {c[0].count():5}'
-                      + f'({c[0].black_advantage()*100:5.2f}%)', )
+                      + f' ({c[0].black_advantage()*100:5.2f}%)', )
         else:
             plane = np.zeros((9, 9))
             for c in children:
@@ -441,7 +452,7 @@ class UI:
         | ``'long'`` | ``'safety'``, or integer id (in internal representation)
         """
         self.update_features()
-        turn = self.turn()
+        turn = self.turn
         flip = turn == miniosl.white
         if isinstance(plane_id, str):
             if plane_id == "pieces":
@@ -481,13 +492,43 @@ class UI:
         parameters will be passed to :py:func:`inference.load`.
         """
         import miniosl.inference
-        if not path and miniosl.has_pretrained_eval():
-            path = miniosl.pretrained_eval_path()
+        variant, _ = self._state.guess_variant()
+        if not path and miniosl.has_pretrained_eval(variant=variant):
+            path = miniosl.pretrained_eval_path(variant=variant)
         path = os.path.expanduser(path)
+        if not device:
+            device = default_device()
         if os.path.exists(path):
             self.model = miniosl.inference.load(path, device, torch_cfg)
+            logging.info(f'load {path=}')
         else:
-            logging.warn(f'failed to load {path=}')
+            logging.warn(f'failed to load eval {path=}')
+
+    def show_top8_moves(self, verbose=False):
+        """suggest top8 moves by policy
+        """
+        _, moves = self.eval()
+        moves = moves[:8]
+
+        expl = ['' for _ in range(8)]
+        if self.opening_tree:
+            children = self.opening_tree.retrieve_children(self._state)
+            table = {_[1]: _[0].count() for _ in children}
+            count = [
+                table[moves[i][1]] if moves[i][1] in table else 0
+                for i in range(8)
+            ]
+            total = sum(count)
+            cs = np.log((total + 19652 + 1) / 19652) + 1.25
+            for i in range(8):
+                pb = cs * np.sqrt(total) / (count[i] + 1)
+                pbc = pb * moves[i][0]
+                expl[i] = f' novelty {pbc*2:.3f}'
+                if verbose:
+                    expl[i] += f' <- {pb:.3f} * {moves[i][0]:.3f}'
+
+        for i, m in enumerate(moves):
+            print(f'{m[0]:.3f} {m[1].to_csa()}{expl[i]}')
 
     def eval(self, verbose=False) -> Tuple[np.ndarray, list]:
         """return value and policy for current state.
@@ -498,7 +539,7 @@ class UI:
         logits, value, aux = self.model.eval(self._features,
                                              take_softmax=False)
         policy = miniosl.softmax(logits.reshape(-1)).reshape(-1, 9, 9)
-        flip = self.turn() == miniosl.white
+        flip = self.turn == miniosl.white
         if verbose:
             self.show_channels([np.max(policy, axis=0)], 1, 1, flip)
             print(f'eval = {value[0]*Value_Scale:.0f}')
@@ -511,7 +552,7 @@ class UI:
                       mp[i][1].to_ja(self._state))
         return value*Value_Scale, mp
 
-    def gumbel_one(self, width: int = 4):
+    def gumbel_one(self, width: int = 4, cscale: int = 1):
         if self._features is None or self._infer_result is None:
             self.eval(verbose=False)
         history = self._record.moves[:self.cur]
@@ -533,7 +574,8 @@ class UI:
                 v = -1.0
             elif terminal == miniosl.Draw:
                 v = 0
-            values.append([logit + miniosl.transformQ(v), move, logit, v])
+            values.append([logit + miniosl.transformQ(v, cscale=cscale),
+                           move, logit, v])
         values.sort(key=lambda e: -e[0])
         self._infer_result[f'gumbel{width}'] = values
         return values
@@ -587,7 +629,7 @@ class UI:
                 self._do_make_move(self._record.moves[i-1])
             self.cur = i
             value, *_ = self.eval(False)
-            evals.append(value * self.turn().sign())
+            evals.append(value * self.turn().sign)
         self.replay(now)
         plt.axhline(y=0, linestyle='dotted')
         return plt.plot(np.array(evals), '+')
@@ -598,22 +640,16 @@ class UI:
         return self.show_channels(self._infer_result['aux'], 2, 6)
 
     def ipywidget(self):
-        """make an interactive widget for colab or jupyter notebooks"""
-        import ipywidgets
-        slider = ipywidgets.IntSlider(
-            min=0,
-            max=len(self._record),
-            value=self.cur,
-            description='Move number',
-        )
-        if not self.fig:
-            self.to_img()
-        fig = self.fig
+        """make an interactive widget for viewing record in colab"""
+        import miniosl.widget
+        return miniosl.widget.record_view(self)
 
-        def update(n):
-            self.replay(n)
-            cfg = {}
-            self._add_drawing_properties(cfg)
-            fig.set_state(self._state, **cfg)
-            return fig.fig
-        ipywidgets.interact(update, n=slider)
+    def game_play(self):
+        """make an interactive widget for playing in colab"""
+        import miniosl.widget
+        return miniosl.widget.game_play(self)
+
+    def ipywidget_slider(self):
+        """make an interactive widget for colab or jupyter notebooks"""
+        import miniosl.widget
+        return miniosl.widget.slider_ui(self)

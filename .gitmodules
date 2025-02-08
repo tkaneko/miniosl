@@ -7,3 +7,6 @@
 [submodule "minioslcc/plog"]
 	path = minioslcc/plog
 	url = https://github.com/SergiusTheBest/plog
+[submodule "minioslcc/cista"]
+	path = minioslcc/cista
+	url = https://github.com/felixguendling/cista.git

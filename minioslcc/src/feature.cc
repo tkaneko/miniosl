@@ -537,24 +537,30 @@ namespace osl {
 }
 
 osl::SubRecord::SubRecord(const MiniRecord& record)
-  : moves(record.moves), shogi816k_id(record.shogi816k_id),
+  : moves(record.moves),
+    variant(record.variant), shogi816k_id(record.shogi816k_id.value_or(0)),
     final_move(record.final_move), result(record.result) {
-  if (! shogi816k_id
+  if (variant != HIRATE && variant != Shogi816K && variant != Aozora)
+    throw std::logic_error("unsupported variant for SubRecord");    
+  if (variant == HIRATE
       && record.initial_state != BaseState(HIRATE))
     throw std::logic_error("unexpected initial state");
 }
 osl::SubRecord::SubRecord(MiniRecord&& record)
-  : moves(std::move(record.moves)), shogi816k_id(record.shogi816k_id),
+  : moves(std::move(record.moves)),
+    variant(record.variant), shogi816k_id(record.shogi816k_id.value_or(0)),
     final_move(record.final_move), result(record.result) {
-  if (! shogi816k_id
+  if (variant != HIRATE && variant != Shogi816K && variant != Aozora)
+    throw std::logic_error("unsupported variant for SubRecord");    
+  if (variant == HIRATE
       && record.initial_state != BaseState(HIRATE))
     throw std::logic_error("unexpected initial state");
 }
 
 osl::BaseState osl::SubRecord::initial_state() const {
-  if (shogi816k_id)
-    return BaseState(Shogi816K, shogi816k_id.value());
-  return BaseState(HIRATE);
+  if (variant == Shogi816K)
+    return BaseState(Shogi816K, shogi816k_id);
+  return BaseState(variant);
 }
 
 osl::BaseState osl::SubRecord::make_state(int idx) const {
@@ -643,7 +649,7 @@ void osl::SubRecord::export_feature_labels(int idx, nn_input_element *input,
 int osl::SubRecord::weighted_sampling(int limit, int N, TID tid) {
   // weigted sampling
   //
-  // for usual cases of limit > 11 (=N)
+  // for usual cases of limit > N (e.g., = 11)
   // - move P1, P2: 2^{-10}
   // - move Pn (3 <= n <= 11): 2*Pn-1
   // - move Pn (12 <= n): 1
@@ -674,7 +680,7 @@ void osl::SubRecord::sample_feature_labels(nn_input_element *input,
                                            int& move_label, int& value_label, nn_input_element *aux_label,
                                            uint8_t *legalmove_buf,
                                            int decay, TID tid) const {
-  if (shogi816k_id)
+  if (! is_hirate_game())
     decay = 0;
   MoveVector legal_moves;
   int idx = weighted_sampling(moves.size(), decay, tid);
@@ -690,7 +696,7 @@ sample_feature_labels_to(int offset,
                          nn_input_element *input2_buf,
                          uint8_t *legalmove_buf, uint16_t *sampled_id_buf,
                          int decay, TID tid) const {
-  if (shogi816k_id)
+  if (! is_hirate_game())
     decay = 0;
   int idx = weighted_sampling(moves.size(), decay, tid);
   if (sampled_id_buf)

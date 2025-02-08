@@ -188,7 +188,7 @@ void osl::MiniRecord::replay(EffectState& state, int idx) {
 osl::MiniRecord osl::MiniRecord::branch_at(int idx) {
   if (idx >= moves.size())
     throw std::domain_error("index too large "+std::to_string(idx)+" v.s. "+std::to_string(moves.size()));
-  MiniRecord copy {initial_state, std::nullopt,
+  MiniRecord copy {initial_state, variant, shogi816k_id,
                    {moves.begin(), moves.begin()+idx},
                    {history.begin(), history.begin()+idx+1}};
   return copy;
@@ -364,7 +364,7 @@ osl::GameResult osl::csa::detail::parse_move_line(EffectState& state, MiniRecord
   case '\'':
     break;
   default:
-    if (s.starts_with("END"))
+    if (s.starts_with("END") || s.starts_with("$END"))
       break;
     std::cerr << "ignored " << s << '\n';
   }
@@ -779,8 +779,9 @@ osl::MiniRecord osl::usi::read_record(std::string line) {
       is >> move_number;
     }
     state.initFinalize();
-    record.set_initial_state(state);
-    record.shogi816k_id = state.shogi816kID();
+    // classify variants
+    auto [variant, opt_id] = state.guess_variant();
+    record.set_initial_state(state, variant, opt_id);
   }
   if (! (is >> word))
     return record;

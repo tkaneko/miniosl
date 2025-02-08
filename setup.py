@@ -181,7 +181,10 @@ setup(
         'miniosl.utility',
         'minioslcc',
     ],
-    package_data={'miniosl': ['pretrained/eval.onnx']},
+    package_data={'miniosl': [
+        'pretrained/eval.onnx',
+        'pretrained/eval-aozora.onnx'
+    ]},
     description="A python interface to miniosl (shogi library)",
     classifiers=[               # https://pypi.org/classifiers/
         'Topic :: Games/Entertainment :: Board Games',
@@ -194,7 +197,7 @@ setup(
     ],
     long_description=(this_directory / "README.md").read_text(),
     long_description_content_type='text/markdown',
-    version="0.1.3",
+    version="0.1.4a4",
     author="T. Kaneko",
     author_email="kaneko@graco.c.u-tokyo.ac.jp",
     ext_modules=[CMakeExtension(
@@ -212,5 +215,6 @@ setup(
         'scripts/selfplay',
         'scripts/shogimodel',
         'scripts/shogiconvert',
+        'scripts/shogibook',
     ],
 )

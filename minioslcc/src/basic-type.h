@@ -681,8 +681,7 @@ namespace osl
   class Piece
   {
     int packed;
-    Piece(int p) : packed(p)
-    {
+    explicit Piece(int p) : packed(p) {
     }
   public:
     static constexpr int SIZE=40;

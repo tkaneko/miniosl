@@ -25,6 +25,12 @@ namespace osl
       u8"と", u8"成香", u8"成桂", u8"成銀", u8"馬", u8"龍",
       u8"王", u8"金", u8"歩", u8"香", u8"桂", u8"銀", u8"角", u8"飛",
     };
+    // unofficial variant to show all pieces in a single letter
+    const std::u8string ptype_name1[] = {
+      u8"",  u8"",
+      u8"と", u8"杏", u8"圭", u8"全", u8"馬", u8"龍",
+      u8"王", u8"金", u8"歩", u8"香", u8"桂", u8"銀", u8"角", u8"飛",
+    };
     const std::u8string K_GYOKU = u8"玉", K_RYU_alt = u8"竜";
     const std::u8string promote_flag[] = { K_FUNARI, K_NARU, };
     const std::u8string sign[] = { u8"☗", u8"☖", };
@@ -62,6 +68,10 @@ std::u8string osl::to_ki2(Square sq) {
 
 std::u8string osl::to_ki2(Ptype ptype) {
   return kanji::ptype_name[idx(ptype)];
+}
+
+std::u8string osl::to_ja1(Ptype ptype) {
+  return kanji::ptype_name1[idx(ptype)];
 }
 
 std::u8string osl::to_ki2(Square cur, Square prev) {

@@ -35,10 +35,9 @@ def save_sfen(record_seq, path=''):
     else:
         counts, declare = handle_games(record_seq)
     logging.info(f'black {counts[int(miniosl.BlackWin)]}'
-                 + f'-{counts[int(miniosl.Draw)]}'
-                 + f'-{counts[int(miniosl.WhiteWin)]} white'
-                 + f'   declare {declare} ({declare/max(1,len(record_seq))*100:.2f})%'
-                 )
+                 f'-{counts[int(miniosl.Draw)]}'
+                 f'-{counts[int(miniosl.WhiteWin)]} white'
+                 f' declare {declare} ({declare/len(record_seq)*100:.2f})%')
     return counts
 
 
@@ -65,7 +64,11 @@ def selfplay_array(
                  + f' {cfg.n_games} games')
     game_config = miniosl.GameConfig()
     game_config.ignore_draw = cfg.ignore_draw
-    game_config.shogi816k = cfg.shogi816k
+    game_config.variant = miniosl.Hirate
+    if cfg.shogi816k:
+        game_config.variant = miniosl.Shogi816K
+    elif cfg.aozora:
+        game_config.variant = miniosl.Aozora
     mgrs = [miniosl.GameArray(cfg.parallel, pa, pb, na, nb,
                               game_config)
             for pa, pb, na, nb in zip(
@@ -157,6 +160,7 @@ def main():
         "--model-b",
         help="model filename for player b (--model governs if uncpecified)",
         default='')
+    parser.add_argument("--book", help="book filename")
     parser.add_argument("--device", help="torch device", default="cuda")
     parser.add_argument("--device-b", help="torch device for player b",
                         default='')
@@ -177,6 +181,8 @@ def main():
     parser.add_argument("--ignore-draw", action='store_true')
     parser.add_argument("--shogi816k", action='store_true',
                         help='use randomized initial state')
+    parser.add_argument("--aozora", action='store_true',
+                        help='game variant removing all pawns')
     parser.add_argument("--noise-scale", type=float, default=1.0,
                         help="relative scale of noise, greedy if 0")
     parser.add_argument("--log-level", default="INFO",
@@ -206,19 +212,19 @@ def main():
         nn_b = [miniosl.inference.load(
             args.model_b,
             args.device_b or args.device,
-            network_cfg)
-                for _ in range(args.n_sites)]
+            network_cfg
+        ) for _ in range(args.n_sites)]
 
-    player_a = [miniosl.make_player(args.player_a,
-                                    noise_scale=args.noise_scale,
-                                    softalpha=args.softalpha,
-                                    depth_weight=args.depth_weight)
-                for _ in range(args.n_sites)]
-    player_b = [miniosl.make_player(args.player_b,
-                                    noise_scale=args.noise_scale,
-                                    softalpha=args.softalpha,
-                                    depth_weight=args.depth_weight)
-                for _ in range(args.n_sites)]
+    player_a = [miniosl.make_player(
+        args.player_a,
+        noise_scale=args.noise_scale, softalpha=args.softalpha,
+        depth_weight=args.depth_weight, book_path=args.book,
+    ) for _ in range(args.n_sites)]
+    player_b = [miniosl.make_player(
+        args.player_b,
+        noise_scale=args.noise_scale, softalpha=args.softalpha,
+        depth_weight=args.depth_weight, book_path=args.book,
+    ) for _ in range(args.n_sites)]
     stub = [miniosl.inference.InferenceForGameArray(_)
             for _ in nn]
     stub_b = [miniosl.inference.InferenceForGameArray(_)
@@ -234,10 +240,10 @@ def main():
         if args.both_side:
             pre, ext = os.path.splitext(args.output)
             output = pre + '-r' + ext
-            _, wdraw, wwin = selfplay_array(args,
-                                            stub_b, stub,
-                                            player_b, player_a,
-                                            output, wr)
+            _, wdraw, wwin = selfplay_array(
+                args, stub_b, stub, player_b, player_a,
+                output, wr
+            )
             p = (bwin + wwin + bdraw/2 + wdraw/2) / (args.n_games * 2)
             elodiff = miniosl.p2elo(min(p + eps, 1-eps))
             logger.info(f'{p:.3f},{elodiff:.2f}')

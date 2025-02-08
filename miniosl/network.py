@@ -229,12 +229,14 @@ class PVNetwork(nn.Module):
         return self.head(x), self.value_head(x)
 
     def save_with_dict(self, filename):
+        """save config and weights into .ptd file"""
         torch.save({'cfg': self.config,
                     'model_state_dict': self.state_dict()},
                    filename)
 
     @classmethod
     def load_with_dict(cls, filename):
+        """make a module with configs and weights saved in .ptd file"""
         import logging
         import json
         objs = torch.load(filename, map_location=torch.device('cpu'))
@@ -244,6 +246,25 @@ class PVNetwork(nn.Module):
         if 'model_state_dict' in objs:
             model.load_state_dict(objs['model_state_dict'])
         return model
+
+    def clone(self):
+        """clone a module with current weights"""
+        cls = self.__class__
+        obj = cls(**self.config)
+        obj.load_state_dict(self.state_dict())
+        return obj
+
+    def soft_update(self, new_state_dict, tau: float = .5,
+                    keys = None):
+        """update weights with new ones"""
+        my_parameters = self.state_dict()
+        if not keys:
+            keys = my_parameters.keys()
+        for key in keys:
+            old_value = my_parameters[key]
+            new_value = new_state_dict[key]
+            my_parameters[key] = tau * new_value + (1-tau) * old_value
+        self.load_state_dict(my_parameters)
 
 
 class StandardNetwork(PVNetwork):

@@ -65,9 +65,10 @@ def clear_usi_players():
         make_usi_player.players = []
 
 
-def make_player(name: str, *,
-                noise_scale=1.0, softalpha=0.00783,
-                depth_weight=0.5) -> miniosl.PlayerArray:
+def make_player(
+        name: str, *,
+        noise_scale=1.0, softalpha=0.00783,
+        depth_weight=0.5, book_path='') -> miniosl.PlayerArray:
     """factory method"""
     gumbel_pattern = r'^gumbel([1-9][0-9]*)$'
     gumbel_d2_pattern = r'^gumbel([1-9][0-9]*)-([1-9][0-9]*)$'
@@ -79,11 +80,16 @@ def make_player(name: str, *,
     config = miniosl.GumbelPlayerConfig()
     config.noise_scale = noise_scale
     config.depth_weight = depth_weight
+    if book_path:
+        config.book_path = book_path
+    config.book_weight_p = 0    # todo
     if match := re.match(gumbel_d2_pattern, name):
         config.root_width = int(match.group(1))
         config.second_width = int(match.group(2))
         if config.root_width < config.second_width:
-            raise RuntimeError(f'width mismatch {config.root_width} < {config.second_width}')
+            raise RuntimeError(
+                f'width mismatch {config.root_width} < {config.second_width}'
+            )
         return miniosl.FlatGumbelPlayer(config)
     elif match := re.match(gumbel_pattern, name):
         config.root_width = int(match.group(1))
@@ -104,8 +110,10 @@ def make_player(name: str, *,
         config.root_width = int(match.group(1))
         config.second_width = int(match.group(2))
         if config.root_width < config.second_width:
-            raise RuntimeError(f'width mismatch {config.root_width} < {config.second_width}')
-        config.softalpha = softalpha        
+            raise RuntimeError(
+                f'width mismatch {config.root_width} < {config.second_width}'
+            )
+        config.softalpha = softalpha
         return miniosl.FlatGumbelPlayer(config)
     elif match := re.match(soft_pattern, name):
         config.root_width = int(match.group(1))

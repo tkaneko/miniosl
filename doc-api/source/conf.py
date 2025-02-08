@@ -7,9 +7,9 @@
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#project-information
 
 project = 'miniosl'
-copyright = '2023-2024, T. Kaneko (2003-2014 TeamGPS)'
+copyright = '2023-2025, T. Kaneko (2003-2014 TeamGPS)'
 author = 'T. Kaneko'
-release = '0.1.3'
+release = '0.1.4'
 
 # -- General configuration ---------------------------------------------------
 # https://www.sphinx-doc.org/en/master/usage/configuration.html#general-configuration

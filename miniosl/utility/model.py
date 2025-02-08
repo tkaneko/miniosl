@@ -14,7 +14,7 @@ import os.path
 import csv
 import datetime
 import json
-
+from miniosl.dataset import BatchInput, BatchOutput, process_target_batch
 
 loader_class = torch.utils.data.DataLoader
 deterministic_mode = "MINIOSL_DETERMINISTIC" in os.environ
@@ -71,23 +71,32 @@ def update_validation_pbar(pbar, vloss, main: bool):
         'e': f'{vloss.entropy:.1f}',
     }
     if main:
-        info['m'] = vloss.move,
+        info['m'] = float(vloss.move),
         info['step'] = 'v'
         info['x'] = vloss.aux
     pbar.set_postfix(ordered_dict=info)
 
 
 def send_vloss(writer, vloss, *, cumulative_step):
-    writer.add_scalars('Validation', {
-        'move': vloss.move, 'value': vloss.value,
-        'aux': vloss.aux, 'top1': vloss.top1,
-        'td1': vloss.td1, 'entropy': vloss.entropy
-    }, cumulative_step)
+    if not writer.is_local_main_process:
+        return
+    writer.log({
+        'vmove': vloss.move, 'vvalue': vloss.value,
+        'vaux': vloss.aux, 'vtop1': vloss.top1,
+        'vtd1': vloss.td1, 'ventropy': vloss.entropy
+    }, step=cumulative_step)
 
 
 def div_loss_stat(loss_stat, denom):
     for i in range(len(loss_stat)):
         loss_stat[i] /= denom
+
+
+def sum_loss_stat(loss_stat_seq):
+    ret = make_loss_stats()
+    for i in range(len(ret)):
+        ret[i] = sum([_[i] for _ in loss_stat_seq])
+    return ret
 
 
 def add_to_loss_stat(loss, move_loss, value_loss, aux_loss,
@@ -117,23 +126,12 @@ def report_train_loss(rloss, pbar, writer, *, step, cumulative_step):
         'move': rloss.move, 'value': rloss.value, 'aux': rloss.aux*81/2,
         'td1': rloss.td1, 'soft': rloss.soft,
     }
-    writer.add_scalars('Train', report_data, cumulative_step)
+    writer.log(report_data, step=cumulative_step)
 
 
 def entropy_of_logits(logits: torch.Tensor):
     m = torch.distributions.Categorical(logits=logits)
     return m.entropy().mean().item()
-
-
-"""input features (obs, obs_after) and labels (others)"""
-BatchInput = recordclass.recordclass(
-    'BatchInput', (
-        'obs', 'move', 'value', 'aux',
-        'obs_after',  'legal_move'))
-
-
-BatchOutput = recordclass.recordclass(
-    'BatchOutput', ('move', 'value', 'aux'))
 
 
 ValidationCfg = collections.namedtuple(
@@ -142,14 +140,72 @@ ValidationCfg = collections.namedtuple(
 )
 
 
-def do_validate(model, loader, cfg: ValidationCfg,
-                *, pbar=None, name=None, main=False):
+def do_validate(accelerator, model, loader, cfg: ValidationCfg,
+                *, pbar=None, name=None):
+    vloss = make_loss_stats()
+    count = 0
+    top8_mean = np.zeros(8)
+
+    centropy = torch.nn.CrossEntropyLoss()
+    mse = torch.nn.MSELoss()
+    with torch.no_grad():
+        for i, data in enumerate(loader):
+            input = miniosl.dataset.preprocess_batch(data)
+            out = BatchOutput(*model(input.obs))
+            move_loss = centropy(out.move, input.move).item()
+            value_loss = mse(out.value[:, 0].flatten(), input.value).item()
+            aux_loss = mse(out.aux,
+                           input.aux.reshape(-1, miniosl.aux_unit)).item()
+            target = process_target_batch(model(input.obs_after))
+            td1_loss = mse(out.value[:, 1].flatten(), target.td1).item()
+            td1_loss2 = mse(out.value[:, 3].flatten(), target.td2).item()
+
+            top8 = out.move.topk(k=8, dim=1, sorted=True)
+            top8_tensor = (top8[1] == input.move.unsqueeze(-1))
+            top8_tensor = top8_tensor.float().mean(dim=0)
+            top4 = top8[0][:, :4]
+            legals = unpack_moves(input.legal_move).bool()
+            out.move[~legals] = torch.finfo(torch.float16).min
+            add_to_loss_stat(
+                vloss, move_loss, value_loss, aux_loss,
+                td1_loss, td1_loss2,
+                entropy=entropy_of_logits(out.move),
+                entropy4=entropy_of_logits(top4)  # nat
+            )
+            top8_mean += top8_tensor.cpu().numpy()
+            count += 1
+            if cfg.validation_size > 0 and i + 1 >= cfg.validation_size:
+                break
+
+    vloss.aux *= 81 / 2
+    objs = accelerator.gather_for_metrics([
+        vloss, top8_mean, count
+    ])
+    all_vloss, all_top8, all_count = objs[0::3], objs[1::3], objs[2::3]
+    count = sum(all_count)
+    top8_mean = sum(all_top8, np.zeros_like(top8_mean))
+    vloss = sum_loss_stat(all_vloss)
+
+    div_loss_stat(vloss, count)
+    top8_mean /= count
+    vloss.top1 = top8_mean[0]
+    vloss.top4 = top8_mean[:3].sum()
+    vloss.top8 = top8_mean[:7].sum()
+    if accelerator.is_local_main_process:
+        if pbar:
+            update_validation_pbar(pbar, vloss, False)
+        else:
+            log_vloss(vloss)
+        record_vloss(cfg.validation_csv, name, vloss)
+    return vloss
+
+
+def do_validate_main(model: miniosl.InferenceModel,
+                     loader, cfg: ValidationCfg,
+                     *, pbar=None, name=None):
     import torch.nn.functional as F
     if loader is None:
         return
-
-    if isinstance(model, torch.nn.Module):
-        model = miniosl.inference.TorchInfer(model, cfg.device)
 
     vloss = make_loss_stats()
     count = 0
@@ -157,7 +213,7 @@ def do_validate(model, loader, cfg: ValidationCfg,
     with torch.no_grad():
         with tqdm.tqdm(total=min(cfg.validation_size, len(loader)),
                        colour='#208dc3',
-                       disable=not main) as vpbar:
+                       ) as vpbar:
             for i, data in enumerate(loader):
                 input = BatchInput(*data)
                 out = BatchOutput(*model.infer_int8(input.obs))
@@ -198,35 +254,19 @@ def do_validate(model, loader, cfg: ValidationCfg,
     vloss.top4 = top8_mean[:3].sum()
     vloss.top8 = top8_mean[:7].sum()
     if pbar:
-        update_validation_pbar(pbar, vloss, main)
+        update_validation_pbar(pbar, vloss, True)
     else:
         log_vloss(vloss)
     record_vloss(cfg.validation_csv, name, vloss)
     return vloss
 
 
-def setup_tensors(inputs: BatchInput):
-    inputs.obs = inputs.obs.float()
-    inputs.aux = inputs.aux.float()
-    inputs.obs_after = inputs.obs_after.float()
-    inputs.obs /= miniosl.One
-    inputs.move = inputs.move.long()
-    inputs.aux /= miniosl.One
-    inputs.obs_after /= miniosl.One
-
-
 def at_the_end_of_interval(i, interval):
     return i % interval == interval - 1
 
 
-def ddp_setup(rank, world_size):
-    torch.cuda.set_device(rank)
-    torch.distributed.init_process_group("nccl",
-                                         rank=rank, world_size=world_size)
-
-
-def save_model(model, filename, is_single):
-    learned = model.state_dict() if is_single else model.module.state_dict()
+def save_model(model, filename):
+    learned = model.state_dict()
     torch.save(learned, filename)
 
 
@@ -240,96 +280,105 @@ TrainingCfg = collections.namedtuple(
 )
 
 
-def do_train(rank, world_size, model, cfg: TrainingCfg, loader_class,
+def do_train(base_model, cfg: TrainingCfg, loader_class,
              deterministic_mode):
-    device_is_cuda = cfg.device.startswith('cuda')
-    """do training.  may be spawned by multiprocessing if world_size > 0"""
-    import torch
+    """do training.
+
+    usage: accelerate launch --multi_gpu --dynamo_backend inductor \
+      path/to/shogimodel build train ...
+    """
     torch.set_float32_matmul_precision('high')
-    from torch.utils.tensorboard import SummaryWriter
-    primary = True
-    logging.info(f'{world_size=}')
-    if world_size > 0:
-        from torch.nn.parallel import DistributedDataParallel as DDP
-        ddp_setup(rank, world_size)
-        primary = rank == 0
+    # to0rch.autograd.set_detect_anomaly(True)
+
+    import accelerate
+    logger = accelerate.logging.get_logger(__name__)
+    acfg = accelerate.utils.ProjectConfiguration(logging_dir='.')
+    accelerator = accelerate.Accelerator(
+        cpu=(cfg.device == 'cpu'),
+        mixed_precision='fp16',
+        rng_types=[],  # crucial in torch 2.3
+        log_with='tensorboard',
+        project_config=acfg,
+        # kwargs_handlers=[
+        #     accelerate.DistributedDataParallelKwargs(
+        #         find_unused_parameters=True
+        #     )
+        # ]
+    )
+    primary = accelerator.is_main_process
+    n_processes = accelerator.num_processes
+    logger.info(f'{accelerator.mixed_precision=} {n_processes=}')
+    params = sum(p.numel() for p in base_model.parameters() if p.requires_grad)
+    logger.info(f'#trainable parameters = {params}')
+
+    accelerator.init_trackers("sl", config={
+        'name': cfg.savefile,
+    })
+
+    soft_update_interval = 128  # todo! make it configurable
+    soft_update_tau = .99
+
+    logger.info('start training')
     if primary:
-        logging.info('start training')
         with open(f'{cfg.savefile}.json', 'w') as file:
-            json.dump((cfg._asdict() | model.config), file, indent=4)
-        msg = [os.path.basename(_) for _ in cfg.trainfiles] \
-            if isinstance(cfg.trainfiles, tuple) else cfg.trainfiles
-        logging.info(f'loading {msg}')
+            json.dump((cfg._asdict() | base_model.config), file, indent=4)
+    msg = [os.path.basename(_) for _ in cfg.trainfiles] \
+        if isinstance(cfg.trainfiles, tuple) else cfg.trainfiles
+    logger.info(f'loading {msg}')
     dataset = miniosl.load_torch_dataset(list(cfg.trainfiles))
 
     centropy = torch.nn.CrossEntropyLoss()
     mse = torch.nn.MSELoss()
-    optimizer = torch.optim.AdamW(model.parameters(), weight_decay=1e-4)
+    optimizer = torch.optim.AdamW(base_model.parameters(), weight_decay=1e-4)
 
-    steps_per_epoch = (len(dataset)+cfg.batch_size-1) // cfg.batch_size
-    shuffle, sampler, device = True, None, cfg.device
     batch_size = cfg.batch_size
-    if world_size > 0:
-        device = f'cuda:{rank}'
-        sampler = torch.utils.data.distributed.DistributedSampler(dataset)
-        shuffle = False
-        batch_size //= world_size
+    steps_per_epoch = (len(dataset)+batch_size-1) // batch_size
+    shuffle, sampler = True, None
+
     trainloader = loader_class(
-        dataset, batch_size=batch_size,
+        dataset, batch_size=batch_size // n_processes,
         collate_fn=lambda indices: dataset.collate(indices),
         shuffle=shuffle, sampler=sampler, num_workers=0)
     v_dataset, validate_loader = None, None
     if cfg.validation_data:
-        logging.info(f'loading {cfg.validation_data} for validation')
+        logger.info(f'loading {cfg.validation_data} for validation')
         v_dataset = miniosl.load_torch_dataset(cfg.validation_data)
-        if world_size > 0:
-            sampler = torch.utils.data.distributed.DistributedSampler(
-                v_dataset)
         validate_loader = loader_class(
-            v_dataset, batch_size=batch_size,
+            v_dataset, batch_size=batch_size // n_processes,
             shuffle=not deterministic_mode and shuffle,
             collate_fn=lambda indices: v_dataset.collate(indices),
             sampler=sampler,
             num_workers=0)
-    writer = SummaryWriter(comment='SL')
 
-    if world_size > 0:
-        model = DDP(model.to(device), device_ids=[rank])
-    compiled_model = torch.compile(model)
+    target_model = base_model.clone().to(accelerator.device)
+    frozen_model = torch.compile(target_model)
+    model, optimizer, trainloader = accelerator.prepare(
+        base_model, optimizer, trainloader
+    )
+    if validate_loader:
+        validate_loader = accelerator.prepare(validate_loader)
 
     bar_format = "{l_bar}{bar}"\
         "| {n_fmt}/{total_fmt} [{elapsed}<{remaining}{postfix}]"
-    pbar_interval = max(1, 4096 // batch_size)
     for epoch in range(cfg.epoch_limit):
-        if world_size > 0:
-            trainloader.sampler.set_epoch(epoch)
-        if primary:
-            logging.info(f'start epoch {epoch}')
-        scaler = torch.cuda.amp.GradScaler(enabled=device_is_cuda)
-        with tqdm.tqdm(total=min(cfg.step_limit, steps_per_epoch),
-                       smoothing=0.7, bar_format=bar_format,
-                       colour='#208dc3',
-                       disable=not primary) as pbar:
-            if validate_loader and primary:
+        logger.info(f'start epoch {epoch}')
+        with tqdm.tqdm(
+                total=min(cfg.step_limit, steps_per_epoch),
+                smoothing=0.7, bar_format=bar_format,
+                colour='#208dc3', disable=not primary
+        ) as pbar:
+            if validate_loader:
                 vname = f'{cfg.savefile}-{epoch}-0'
-                vloss = do_validate(model, validate_loader,
+                vloss = do_validate(accelerator, model, validate_loader,
                                     cfg, pbar=pbar, name=vname)
-                send_vloss(writer, vloss,
+                send_vloss(accelerator, vloss,
                            cumulative_step=epoch*steps_per_epoch)
             rloss = make_loss_stats()
-            if primary:
-                writer.flush()
             for i, data in enumerate(trainloader, 0):
-                if i >= steps_per_epoch:
-                    break
-                if primary:
-                    if (i+1) % pbar_interval == 0:
-                        pbar.update(pbar_interval)
-                    elif not device_is_cuda:
-                        pbar.update(1)
-                compiled_model.train(True)
-                batch = BatchInput(*[_.to(device) for _ in data])
-                setup_tensors(batch)
+                pbar.update(1)
+                model.train(True)
+                batch = miniosl.dataset.preprocess_batch(data)
+
                 if cfg.policy_commit < 1.0:
                     dist_moves = unpack_moves(batch.legal_move).float()
                     n_moves = dist_moves.sum(dim=-1)
@@ -339,84 +388,99 @@ def do_train(rank, world_size, model, cfg: TrainingCfg, loader_class,
                     # defer setting the probability for move_labels
 
                 optimizer.zero_grad()
-                with torch.autocast(device_type="cuda",
-                                    enabled=device_is_cuda):
-                    out = BatchOutput(*compiled_model(batch.obs))
-                    move_target = batch.move
-                    if cfg.policy_commit < 1.0:
-                        dist_moves.scatter_(
-                            dim=1, index=batch.move.unsqueeze(-1),
-                            src=(cfg.policy_commit + small_prob)
-                        )
-                        move_target = dist_moves
 
-                    move_loss = centropy(out.move, move_target)
-                    value_loss = mse(out.value[:, 0].flatten(),
-                                     batch.value)
-                    aux_loss = mse(
-                        out.aux, batch.aux.reshape((-1, miniosl.aux_unit))
+                out = BatchOutput(*model(batch.obs))
+                move_target = batch.move
+
+                if cfg.policy_commit < 1.0:
+                    dist_moves.scatter_(
+                        dim=1, index=batch.move.unsqueeze(-1),
+                        src=(cfg.policy_commit + small_prob)
                     )
-                    with torch.no_grad():
-                        _, succ_value, *_ = compiled_model(batch.obs_after)
-                        tdtarget = -succ_value[:, 0].flatten().detach()
-                        tdtarget2 = -succ_value[:, 1].flatten().detach()
-                        softtarget = -succ_value[:, 2].flatten().detach()
-                        logp = torch.nn.functional.log_softmax(
-                            out.move, dim=-1
-                        )
-                        logp = logp.gather(1, batch.move.unsqueeze(-1)
-                                           ).squeeze(-1)
-                        logp = torch.minimum(-logp,
-                                             torch.ones_like(logp)*4) / 4
-                        softtarget += -logp
-                        softtarget = torch.minimum(softtarget,
-                                                   torch.ones_like(softtarget))
+                    move_target = dist_moves
 
-                    td1_loss = mse(out.value[:, 1].flatten(), tdtarget)
-                    soft_loss = mse(out.value[:, 2].flatten(), softtarget)
-                    td1_loss2 = mse(out.value[:, 3].flatten(), tdtarget2)
+                move_loss = centropy(out.move, move_target)
+                value_loss = mse(out.value[:, 0].flatten(),
+                                 batch.value)
+                aux_loss = mse(
+                    out.aux, batch.aux.reshape((-1, miniosl.aux_unit))
+                )
 
-                    loss = move_loss + value_loss
+                with (torch.no_grad(),
+                      torch.autocast(device_type="cuda",
+                                     enabled=accelerator.device.type == 'cuda')
+                      ):
+                    target = frozen_model(batch.obs_after)
+                target = process_target_batch(target)
+                logp = torch.nn.functional.log_softmax(
+                    out.move, dim=-1
+                )
+                logp = logp.gather(1, batch.move.unsqueeze(-1)
+                                   ).squeeze(-1)
+                logp = torch.minimum(-logp,
+                                     torch.ones_like(logp)*4) / 4
+                target.soft += -logp
+                target.soft = torch.minimum(target.soft,
+                                            torch.ones_like(target.soft))
 
-                    if not cfg.ablate_aux_loss:
-                        loss += aux_loss * 0.1 + td1_loss + td1_loss2
-                        loss += soft_loss
-                scaler.scale(loss).backward()
-                scaler.step(optimizer)
-                scaler.update()
+                td1_loss = mse(out.value[:, 1].flatten(), target.td1)
+                soft_loss = mse(out.value[:, 2].flatten(), target.soft)
+                td1_loss2 = mse(out.value[:, 3].flatten(), target.td2)
+
+                loss = move_loss + value_loss
+
+                if not cfg.ablate_aux_loss:
+                    loss += aux_loss * 0.1
+                    loss += td1_loss + td1_loss2
+                    loss += soft_loss
+
+                accelerator.backward(loss)
+                optimizer.step()
 
                 add_to_loss_stat(
                     rloss,
-                    move_loss.item(), value_loss.item(), aux_loss.item(),
+                    move_loss.item(), value_loss.item(),
+                    aux_loss.item(),
                     td1_loss.item(), td1_loss2, soft=soft_loss.item()
                 )
-                if at_the_end_of_interval(i, cfg.report_interval) and primary:
+                if at_the_end_of_interval(i, soft_update_interval):
+                    frozen_model.soft_update(
+                        base_model.state_dict(),
+                        soft_update_tau
+                    )
+
+                if at_the_end_of_interval(i, cfg.report_interval):
                     div_loss_stat(rloss, cfg.report_interval)
-                    report_train_loss(rloss, pbar, writer, step=i,
-                                      cumulative_step=epoch*steps_per_epoch+i)
+                    if primary:
+                        report_train_loss(
+                            rloss, pbar, accelerator, step=i,
+                            cumulative_step=epoch*steps_per_epoch + i
+                        )
                     rloss = make_loss_stats()
 
-                if primary \
-                   and at_the_end_of_interval(i, cfg.validation_interval):
+                if at_the_end_of_interval(i, cfg.validation_interval):
                     if validate_loader:
                         vname = f'{cfg.savefile}-{epoch}-{i+1}'
-                        vloss = do_validate(model, validate_loader, cfg,
-                                            pbar=pbar, name=vname)
-                        send_vloss(writer, vloss,
+                        vloss = do_validate(
+                            accelerator, model, validate_loader, cfg,
+                            pbar=pbar, name=vname
+                        )
+                        send_vloss(accelerator, vloss,
                                    cumulative_step=epoch*steps_per_epoch+i)
-                    save_model(model, f'interim-{cfg.savefile}.pt',
-                               world_size == 0)
-                if cfg.step_limit > 0 and i >= cfg.step_limit:
                     if primary:
-                        logging.warning('reach step_limit')
+                        save_model(accelerator.unwrap_model(model),
+                                   f'interim-{cfg.savefile}.pt')
+                if i+1 >= steps_per_epoch:
                     break
-        if epoch + 1 < cfg.epoch_limit and primary:
-            save_model(model, f'{cfg.savefile}-{epoch}.pt', world_size == 0)
-    if primary:
-        logging.info('finish')
-        save_model(model, f'{cfg.savefile}.pt', world_size == 0)
-    if world_size > 0:
-        torch.distributed.destroy_process_group()
+                elif cfg.step_limit > 0 and i >= cfg.step_limit:
+                    logger.warning('reach step_limit')
+                    break
+        if epoch + 1 < cfg.epoch_limit:
+            if accelerator.is_main_process:
+                save_model(accelerator.unwrap_model(model),
+                           f'{cfg.savefile}-{epoch}.pt')
+    logger.info('finish')
+    accelerator.end_training()
 
 
 @click.group(chain=True,
@@ -492,8 +556,6 @@ def train(data, output, device, batch_size, epoch_limit, step_limit,
                   f'-ch{network_cfg["channels"]}'
                   f'{"-noaux" if ablate_aux_loss else ""}')
 
-    params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    logging.info(f'#trainable parameters = {params}')
     cfg = TrainingCfg(
         device=device, trainfiles=data, savefile=output,
         batch_size=batch_size, step_limit=step_limit, epoch_limit=epoch_limit,
@@ -503,20 +565,7 @@ def train(data, output, device, batch_size, epoch_limit, step_limit,
         validation_csv=csv, validation_interval=validation_interval,
      )
 
-    if device.startswith('cuda') and torch.cuda.device_count() > 1 \
-       and not deterministic_mode:
-        world_size = torch.cuda.device_count()
-        port = 29500
-        os.environ["MASTER_ADDR"] = "localhost"
-        os.environ["MASTER_PORT"] = str(29500)
-        global_config['logger'].info(f'run ddp {world_size} port {port}')
-        torch.multiprocessing.spawn(
-            do_train,
-            args=(world_size, model, cfg, loader_class, False),
-            nprocs=world_size,
-            join=True)
-    else:
-        do_train(0, 0, model, cfg, loader_class, deterministic_mode)
+    do_train(model, cfg, loader_class, deterministic_mode)
     miniosl.export_model(model, device=device,
                          filename=output + '.ptd',
                          quiet=True, remove_aux_head=False)
@@ -607,7 +656,7 @@ def validate(data, device, csv, batch_size, step_limit):
                  f' concurrency {miniosl.parallel_threads()}')
     cfg = ValidationCfg(device=device,
                         validation_size=step_limit, validation_csv=csv)
-    ret = do_validate(model, v_loader, cfg, name='cli', main=True)
+    ret = do_validate_main(model, v_loader, cfg, name='cli')
     logging.debug(f'{ret=}')
 
 

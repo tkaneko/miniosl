@@ -4,7 +4,7 @@ project(minioslcc LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 
-option(BUILD_SHARED_LIBS "Build using shared libraries" ON)
+option(MINIOSLCC20_BUILD_SHARED_LIBS "Build using shared libraries" ON)
 if (DEFINED ENV{DISABLE_RANGE_PARALLEL})
   option(ENABLE_RANGE_PARALLEL "enable use of threads inside minioslcc" OFF)
 else()
@@ -12,14 +12,25 @@ else()
 endif()
 
 #set(CMAKE_CXX_VISIBILITY_PRESET hidden)
-add_library(minioslcc20 src/basic-type.cc src/base-state.cc src/state.cc src/game.cc
+set(minioslcc_sources src/basic-type.cc src/base-state.cc src/state.cc src/game.cc
   src/record.cc src/opening.cc src/feature.cc src/impl/effect.cc src/impl/more.cc
   src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc src/impl/japanese.cc
   src/impl/rng.cc)
+if(MINIOSLCC20_BUILD_SHARED_LIBS)
+  add_library(minioslcc20 SHARED ${minioslcc_sources})
+else()
+  add_library(minioslcc20 STATIC ${minioslcc_sources})
+endif()
+set_target_properties(minioslcc20 PROPERTIES
+  POSITION_INDEPENDENT_CODE ${MINIOSLCC20_BUILD_SHARED_LIBS}
+  )
+
 target_include_directories(minioslcc20 PUBLIC src)
 if(ENABLE_RANGE_PARALLEL)
   target_compile_definitions(minioslcc20 PUBLIC "ENABLE_RANGE_PARALLEL")
 endif()
+add_subdirectory(cista)
+target_link_libraries(minioslcc20 cista)
 
 option(BUILD_PYOSL "build python library for miniosl" ON)
 if(BUILD_PYOSL)

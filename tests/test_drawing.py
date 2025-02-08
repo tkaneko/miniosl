@@ -1,5 +1,7 @@
 import miniosl
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
 
 
 def test_draw_basestate():

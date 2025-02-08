@@ -22,6 +22,7 @@ namespace osl
   struct MiniRecord {
     /** initial state */
     EffectState initial_state;
+    GameVariant variant=HIRATE;
     std::optional<int> shogi816k_id;
     /** moves */
     std::vector<Move> moves;
@@ -37,6 +38,8 @@ namespace osl
     int move_size() const { return moves.size(); }
     /** test game is completed */
     bool has_winner() const { return osl::has_winner(result); }
+    /** game started with the canonical initial position */
+    bool is_hirate_game() const { return variant == HIRATE; }
     /** @internal export latest state */
     std::array<uint64_t,5> export320(bool flip_if_white_to_move=true) const;
     /**
@@ -65,8 +68,9 @@ namespace osl
     void guess_result(const EffectState& final);
     void settle_repetition();
 
-    void set_initial_state(const BaseState& state, std::optional<int> shogi816k_id=std::nullopt) {
-      *this = MiniRecord { EffectState(state), shogi816k_id };
+    void set_initial_state(const BaseState& state, GameVariant variant=HIRATE,
+                           std::optional<int> shogi816k_id=std::nullopt) {
+      *this = MiniRecord { EffectState(state), variant, shogi816k_id };
       history.emplace_back(HashStatus(initial_state));
     }
     /**
@@ -93,7 +97,7 @@ namespace osl
   /** a set of `MiniRecord` s */
   struct RecordSet {
     RecordSet() {}
-    RecordSet(const std::vector<MiniRecord>& v) : records(v) {}
+    explicit RecordSet(const std::vector<MiniRecord>& v) : records(v) {}
 
     std::vector<MiniRecord> records;
 
@@ -142,7 +146,7 @@ namespace osl
     /** read state from csa file */
     inline EffectState read_board(const std::string& str) { return read_record(str).initial_state; }
     struct ParseError : public std::domain_error {
-      ParseError(const std::string& w) : std::domain_error(w) {}
+      explicit ParseError(const std::string& w) : std::domain_error(w) {}
     };
   } // namespace csa
 } // namespace osl
@@ -177,7 +181,7 @@ namespace osl
 
     class ParseError : public std::domain_error {
     public:
-      ParseError(const std::string& msg = "") : domain_error(msg) { }
+      explicit ParseError(const std::string& msg = "") : domain_error(msg) { }
     };
   }
 
@@ -193,7 +197,7 @@ namespace osl
 
     class ParseError : public std::domain_error {
     public:
-      ParseError(const std::string& msg = "") : domain_error(msg) {}
+      explicit ParseError(const std::string& msg = "") : domain_error(msg) {}
     };
   }
   std::string to_psn(Move);
@@ -209,6 +213,7 @@ namespace osl
   std::u8string to_ki2(Square cur, Square prev);
   std::u8string to_ki2(Player);
   std::u8string to_ki2(Ptype);
+  std::u8string to_ja1(Ptype ptype);
   namespace kanji {
     /** read japanese representation of move */
     Move to_move(std::u8string, const EffectState&, Square last_to=Square());
@@ -221,7 +226,7 @@ namespace osl
 
     class ParseError : public std::domain_error {
     public:
-      ParseError(const std::string& msg = "") : domain_error(msg) {}
+      explicit ParseError(const std::string& msg = "") : domain_error(msg) {}
     };
     // hopefully addressed in c++23
     inline auto debugu8(const std::u8string& s) { return reinterpret_cast<const char*>(s.c_str()); }

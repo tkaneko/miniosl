@@ -882,6 +882,36 @@ void test_state816k() {
     auto id = state.shogi816kID();
     TEST_ASSERT(id.has_value());
   }
+  {
+    BaseState state(HIRATE);
+    auto id = state.shogi816kID();
+    TEST_ASSERT(id.has_value());
+    TEST_ASSERT(state.shogi816kID().value() == hirate_816k_id);
+  }
+  {
+    MiniRecord record;
+    TEST_ASSERT(record.variant == HIRATE);
+    TEST_ASSERT(! record.shogi816k_id);
+    SubRecord sub_record;
+    TEST_ASSERT(! sub_record.shogi816k_id);
+  }
+  {
+    int id = 777;
+    MiniRecord record;
+    BaseState state(Shogi816K, id);
+    record.set_initial_state(state, Shogi816K, id);
+    TEST_ASSERT(record.variant == Shogi816K);
+    TEST_ASSERT(record.shogi816k_id.value() == id);
+
+    auto text = to_usi(record);
+    auto r2 = usi::read_record(text);
+    TEST_ASSERT(r2.variant == Shogi816K);
+    TEST_ASSERT(r2.shogi816k_id.value() == id);
+
+    SubRecord sub_record(record);
+    TEST_ASSERT(sub_record.variant == Shogi816K);
+    TEST_ASSERT(sub_record.initial_state() == state);
+  }
 }
 
 void testEffectedState(EffectState const& state,Move move)
@@ -2055,7 +2085,7 @@ void test_usi() {
         state.makeMove(move);
 
         for (int i = 0; i < Piece::SIZE; ++i) {
-          if (! state.usedMask().test(i)) {
+          if (! state.active_pieces().test(i)) {
             TEST_CHECK(state.pieceOf(i).owner() == WHITE);
             TEST_CHECK(! state.pieceOf(i).isOnBoard());
           }
@@ -4762,20 +4792,67 @@ std::string long_sfen = "startpos moves 2g2f 8c8d 2f2e 8d8e 9g9f 4a3b 3i3h 7a7b 
 
 void test_compress_record()
 {
-  auto record = usi::read_record(long_sfen);
+  {
+    auto record = usi::read_record(long_sfen);
+    TEST_ASSERT(record.variant == HIRATE);
   
-  std::vector<uint64_t> code_seq;
-  int count = bitpack::append_binary_record(record, code_seq);
-  TEST_ASSERT(count > 0);
-  MiniRecord r2;
-  const uint64_t *ptr = &*code_seq.begin();
-  int read_count = bitpack::read_binary_record(ptr, r2);
-  TEST_ASSERT(count == read_count);
-  TEST_ASSERT(record == r2);
+    std::vector<uint64_t> code_seq;
+    int count = bitpack::append_binary_record(record, code_seq);
+    TEST_ASSERT(count > 0);
+    MiniRecord r2;
+    const uint64_t *ptr = &*code_seq.begin();
+    int read_count = bitpack::read_binary_record(ptr, r2);
+    TEST_ASSERT(count == read_count);
+    TEST_ASSERT(record.variant == r2.variant);
+    TEST_ASSERT(record == r2);
+  }
+  {
+    int id = 777;
+    MiniRecord record;
+    BaseState state(Shogi816K, id);
+    record.set_initial_state(state, Shogi816K, id);
+    record.append_move(csa::to_move_light("+1716FU", state), false);
+    TEST_ASSERT(record.variant == Shogi816K);
+    TEST_ASSERT(record.shogi816k_id.value() == id);
+
+    std::vector<uint64_t> code_seq;
+    int count = bitpack::append_binary_record(record, code_seq);
+    TEST_ASSERT(count > 0);
+    
+    MiniRecord r2;
+    const uint64_t *ptr = &*code_seq.begin();
+    int read_count = bitpack::read_binary_record(ptr, r2);
+    TEST_ASSERT(count == read_count);
+    TEST_ASSERT(record.variant == r2.variant);
+    TEST_ASSERT(record == r2);
+  }
+  {
+    BaseState state(Aozora);
+    MiniRecord record;
+    record.set_initial_state(state, Aozora);
+    record.append_move(csa::to_move_light("+1911NY", state), false);
+    TEST_ASSERT(record.variant == Aozora);
+
+    std::vector<uint64_t> code_seq;
+    int count = bitpack::append_binary_record(record, code_seq);
+    TEST_ASSERT(count > 0);
+    
+    MiniRecord r2;
+    const uint64_t *ptr = &*code_seq.begin();
+    int read_count = bitpack::read_binary_record(ptr, r2);
+    TEST_ASSERT(count == read_count);
+    TEST_ASSERT(record.variant == r2.variant);
+    TEST_ASSERT(record == r2);
+
+    SubRecord sub_record(record);
+    TEST_ASSERT(sub_record.variant == Aozora);
+    TEST_ASSERT(sub_record.initial_state() == state);
+  }
 }
 
 void test_hash() {
   auto record = usi::read_record("startpos moves 7g7f 3c3d 8h2b+ 3a2b B*4e");
+  TEST_ASSERT(record.variant == HIRATE);
   TEST_ASSERT_EQUAL(record.moves.size()+1, record.history.size());
 
   EffectState state = record.initial_state;
@@ -4788,6 +4865,18 @@ void test_hash() {
     if (code_fresh != code)
       std::cerr << code_fresh << ' ' << code << '\n';
     TEST_ASSERT(code_fresh == code);
+  }
+
+  MiniRecord record2;
+  record2.set_initial_state(record.initial_state);
+  state = record.initial_state;
+  HashStatus code_initial(state);
+  TEST_ASSERT(code_initial == record2.history.back());
+  for (auto move: record.moves) {
+    state.makeMove(move);
+    record2.append_move(move, state.inCheck());
+    HashStatus code_fresh(state);
+    TEST_ASSERT(code_fresh == record2.history.back());
   }
 }
 
@@ -5378,7 +5467,7 @@ void test_kifu() {
     ;
   std::istringstream is(kifu);
   MiniRecord record = kifu::read_record(is);
-  std::cerr << record.moves.size() << '\n' << record.initial_state;
+  // std::cerr << record.moves.size() << '\n' << record.initial_state;
 
   TEST_ASSERT(record.moves.size() == 2);
   TEST_CHECK(record.moves[0] == m26fu);
@@ -5398,7 +5487,7 @@ public:
 void test_gamearray() {
   auto game_config = GameConfig();
   game_config.ignore_draw = true;
-  game_config.shogi816k = true;
+  game_config.variant = Shogi816K;
   CPUPlayer player_a(std::make_shared<RandomPlayer>(), false), player_b(std::make_shared<RandomPlayer>(), false);
   MockModel model;
   GameArray mgrs(8, player_a, player_b,
@@ -5411,7 +5500,7 @@ void test_gamearray() {
 void test_gumbelplayer() {
   auto game_config = GameConfig();
   game_config.ignore_draw = true;
-  game_config.shogi816k = true;
+  game_config.variant = Shogi816K;
   GumbelPlayerConfig config;
   config.root_width=4;
 
@@ -5436,6 +5525,38 @@ void test_gumbelplayer() {
       mgrs.step();
   }
 }
+
+void test_aozora() {
+  {
+    BaseState base(Aozora);  
+    TEST_CHECK(base.check_internal_consistency());
+    EffectState state(base);
+    TEST_CHECK(state.check_internal_consistency());
+    MoveVector moves;
+    state.generateLegal(moves);
+    // std::cerr << moves;
+    TEST_CHECK(moves.size() == 54);
+    state.makeMove(moves[0]);
+    TEST_CHECK(state.check_internal_consistency());
+    state.generateLegal(moves);
+    TEST_CHECK(state.check_internal_consistency());
+  }
+  {
+    BaseState state(Aozora);
+    TEST_ASSERT(state.active_pieces().countBit() == 22);
+
+    MiniRecord record;
+    record.set_initial_state(state, Aozora);
+    TEST_ASSERT(record.variant == Aozora);
+    TEST_ASSERT(! record.shogi816k_id);
+
+    auto text = to_usi(record);
+    auto r2 = usi::read_record(text);
+    TEST_ASSERT(r2.variant == Aozora);
+    TEST_ASSERT(! r2.shogi816k_id);    
+  }
+}
+
 
 TEST_LIST = {
   { "player", test_player },
@@ -5475,5 +5596,6 @@ TEST_LIST = {
   { "kifu", test_kifu },
   { "gamearray", test_gamearray },
   { "gumbelplayer", test_gumbelplayer },
+  { "aozora", test_aozora },
   { nullptr, nullptr }
 };

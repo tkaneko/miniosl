@@ -272,6 +272,8 @@ namespace osl
   inline BasicHash hash_code(const BaseState& state) {
     return { zobrist_hash_of_board(state), PieceStand(BLACK, state).to_uint() };
   }
+  constexpr Player turn(BasicHash code) { return players[code.first & 1ull]; }
+  
   /** 128bit data to detect repetition in a game history.
    *  64 + 32 + 16bit for state,
    *  16bit for history */

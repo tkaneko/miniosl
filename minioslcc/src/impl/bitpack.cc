@@ -227,24 +227,36 @@ std::tuple<int,int,int,int> osl::bitpack::detail::unpack4(uint64_t code) {
 
 int osl::bitpack::append_binary_record(const MiniRecord& record, std::vector<uint64_t>& out) {
   constexpr int move_length_limit = 1<<10;
-  if (! record.shogi816k_id && record.initial_state != BaseState(HIRATE))
+  if (record.variant == HIRATE && record.initial_state != BaseState(HIRATE))
     throw std::domain_error("append_binary_record initial state not supported");
+  // todo: need to test initial states of other variants
   if (record.moves.size() >= move_length_limit)
     throw std::domain_error("append_binary_record length limit over "+std::to_string(record.moves.size()));
+  if (record.variant == UnIdentifiedVariant)
+    throw std::domain_error("append_binary_record unsupported variant");
+  // we ignore empty record
   if (record.moves.size() == 0)
     return 0;
   size_t size_at_beginning = out.size();
   std::vector<uint16_t> code_moves; code_moves.reserve(256);
-  if (record.shogi816k_id) {
-    // extended header
+  if (record.variant != HIRATE) {
+    // extend header
+    // note: assuming move.size > 0, ordinary record cannot have 0 in its header
     code_moves.push_back(0);
-    int hi = record.shogi816k_id.value() / 4096;
-    int lo = record.shogi816k_id.value() % 4096;
+    // pack variand_id and optional shogi816k_id in 24 bits
+    // 3 for variant_id, 9 + 12 for shogi816k_id
+    static_assert(Shogi816K_Size < (1 << 21));
+    assert(record.variant == Shogi816K || record.variant == Aozora);
+    int variant_id = (int)record.variant - 1;
+    int hi = (variant_id << 9), lo = 0;
+    if (record.shogi816k_id) {
+      hi += record.shogi816k_id.value() / 4096;
+      lo = record.shogi816k_id.value() % 4096;
+    }
     code_moves.push_back(hi);
     code_moves.push_back(lo);
   }
   uint16_t header = (record.moves.size() << 2) + record.result;
-  // std::cerr << "header " << header << ' ' << std::bitset<12>(header) << '\n';
   code_moves.push_back(header);
   EffectState state(record.initial_state);
   for (auto move: record.moves) {
@@ -294,10 +306,15 @@ int osl::bitpack::read_binary_record(const uint64_t *&in, MiniRecord& record) {
   };
   uint16_t header = retrieve();
   if (header == 0) {
-    // shogi 816k
+    // extended path for shogi 816k or other variants
     int hi = retrieve(), lo = retrieve();
-    int id = hi * 4096 + lo;
-    record.set_initial_state(BaseState(Shogi816K, id), id);
+    auto variant = (GameVariant)(1 + (hi >> 9));
+    std::optional<int> opt_id;
+    if (variant == Shogi816K) {
+      int id = (hi % 512) * 4096 + lo;
+      opt_id.emplace(id);
+    }
+    record.set_initial_state(BaseState(variant, opt_id), variant, opt_id);
     header = retrieve();
   }
   else {

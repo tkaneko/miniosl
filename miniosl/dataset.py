@@ -5,6 +5,7 @@ import numpy as np
 import logging
 import os
 import os.path
+import recordclass
 
 
 def load_sfen_from_file(sfen, *,
@@ -173,3 +174,45 @@ def load_torch_dataset(path: str | list[str]) -> torch.utils.data.Dataset:
             set.add(blk)
         return set
     raise ValueError(f'unsupported data {path}')
+
+
+"""input features (obs, obs_after) and labels (others)"""
+BatchInput = recordclass.recordclass(
+    'BatchInput', (
+        'obs', 'move', 'value', 'aux',
+        'obs_after',  'legal_move'))
+
+
+BatchOutput = recordclass.recordclass(
+    'BatchOutput', ('move', 'value', 'aux'))
+
+
+def preprocess_batch(batch: torch.Tensor):
+    """unpack data to feed them into neuralnetworks
+
+    batch should be located on gpus in advance for efficient data transfer
+    """
+    inputs = BatchInput(*batch)
+    inputs.obs = inputs.obs.float()
+    inputs.aux = inputs.aux.float()
+    inputs.obs_after = inputs.obs_after.float()
+    inputs.obs /= miniosl.One
+    inputs.move = inputs.move.long()
+    inputs.aux /= miniosl.One
+    inputs.obs_after /= miniosl.One
+    return inputs
+
+
+TargetValue = recordclass.recordclass(
+    'TargetValue', ('td1', 'td2', 'soft'))
+
+
+def process_target_batch(batch_output: tuple[torch.Tensor]):
+    _, succ_value, *_ = batch_output
+    succ_value = succ_value.float()
+    ret = TargetValue(
+        -succ_value[:, 0].flatten().detach(),  # tdtarget
+        -succ_value[:, 1].flatten().detach(),  # tdtarget2
+        -succ_value[:, 2].flatten().detach(),  # softtarget
+    )
+    return ret

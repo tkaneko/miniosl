@@ -97,7 +97,8 @@ namespace osl {
   struct SubRecord {
     /** moves */
     std::vector<Move> moves;
-    std::optional<int> shogi816k_id;
+    GameVariant variant=HIRATE;
+    int shogi816k_id=0;
     /** resign or DeclareWin if game has the winner */
     Move final_move;
     /** result of the game or `InGame` if not yet initialized */
@@ -109,6 +110,9 @@ namespace osl {
 
     BaseState initial_state() const;
 
+    bool is_hirate_game() const {
+      return variant == HIRATE;
+    }
     /** export features and labels */
     void export_feature_labels(int idx, nn_input_element *input,
                                int& move_label, int& value_label, nn_input_element *aux_label,

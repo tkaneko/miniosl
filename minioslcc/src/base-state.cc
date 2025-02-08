@@ -8,8 +8,8 @@ osl::BaseState::BaseState() {
   initEmpty();
 }
 
-osl::BaseState::BaseState(Handicap h, int additional_param) {
-  init(h, additional_param);
+osl::BaseState::BaseState(GameVariant v, std::optional<int> additional_param) {
+  init(v, additional_param);
 }
 
 void osl::BaseState::initFinalize(){
@@ -21,6 +21,8 @@ void osl::BaseState::initFinalize(){
   pawnMask[0] = XNone;
   pawnMask[1] = XNone;
   for (int num: to_range(PAWN)) {
+    if (! active_set.test(num))
+      continue;
     Piece p=pieceOf(num);
     Player player=p.owner();
     Square pos=p.square();
@@ -48,7 +50,7 @@ void osl::BaseState::initEmpty() {
   stand_mask[WHITE].resetAll();
   stand_count[BLACK].fill(0);
   stand_count[WHITE].fill(0);
-  used_mask.resetAll();
+  active_set.resetAll();
   pawnMask[0] = XNone;
   pawnMask[1] = XNone;
   for (int num: all_piece_id()){
@@ -56,6 +58,26 @@ void osl::BaseState::initEmpty() {
   }
 }
   
+void osl::BaseState::initAozora() {
+  const std::tuple<Player, Square, Ptype> pieces[] = {
+    {BLACK,Square(1,9),LANCE},  {BLACK,Square(9,9),LANCE},
+    {WHITE,Square(1,1),LANCE},  {WHITE,Square(9,1),LANCE},
+    {BLACK,Square(2,9),KNIGHT}, {BLACK,Square(8,9),KNIGHT},
+    {WHITE,Square(2,1),KNIGHT}, {WHITE,Square(8,1),KNIGHT},
+    {BLACK,Square(3,9),SILVER}, {BLACK,Square(7,9),SILVER},
+    {WHITE,Square(3,1),SILVER}, {WHITE,Square(7,1),SILVER},
+    {BLACK,Square(4,9),GOLD},   {BLACK,Square(6,9),GOLD},
+    {WHITE,Square(4,1),GOLD},   {WHITE,Square(6,1),GOLD},
+    {BLACK,Square(5,9),KING},   {WHITE,Square(5,1),KING},
+    {BLACK,Square(8,8),BISHOP}, {WHITE,Square(2,2),BISHOP},
+    {BLACK,Square(2,8),ROOK},   {WHITE,Square(8,2),ROOK}
+  };
+  for (auto [pl, sq, pt]: pieces)
+    setPiece(pl, sq, pt);
+
+  initFinalize();  
+}
+
 void osl::BaseState::init816K(int id) {
   if (id < 0)
     id = rngs[0]() % Shogi816K_Size;
@@ -107,8 +129,22 @@ void osl::BaseState::init816K(int id) {
   initFinalize();
 }
 
+std::pair<osl::GameVariant, std::optional<int>>
+osl::BaseState::guess_variant() const {
+  auto opt_id = shogi816kID();
+  if (opt_id && opt_id.value() != hirate_816k_id)
+    return {Shogi816K, opt_id};
+  auto active_count = active_set.countBit();
+  if (active_count == 40)
+    return {HIRATE, std::nullopt};
+  if (active_count == 22
+      && active_set.selectBit<PAWN>() == 0)
+    return {Aozora, std::nullopt};
+  return {UnIdentifiedVariant, std::nullopt};
+}
+
 std::optional<int> osl::BaseState::shogi816kID() const {
-  int xs[Ptype_SIZE][2] = { 0 };
+  int xs[Ptype_SIZE][2] = {{ 0 }};
   for (int x=9;x>0;x--) {
     if (pieceAt(Square(x, 7)).ptype() != PAWN) return std::nullopt;
     if (pieceAt(Square(x, 3)).ptype() != PAWN) return std::nullopt;
@@ -155,11 +191,13 @@ std::optional<int> osl::BaseState::shogi816kID() const {
   return rb * 22680 + kgskl;
 }
 
-void osl::BaseState::init(Handicap h, int additional_param) {
+void osl::BaseState::init(GameVariant v, std::optional<int> additional_param) {
   initEmpty();
-  if (h == Shogi816K)
-    return init816K(additional_param);
-  if (h != HIRATE) {
+  if (v == Shogi816K)
+    return init816K(additional_param.value_or(-1));
+  if (v == Aozora)
+    return initAozora();
+  if (v != HIRATE) {
     std::cerr << "unsupported handicap\n";
     throw std::domain_error("unsupported handicap");
   }
@@ -202,14 +240,15 @@ void osl::BaseState::init(Handicap h, int additional_param) {
 }
   
 
-osl::BaseState::~BaseState() {}
+osl::BaseState::~BaseState() {
+}
 
-void osl::BaseState::setPiece(Player player,Square pos,Ptype ptype) {
+void osl::BaseState::setPiece(Player player, Square pos, Ptype ptype) {
   for (int num: all_piece_id()) {
-    if (!used_mask.test(num) && piece_id_ptype[num]==unpromote(ptype)
-	&& (ptype!=KING || 
-	    num==king_piece_id(player))) {
-      used_mask.set(num);
+    if (! active_set.test(num)
+        && piece_id_ptype[num]==unpromote(ptype)
+	&& (ptype!=KING || num==king_piece_id(player))) {
+      active_set.set(num);
       Piece p(player,ptype,num,pos);
       pieces[num] = p;
       if (pos.isPieceStand())
@@ -229,8 +268,8 @@ void osl::BaseState::setPiece(Player player,Square pos,Ptype ptype) {
 
 void osl::BaseState::setPieceAll(Player player) {
   for (int num: all_piece_id()) {
-    if (!used_mask.test(num)) {
-      used_mask.set(num);
+    if (! active_set.test(num)) {
+      active_set.set(num);
       stand_mask[player].set(num);
       Player pplayer = player;
       /* 片玉しかない問題のため */
@@ -251,7 +290,7 @@ bool osl::BaseState::check_internal_consistency() const {
 	if (p0.square()!=pos)
 	  return false;
 	int num=p0.id();
-	if (! is_valid_piece_id(num) || !used_mask.test(num)) 
+	if (! is_valid_piece_id(num) || ! active_set.test(num)) 
 	  return false;
 	Piece p1=pieceOf(num);
 	if (p0!=p1) 
@@ -261,7 +300,8 @@ bool osl::BaseState::check_internal_consistency() const {
   }
   // piecesのconsistency
   for (int num0: all_piece_id()) {
-    if(!usedMask().test(num0)) continue;
+    if (! active_set.test(num0))
+      continue;
     if (isOnBoard(num0)) {
       Piece p0=pieceOf(num0);
       Ptype ptype=p0.ptype();
@@ -330,7 +370,8 @@ bool osl::BaseState::check_internal_consistency() const {
 osl::BaseState osl::BaseState::rotate180() const {
   BaseState ret;
   for (int i: all_piece_id()) {
-    if(!usedMask().test(i)) continue;
+    if (! active_set.test(i))
+      continue;
     const Piece p = pieceOf(i);
     ret.setPiece(alt(p.owner()), p.square().rotate180(), p.ptype());
   }
@@ -435,7 +476,7 @@ bool osl::operator==(const BaseState& st1,const BaseState& st2) {
   assert(st2.check_internal_consistency());
   if (st1.turn()!=st2.turn()) 
     return false;
-  if (st1.used_mask.countBit() != st2.used_mask.countBit())
+  if (st1.active_set.countBit() != st2.active_set.countBit())
     return false;               // todo check ptype count if not 0
   for (auto pl: players) {
     if (st1.pawnMask[pl]!=st2.pawnMask[pl]) return false;

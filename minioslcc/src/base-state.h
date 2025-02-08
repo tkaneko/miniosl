@@ -8,13 +8,16 @@
 
 namespace osl
 {
-  enum Handicap{
+  enum GameVariant {
     HIRATE,
+    // note: the order matters in encoding (see bitpack.cc)
     Shogi816K,
-    //    KYOUOCHI,
-    //    KAKUOCHI,
+    Aozora,
+    //    KOMACHI,
+    UnIdentifiedVariant = 7     // at most 3bits in current scheme
   };
   constexpr int Shogi816K_Size = 72 * 22680;
+  constexpr int hirate_816k_id = 328442;
   class BaseState;
   std::ostream& operator<<(std::ostream& os,const BaseState& state);
   /**
@@ -34,14 +37,16 @@ namespace osl
 
     /** 手番 */
     Player side_to_move;
-    PieceMask used_mask;
+    PieceMask active_set;
   public:
     explicit BaseState();
-    explicit BaseState(Handicap h, int additional_param=-1);
-    // public継承させるので，virtual destructorを定義する．
+    explicit BaseState(GameVariant v, std::optional<int> additional_param=std::nullopt);
     virtual ~BaseState();
 
+    std::pair<GameVariant, std::optional<int>> guess_variant() const;
+    /** return id if current position is one of  */
     std::optional<int> shogi816kID() const;
+
     Piece pieceOf(int num) const { return pieces[num]; }
     inline auto all_pieces() const {
       return std::views::iota(0, Piece::SIZE)
@@ -73,7 +78,7 @@ namespace osl
 
     /** return a set of piece IDs on stand */
     const PieceMask& standMask(Player p) const { return stand_mask[p]; }
-    const PieceMask& usedMask() const {return used_mask;}
+    const PieceMask& active_pieces() const { return active_set; }
 
     /** return whether player's pawn is on file x */
     bool pawnInFile(Player player, int x) const { return bittest(pawnMask[player], x); }
@@ -127,8 +132,9 @@ namespace osl
     }
     // edit board
     /** @internal set predefined initial state */
-    void init(Handicap h, int additional_param=-1);
+    void init(GameVariant v, std::optional<int> additional_param=std::nullopt);
     void init816K(int id);
+    void initAozora();
     /** @internal
      * make empty board for incremental initialization, typically consists of
      *  - setPiece() x40, and then
