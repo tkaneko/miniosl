@@ -42,9 +42,9 @@ def minirecord_to_anim(
         decorate: bool = False):
     """return animation of the specified range of record"""
     if n < 0:
-        n = self.move_size() + 1
+        n = self.move_size()
     anim = miniosl.ShogiAnimation(self, start)
-    return anim.animate(n + 1)
+    return anim.animate(n)
 
 
 def minirecord_to_ja(self: miniosl.MiniRecord) -> list[str]:

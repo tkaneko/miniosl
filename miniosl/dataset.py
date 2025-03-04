@@ -57,7 +57,8 @@ class GameDataset(torch.utils.data.Dataset):
     :param batch_with_collate: need to specify `collate_fn=lambda indices: dataset.collate(indices)` for trainloader, if (and only if) True
     """
     def __init__(self, window_size: int, block_unit: int,
-                 batch_with_collate: bool = True):
+                 batch_with_collate: bool = True,
+                 opening_decay_power=None):
         self.window_size = window_size
         self.block_unit = block_unit
         self.blocks = miniosl.GameBlockVector()
@@ -66,6 +67,7 @@ class GameDataset(torch.utils.data.Dataset):
         self.batch_with_collate = batch_with_collate
 
         self.blocks.reserve(self.block_limit)
+        self.opening_decay_power = opening_decay_power
 
     def block_id(self) -> int:
         """number of block added so far"""
@@ -138,6 +140,7 @@ class GameDataset(torch.utils.data.Dataset):
                                  inputs2,
                                  legalmove_labels,
                                  # sampled_ids
+                                 decay_power=self.opening_decay_power,
                                  )
         # for offset, (p, s) in enumerate(indices):
         #     self.blocks[p][s].sample_feature_labels_to(

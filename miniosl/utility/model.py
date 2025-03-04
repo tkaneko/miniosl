@@ -522,24 +522,26 @@ def main(log_level):
 @main.command()
 @click.argument('data', nargs=-1)
 @click.option("--output", help="output path", default='')
-@click.option('--device', default='cuda:0', help='device to place')
+@click.option('--device', default='cuda:0',
+              help='device to place', show_default=True)
 @click.option("--batch-size", type=int,
               help="batch size",
-              default=1024)
+              default=1024, show_default=True)
 @click.option("--epoch-limit", help="maximum epoch",
-              type=int, default=2)
+              type=int, default=2, show_default=True)
 @click.option("--step-limit", help="maximum #update, 0 for inf",
-              type=int, default=100000)
+              type=int, default=100000, show_default=True)
 @click.option("--policy-commit", type=float,
               help="smoothing in cross entropy loss if <1",
-              default=127/128)
+              default=127/128, show_default=True)
 @click.option("--ablate-aux-loss/--no-ablate-aux-loss", default=False)
-@click.option("--report-interval", type=int, default=200)
+@click.option("--report-interval", type=int, default=200, show_default=True)
 @click.option("--validation-data", default='')
-@click.option("--validation-interval", type=int, default=1000)
-@click.option("--validation-step", type=int, default=100)
+@click.option("--validation-interval", type=int, default=1000,
+              show_default=True)
+@click.option("--validation-step", type=int, default=100, show_default=True)
 @click.option('--csv', default="validation.csv",
-              help="file to append validation result")
+              help="file to append validation result", show_default=True)
 def train(data, output, device, batch_size, epoch_limit, step_limit,
           policy_commit, ablate_aux_loss,
           report_interval,
@@ -573,12 +575,14 @@ def train(data, output, device, batch_size, epoch_limit, step_limit,
 
 @main.command()
 @click.option("--n-block", help="#residual block",
-              type=int, default=9)
-@click.option("--n-channel", help="#channel", type=int, default=256)
+              type=int, default=9, show_default=True)
+@click.option("--n-channel", help="#channel", type=int, default=256,
+              show_default=True)
 @click.option("--broadcast-every",
               help="insert broadcast periodically",
-              type=int, default=3)
-@click.option('--device', default='cuda:0', help='device to place')
+              type=int, default=3, show_default=True)
+@click.option('--device', default='cuda:0', help='device to place',
+              show_default=True)
 def build(n_block, n_channel, broadcast_every, device):
     network_cfg = {'in_channels': len(miniosl.channel_id),
                    'channels': n_channel, 'out_channels': 27,
@@ -593,7 +597,8 @@ def build(n_block, n_channel, broadcast_every, device):
 @main.command()
 @click.argument('model', type=click.Path(exists=True, dir_okay=False))
 @click.option('--model', type=click.Path(exists=True, dir_okay=False))
-@click.option('--device', default='cuda:0', help='device to load')
+@click.option('--device', default='cuda:0',
+              help='device to load', show_default=True)
 @click.option('--load-strict/--no-load-strict', default=True)
 @click.option('--remove-aux-head/--no-remove-aux-head', default=False)
 def load(model, device, load_strict, remove_aux_head):
@@ -632,12 +637,14 @@ def export(output, device, remove_aux_head):
 
 @main.command()
 @click.argument('data', type=click.Path(exists=True, dir_okay=False))
-@click.option('--device', default='cuda:0', help='device to load')
+@click.option('--device', default='cuda:0',
+              help='device to load', show_default=True)
 @click.option('--csv', default="validation.csv",
-              help="file to append validation result")
-@click.option("--batch-size", type=int, help="batch size", default=1024)
+              help="file to append validation result", show_default=True)
+@click.option("--batch-size", type=int, default=1024,
+              help="batch size", show_default=True)
 @click.option('--step-limit', type=int, default=100,
-              help="validation size")
+              help="validation size", show_default=True)
 def validate(data, device, csv, batch_size, step_limit):
     """run (only) validation on DATA"""
     v_dataset = miniosl.load_torch_dataset(data)

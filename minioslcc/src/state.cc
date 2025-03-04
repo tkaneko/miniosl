@@ -547,14 +547,14 @@ void osl::EffectState::generateWithFullUnpromotions(MoveVector& moves) const {
 
 osl::Move osl::EffectState::tryCheckmate1ply() const {
   auto best_move=Move::PASS(turn());
-  if (! inCheck())
+  if (! inCheck() && king_active(alt(turn())))
     ImmediateCheckmate::hasCheckmateMove(turn(),*this,best_move);
   return best_move;
 }
 
 osl::Move osl::EffectState::findThreatmate1ply() const {
-  auto best_move=Move::PASS(turn());
-  if (! inCheck())
+  auto best_move=Move::PASS(alt(turn()));
+  if (! inCheck() && king_active(turn()))
     ImmediateCheckmate::hasCheckmateMove(alt(turn()),*this,best_move);
   return best_move;
 }

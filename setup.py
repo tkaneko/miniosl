@@ -183,7 +183,9 @@ setup(
     ],
     package_data={'miniosl': [
         'pretrained/eval.onnx',
-        'pretrained/eval-aozora.onnx'
+        'pretrained/eval-aozora.onnx',
+        'sample/puzzle1.json',
+        'sample/puzzle2.json',
     ]},
     description="A python interface to miniosl (shogi library)",
     classifiers=[               # https://pypi.org/classifiers/
@@ -197,7 +199,7 @@ setup(
     ],
     long_description=(this_directory / "README.md").read_text(),
     long_description_content_type='text/markdown',
-    version="0.1.4a4",
+    version="0.1.5",
     author="T. Kaneko",
     author_email="kaneko@graco.c.u-tokyo.ac.jp",
     ext_modules=[CMakeExtension(

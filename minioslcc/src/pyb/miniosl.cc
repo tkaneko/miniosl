@@ -76,7 +76,7 @@ void pyosl::init_basic(py::module_& m) {
          ">>> miniosl.pawn.to_ja()\n"
          "'歩'\n"
          )
-    .def("to_ja1", osl::to_ja1, "Japanese label")
+    .def("to_ja1", osl::to_ja1, "Japanese label in single character")
     // `miniosl.pawn.name` -> ppawn
     // .def("to_en", [](osl::Ptype ptype) { return osl::ptype_en_names[idx(ptype)]; })
     .def_property_readonly("count", [](osl::Ptype ptype) { return osl::ptype_piece_count(ptype); },
@@ -458,6 +458,7 @@ void pyosl::init_basic(py::module_& m) {
     return osl::csa::read_record(std::filesystem::path(filepath)); }, "path"_a,
     "load a game record");
   m.def("usi_record", &osl::usi::read_record, "record_string"_a, "read str as a game record");
+  m.def("usi_state", &osl::usi::to_state, "board_string"_a, "read str as a game position");
   m.def("usi_sub_record",
         [](std::string s){ auto ret = osl::usi::read_record(s); return osl::SubRecord(ret); },
         "record_string"_a, "read str as a game record in SubRecord");

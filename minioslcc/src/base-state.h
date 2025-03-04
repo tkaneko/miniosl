@@ -68,6 +68,7 @@ namespace osl
     }
     bool isOnBoard(int id) const { return pieceOf(id).isOnBoard(); }
 
+    bool king_active(Player P) const { return active_pieces().test(king_piece_id(P)); }
     template<Player P>
     Piece kingPiece() const { return pieceOf(king_piece_id(P)); }
     /** return piece of P's King */

@@ -207,9 +207,12 @@ osl::PlayerArray::sort_moves_with_book(const OpeningTree& book,
   std::vector<std::pair<float,Move>> pmv; // priority-move vector
   pmv.reserve(moves.size());
   const int sgn = sign(turn(state_key));
+  constexpr int exploration_percent = 3;
+  const int expl_sampled = std::uniform_int_distribution<>(0, 100)(rng[0]);
+  const int expl = expl_sampled < exploration_percent;
 
   // softmax of logits
-  std::vector<float> az_prior(moves.size(), 1./moves.size()); // assume uniform random policy
+  std::vector<float> az_prior(moves.size(), expl * 1./moves.size()); // assume uniform random policy
   // scaling with visit counts towards az's prior
   int total_visit = 0;
   for (size_t i=0; i<moves.size(); ++i) {

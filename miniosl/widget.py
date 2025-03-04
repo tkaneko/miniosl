@@ -2,12 +2,19 @@ import miniosl
 import miniosl.drawing
 import ipywidgets
 import matplotlib.pyplot as plt
+import IPython
 
 ctl_layout = {'width': '4em', 'height': '5ex'}
 square_layout = {'width': '2em', 'height': '4ex', 'padding': '0'}
-stand_layout = {
+centered_layout = {
     'display': 'flex', 'justify_content': 'center',
 }
+right_aligned_layout = {
+    'display': 'flex', 'justify_content': 'flex-end',
+}
+
+default_fpm = 16
+default_interval = 50
 
 
 class Controls:
@@ -45,18 +52,41 @@ class Controls:
 
 
 class BoardView:
-    def __init__(self):
+    def __init__(self, border='1px solid black'):
         self.out = ipywidgets.Output(layout={
             'width': '3.5in',
             'min_width': '3.5in',
-            'border': '1px solid black',
-            'margin': '0em'
+            'height': '3.5in',
+            'border': border,
+            'margin': '0ex 1em 0ex 1em'
         })
+        # initialized later
+        self.anim = None
 
     def update(self, img):
         with self.out:
             self.out.clear_output(wait=True)
             display(img)
+
+    def clear_animation(self):
+        self.anim = None
+
+    def make_animation(self, *args, frame_per_move=default_fpm, **kwargs):
+        if not self.anim:
+            with self.out:
+                self.anim = miniosl.ShogiAnimation(
+                    frame_per_move=frame_per_move,
+                    *args, **kwargs
+                )
+
+    def animate(self, *args, interval=default_interval, **kwargs):
+        board = IPython.display.Video(
+            self.anim.animate(
+                *args, interval=interval, **kwargs
+            ).to_html5_video(),
+            embed=True, html_attributes='autoplay'
+        )
+        self.update(board)
 
     def widget_box(self):
         return self.out
@@ -75,10 +105,17 @@ class RecordView:
             )
             for i in range(record_len)
         ]
-        self.show_cover = ipywidgets.Checkbox(value=False, description='利き表示')
+        self.show_cover_btn = ipywidgets.Button(
+            description='利き表示・解除', layout={'width': '11em'},
+            button_style='info',
+        )
+        self.cover_showing = False
+
+        # ipywidgets.Checkbox(value=False, description='利き表示')
         self.ctrls = Controls()
-        self.board = BoardView()
+        self.board = BoardView(border='0px')
         MN = 10
+        anim_moves = 1
 
         def callback(widget):
             if widget is self.ctrls.right_btn:
@@ -87,6 +124,7 @@ class RecordView:
                 ui.go(-1)
             elif widget is self.ctrls.dright_btn:
                 step = min(10, record_len - ui.cur)
+                anim_moves = step
                 ui.go(step)
             elif widget is self.ctrls.dleft_btn:
                 step = min(10, ui.cur)
@@ -102,8 +140,18 @@ class RecordView:
                 ui.cur // (MN*2),
                 len(self.move_tab.children) - 1
             )
-            self.board.update(ui.to_img(decorate=self.show_cover.value))
+            show_cover_requested = widget is self.show_cover_btn
+            if ui.cur == 0 or show_cover_requested:
+                if show_cover_requested:
+                    self.cover_showing = not self.cover_showing
+                board = ui.to_img(decorate=self.cover_showing)
+                self.board.update(board)
+                self.board.clear_animation()
+            else:
+                self.board.make_animation(ui._record)
+                self.board.animate(anim_moves, offset=ui.cur-anim_moves)
 
+        self.show_cover_btn.on_click(callback)
         self.ctrls.on_click(callback)
         for btn in self.move_btns:
             btn.on_click(callback)
@@ -141,18 +189,18 @@ class RecordView:
                     layout={'overflow': 'scroll hidden', 'display': 'flex'}
                 )
             ]),
-            ipywidgets.HBox([self.ctrls.widget_box(), self.show_cover]),
+            ipywidgets.HBox([self.ctrls.widget_box(), self.show_cover_btn]),
         ])
         callback(None)
 
         plt.ioff()
         plt.close()
-        self.show_cover.observe(callback, names='value')
 
 
 sq_bg_color = '#f8d38b'
 sq_dst_color = '#d3f88b'
-move_src_unselected = '--'
+sq_dst2_color = '#53b85b'
+move_src_unselected = '(未選択)'
 
 
 class SquareControl:
@@ -164,17 +212,19 @@ class SquareControl:
         dst_candidate is set, move_select is filtered
     (3) dst selected --- after choosing a destination square at (2)
     """
-    def __init__(self, parent):
+    def __init__(self, parent, xlim=9, ylim=9):
         self.parent = parent
+        self.xlim = xlim
+        self.ylim = ylim
         self.black_stand, self.black_stand_box = self.make_stand('先手')
         self.white_stand, self.white_stand_box = self.make_stand('後手')
         self.squares = [[
             ipywidgets.Button(
-                description=str(9-col)+str(1+row),
+                description=str(xlim-col)+str(1+row),
                 layout=square_layout,
                 style=dict(font_size='90%', button_color=sq_bg_color)
-            ) for col in range(9)
-        ] for row in range(9)]
+            ) for col in range(xlim)
+        ] for row in range(ylim)]
         self.rows = [
             ipywidgets.HBox(
                 self.squares[row]
@@ -182,7 +232,7 @@ class SquareControl:
                     miniosl.drawing.kanjirow[row+1],
                     layout={'width': '1em'}
                 )])
-            for row in range(9)
+            for row in range(ylim)
         ]
         self.move_select = ipywidgets.Dropdown(
             options=[''], description='指し手候補',
@@ -194,24 +244,31 @@ class SquareControl:
         self.move_lbl = ipywidgets.Label('動かす駒')
         self.move_src = ipywidgets.Label(move_src_unselected)
         self.move_now = ipywidgets.Button(
-            description='指す', layout={'width': '6em'}
+            description='指す', layout={'width': '6em'},
+            button_style='success',
         )
         self.turn_label = ipywidgets.Label('')
-        self.board = ipywidgets.HBox([
+        board_main = ipywidgets.HBox([
             self.white_stand_box,
             ipywidgets.VBox(
-                [ipywidgets.HBox([ipywidgets.Label('指し手選択'), self.turn_label])]
-                + [ipywidgets.HBox([ipywidgets.Label(
-                    f' {9-col}', layout={
-                        'display': 'flex', 'justify_content': 'center',
-                        'width': '1.95em'
-                    }) for col in range(9)])]
-                + self.rows
-                + [ipywidgets.HBox([self.move_lbl, self.move_src, ])]
-                + [ipywidgets.HBox([self.move_select, self.move_now])],
+                [ipywidgets.HBox([ipywidgets.Label(
+                    f' {xlim-col}',
+                    layout=(centered_layout | {'width': '1.95em'})
+                ) for col in range(xlim)])]
+                + self.rows,
                 layout={'margin': '0 0em 0 1em'}),
             self.black_stand_box,
         ], layout={'margin': '0 0em 0 3em'})
+
+        self.board = ipywidgets.VBox([
+            ipywidgets.HBox([ipywidgets.Label('指し手選択'), self.turn_label],
+                            layout=centered_layout),
+            board_main,
+            ipywidgets.HBox([self.move_lbl, self.move_src, ],
+                            layout=centered_layout),
+            ipywidgets.HBox([self.move_select, self.move_now],
+                            layout=right_aligned_layout)
+        ])
 
         def move_now(widget):
             if not self.move_select.value:
@@ -220,17 +277,19 @@ class SquareControl:
             self.parent.make_move(self.selected_move)
 
         self.move_now.on_click(move_now)
+        self.move_select.observe(lambda chg: self.move_selected(),
+                                 names='value')
 
         def callback_xy(widget):
-            for y in range(9):
+            for y in range(self.ylim):
                 if widget not in self.squares[y]:
                     continue
                 x = self.squares[y].index(widget)
-                self.select_xy(9-x, y+1)
+                self.select_xy(self.xlim-x, y+1)
                 return
 
-        for y in range(9):
-            for x in range(9):
+        for y in range(self.ylim):
+            for x in range(self.xlim):
                 self.squares[y][x].on_click(callback_xy)
 
         def callback_stand(widget):
@@ -246,6 +305,20 @@ class SquareControl:
             self.black_stand[i].on_click(callback_stand)
             self.white_stand[i].on_click(callback_stand)
 
+    def move_selected(self):
+        self.move_now.disabled = not bool(self.move_select.value)
+        if self.move_select.value:
+            selected_move = self.ja_to_move(self.move_select.value)
+            if selected_move.is_drop():
+                self.first_selection(selected_move.ptype,
+                                     from_move_select=True)
+            else:
+                sq = miniosl.Square(selected_move.src.x, selected_move.src.y)
+                piece = self.state.piece_at(sq)
+                self.first_selection(piece, from_move_select=True)
+        else:
+            self.reset_selection()
+
     def make_stand(self, name):
         btns = [ipywidgets.Button(
             description=_,
@@ -258,13 +331,11 @@ class SquareControl:
             ipywidgets.Label('持駒', layout=layout),
             ipywidgets.Label(name, layout=layout)
         ]
-        return btns, ipywidgets.VBox(lbls+btns, layout={
-            'display': 'flex', 'justify_content': 'center',
-        })
+        return btns, ipywidgets.VBox(lbls+btns, layout=centered_layout)
 
     def reset_dst(self):
         for x, y in self.dst_candidate:
-            btn = self.squares[y-1][9-x]
+            btn = self.squares[y-1][self.xlim-x]
             btn.style.button_color = sq_bg_color
             btn.disabled = True
         self.dst_candidate = []
@@ -281,6 +352,7 @@ class SquareControl:
         self.move_select.value = None
         self.reset_dst()
         self.selected_sq = None
+        self.move_now.description = '指す'
 
     def select_xy(self, x, y):
         if self.selected_sq == (x, y):
@@ -292,23 +364,27 @@ class SquareControl:
         if not piece.is_piece() or piece.color != self.state.turn:
             # destination selected
             self.filter_moves(dst=sq)
+            self.show_current_dst()
             return
         # first click choose src
         self.first_selection(piece)
 
-    def first_selection(self, src):
+    def first_selection(self, src, from_move_select=False):
         if type(src) is miniosl.Piece:
             self.selected_sq = src.square.to_xy()
             self.move_src.value = (
                 src.square.to_ja() + src.ptype.to_ja()
             )
+            self.move_now.description = '指す'
         else:
             assert type(src) is miniosl.Ptype
             self.selected_sq = src
             self.move_src.value = (
                 src.to_ja() + ' (持駒)'
             )
-        self.filter_moves()
+            self.move_now.description = '打つ'
+        if not from_move_select:
+            self.filter_moves()
         self.reset_dst()
         self.dst_candidate = [
             _.dst.to_xy()
@@ -316,6 +392,15 @@ class SquareControl:
             if self.move_match(_, self.selected_sq)
         ]
         self.activate_dst()
+        self.show_current_dst()
+
+    def show_current_dst(self):
+        if self.move_select.value:
+            self.activate_dst()
+            selected_move = self.ja_to_move(self.move_select.value)
+            dst = selected_move.dst
+            btn = self.squares[dst.y-1][self.xlim-dst.x]
+            btn.style.button_color = sq_dst2_color
 
     def move_match(self, move, src, dst=None):
         if type(src) is miniosl.Ptype:
@@ -336,7 +421,7 @@ class SquareControl:
 
     def activate_dst(self):
         for x, y in self.dst_candidate:
-            btn = self.squares[y-1][9-x]
+            btn = self.squares[y-1][self.xlim-x]
             btn.style.button_color = sq_dst_color
             btn.disabled = False
 
@@ -355,20 +440,22 @@ class SquareControl:
     def set_state(self, state, ai_moves=None):
         self.reset_dst()
         self.state = state
-        if not ai_moves:
+        if ai_moves is None:
             self.moves = list(state.genmove_full())
             self.moves.sort(key=lambda e: e.dst.to_xy())
         else:
-            self.moves = [_[1] for _ in ai_moves]
+            self.moves = [_ for _ in ai_moves]
         self.moves_ja = [_.to_ja(state) for _ in self.moves]
         self.move_select.options = self.moves_ja
-        self.move_select.value = None
+        self.move_select.value = (
+            self.moves_ja[0] if len(self.moves) == 1 else None
+        )
         self.legal_move_src = set(_.src.to_xy() for _ in self.moves)
-        for y in range(9):
-            for x in range(9):
+        for y in range(self.ylim):
+            for x in range(self.xlim):
                 sq = miniosl.Square(x+1, y+1)
                 piece = state.piece_at(sq)
-                btn = self.squares[y][8-x]
+                btn = self.squares[y][self.xlim-1-x]
                 btn.description = SquareControl.piece_str(piece)
                 btn.disabled = sq.to_xy() not in self.legal_move_src
         self.update_stand(miniosl.black, self.black_stand)
@@ -404,25 +491,71 @@ class PlayWindow:
         has_ai = ui.model
         self.board = BoardView()
         self.sq_ctrl = SquareControl(self)
-        view_opt = ['標準', '利き表示', 'AI推薦']
-        self.assist = ipywidgets.RadioButtons(
-            options=view_opt if has_ai else view_opt[:2]
+        self.show_cover_btn = ipywidgets.Button(
+            description='利き表示', layout={'width': '8em'},
+            button_style='info',
         )
+        self.ai_assist_btn = ipywidgets.Button(
+            description='AI支援', layout={'width': '8em'},
+            button_style='info',
+        )
+        self.auto_reply_btn = ipywidgets.Button(
+            description='後手をAIが進める', layout={'width': '12em'},
+            button_style='warning',
+        )
+        self.cover_showing = False
+        self.ai_showing = False
+        self.show_cover_btn.on_click(lambda w: self.button_pressed(w))
+        self.ai_assist_btn.on_click(lambda w: self.button_pressed(w))
+        self.auto_reply_btn.on_click(lambda w: self.button_pressed(w))
+        self.reset_btn = ipywidgets.Button(
+            description='初めに戻す', layout={'width': '8em'},
+            button_style='danger',
+        )
+        self.reset_btn.on_click(lambda w: self.button_pressed(w))
+        self.reset_btn.disabled = True
+
         self.widget = ipywidgets.HBox([
             ipywidgets.VBox([
                 ipywidgets.Label('対局盤面'),
                 self.board.widget_box(),
-                self.assist,
+                ipywidgets.HBox([
+                    self.show_cover_btn, self.ai_assist_btn,
+                ]),
+                self.reset_btn,
             ]),
-            self.sq_ctrl.widget_box(),
+            ipywidgets.VBox([
+                self.sq_ctrl.widget_box(),
+                ipywidgets.HBox(
+                    [self.auto_reply_btn], layout=right_aligned_layout,
+                ),
+            ], layout=centered_layout)
         ])
         self.ui = ui
         self.board.update(ui.to_img())
         self.sq_ctrl.set_state(ui._state)
         plt.ioff()
         plt.close()
-        self.assist.observe(lambda chg: self.make_move(None),
-                            names='value')
+        self.auto_reply_btn.disabled = (
+            self.ui.in_checkmate() or self.ui.turn() == miniosl.black
+        )
+
+    def button_pressed(self, widget):
+        if widget is self.auto_reply_btn:
+            moves = self.ai_moves()
+            self.make_move(moves[0][1])
+            return
+        if widget is self.show_cover_btn:
+            self.cover_showing = not self.cover_showing
+            self.ai_showing = False
+        elif widget is self.ai_assist_btn:
+            self.cover_showing = False
+            self.ai_showing = not self.ai_showing
+        elif widget is self.reset_btn:
+            self.ui.first()
+            self.cover_showing = False
+            self.ai_showing = False
+        self.make_move(None)
 
     def ai_moves(self):
         if not self.ui.model:
@@ -437,27 +570,122 @@ class PlayWindow:
 
     def make_move(self, move):
         if move:
+            self.cover_showing = False
+            self.ai_showing = False
             self.ui.make_move(move)
-        with_ai_assist = self.assist.value == self.assist.options[2]
-        if with_ai_assist:
-            import numpy as np
-            move_width = 4
-            mp = self.ai_moves()
-            plane = np.zeros((9, 9))
-            for i in range(min(move_width, len(mp))):
-                dst = mp[i][1].dst
-                plane[dst.y-1, dst.x-1] += mp[i][0]
-            img = self.ui.to_img(plane=plane)
+            self.board.clear_animation()
+            self.board.make_animation(self.ui._record)
+            self.board.animate(1, offset=self.ui.cur-1)
         else:
-            decorate = (self.assist.value == self.assist.options[1])
-            img = self.ui.to_img(decorate=decorate)
-        self.board.update(img)
-        if move or (with_ai_assist != self.with_ai_assist):
+            if self.ai_showing:
+                import numpy as np
+                move_width = 4
+                mp = self.ai_moves()
+                plane = np.zeros((9, 9))
+                for i in range(min(move_width, len(mp))):
+                    dst = mp[i][1].dst
+                    plane[dst.y-1, dst.x-1] += mp[i][0]
+                img = self.ui.to_img(plane=plane)
+            else:
+                img = self.ui.to_img(decorate=self.cover_showing)
+            self.board.update(img)
+        if move or self.ai_showing or self.ui.cur == 0:
             self.sq_ctrl.set_state(
                 self.ui._state,
-                mp if with_ai_assist else None
+                [_[1] for _ in mp] if self.ai_showing else None
             )
-        self.with_ai_assist = with_ai_assist
+        self.auto_reply_btn.disabled = (
+            self.ui.in_checkmate() or self.ui.turn() == miniosl.black
+        )
+        self.reset_btn.disabled = not self.ui.in_checkmate()
+
+
+class PuzzleWindow:
+    def __init__(self, puzzle: miniosl.Puzzle):
+        puzzle.load_eval()
+        self.board = BoardView()
+        self.sq_ctrl = SquareControl(self, puzzle.xlim, puzzle.ylim)
+        self.show_cover_btn = ipywidgets.Button(
+            description='利き表示', layout={'width': '8em'},
+            button_style='info',
+        )
+        self.cover_showing = False
+        self.auto_reply_btn = ipywidgets.Button(
+            description='後手をAIが進める', layout={'width': '12em'},
+            button_style='warning',
+        )
+        self.comment = ipywidgets.Output(layout={
+            'flex_flow': 'row wrap',
+            'width': '3.3in',
+            'margin': '0em'
+        })
+        self.reset_btn = ipywidgets.Button(
+            description='初めに戻す', layout={'width': '8em'},
+            button_style='danger',
+        )
+        self.show_cover_btn.on_click(lambda w: self.button_pressed(w))
+        self.auto_reply_btn.on_click(lambda w: self.button_pressed(w))
+        self.reset_btn.on_click(lambda w: self.button_pressed(w))
+        self.widget = ipywidgets.HBox([
+            ipywidgets.VBox([
+                ipywidgets.Label('盤面'),
+                self.board.widget_box(),
+                self.show_cover_btn,
+                self.comment,
+                self.reset_btn,
+            ]),
+            ipywidgets.VBox([
+                self.sq_ctrl.widget_box(),
+                ipywidgets.HBox(
+                    [self.auto_reply_btn], layout=right_aligned_layout,
+                ),
+            ]),
+        ])
+        self.puzzle = puzzle
+        self.reset()
+        plt.ioff()
+        plt.close()
+        self.auto_reply_btn.disabled = True
+
+    def button_pressed(self, widget):
+        if widget is self.reset_btn:
+            self.reset()
+        elif widget is self.show_cover_btn:
+            self.cover_showing = not self.cover_showing
+            self.make_move(None)
+        elif widget is self.auto_reply_btn:
+            gumbel_cscale = 8
+            values = self.puzzle.gumbel_one(width=8, cscale=gumbel_cscale)
+            self.make_move(values[0][1])
+
+    def reset(self):
+        self.puzzle.reset()
+        self.board.update(self.puzzle.to_img())
+        self.sq_ctrl.set_state(self.puzzle._state, self.puzzle.move_cache)
+        with self.comment:
+            self.comment.clear_output(wait=True)
+            print(self.puzzle.comment())
+        self.reset_btn.disabled = True
+
+    def make_move(self, move):
+        if move:
+            self.reset_btn.disabled = False
+            self.puzzle.make_move(move)
+            self.board.clear_animation()
+            self.board.make_animation(
+                self.puzzle._record,
+                xlim=self.puzzle.xlim, ylim=self.puzzle.ylim
+            )
+            self.board.animate(1, offset=self.puzzle.cur-1)
+            with self.comment:
+                self.comment.clear_output(wait=True)
+                print(self.puzzle.comment())
+        else:
+            img = self.puzzle.to_img(decorate=self.cover_showing)
+            self.board.update(img)
+        if move:
+            self.sq_ctrl.set_state(self.puzzle._state, self.puzzle.move_cache)
+        self.auto_reply_btn.disabled = (self.puzzle.turn() == miniosl.black)
 
 
 def game_play(ui: miniosl.UI):

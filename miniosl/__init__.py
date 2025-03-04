@@ -8,13 +8,14 @@ from .record import np_array_to_sfen_file, sfen_file_to_np_array, \
     load_record_set, load_opening_tree, \
     SfenBlockStat, load_ki2, read_ki2
 from .drawing import show_channels, state_to_img, \
-    ptype_to_ja, hand_pieces_to_ja, ShogiFig, ShogiAnimation
+    hand_pieces_to_ja, ShogiFig, ShogiAnimation
 from .dataset import load_torch_dataset, GameDataset
 from .network import StandardNetwork, PVNetwork
 from .usi_process import UsiProcess
 from .player import UsiPlayer, make_player
 from .inference import export_model, softmax, InferenceModel, p2elo
 from .search import run_mcts
+from .puzzle import Puzzle, tsumeshogi_play, tsumeshogi_widget
 
 
 setattr(MiniRecord, 'replay', record.minirecord_replay)
@@ -79,5 +80,15 @@ def jupyter_aozora():
 def jupyter_game_view(sfen):
     ui = UI(sfen)
     return ui.ipywidget()
+
+
+def jupyter_tsumeshogi(name=''):
+    return tsumeshogi_widget(name).widget
+
+
+def puzzle_path():
+    import importlib.resources
+    return importlib.resources.files('miniosl').joinpath(f'sample')
+
 
 # flake8: noqa

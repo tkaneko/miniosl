@@ -112,7 +112,9 @@ void osl::ml::rook_cover(const EffectState& state, nn_input_element /*4ch*/ *pla
 }
 
 void osl::ml::king_visibility(const EffectState& state, nn_input_element /*2ch*/ *planes) {
-  for (auto z: players) {    
+  for (auto z: players) {
+    if (! state.king_active(z))
+      continue;
     for (auto dir: base8_directions()) {
       fill_segment(state.kingPiece(z), state.kingVisibilityBlackView(z, dir), z, planes);
     }

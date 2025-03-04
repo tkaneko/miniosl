@@ -58,9 +58,10 @@ def safe_load(path, make_editable: bool = False):
 @click.option('--load', default='', help='path for initial data')
 @click.option('--output', default='book.bin', help="path to output",
               show_default=True)
-@click.option('--decay-interval', type=int, help="#files before each decay")
+@click.option('--decay-interval', type=int, help="#files before each decay",
+              default=50, show_default=True)
 @click.option('--dfs-threshold', type=int, help="threshold for dfs",
-              default=128)
+              default=128, show_default=True)
 def build(load, output, files, decay_interval, dfs_threshold):
     """build a book consist of FILES"""
     book = miniosl.OpeningTreeEditable()

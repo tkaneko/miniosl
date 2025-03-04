@@ -197,3 +197,20 @@ def test_aozora():
 
     v, id = board.guess_variant()
     assert v == miniosl.Aozora
+
+
+def test_checkmate1ply():
+    # both kings
+    state = miniosl.usi_state('sfen 8k/9/8P/9/9/9/9/7+P+P/7+PK b G2r2b3g4s4n4l14p 1')
+    assert state.king_active(miniosl.black)
+    assert state.king_active(miniosl.white)
+    assert state.turn == miniosl.black
+    assert state.try_checkmate_1ply().to_csa() == '+0012KI'
+
+    # single king
+    # # not ready
+    # state = miniosl.usi_state('sfen 8k/7g1/8P/9/9/9/9/9/9 b GN2r2b2g4s3n4l17p 1')
+    # assert state.king_active(miniosl.white)
+    # assert state.turn == miniosl.black
+    # assert not state.in_check()
+    # assert state.try_checkmate_1ply().to_csa() == '+0012KI'

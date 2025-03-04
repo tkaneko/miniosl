@@ -16,7 +16,8 @@ WIP.
 
 (experimental)
 
-![](https://github.com/tkaneko/miniosl/raw/main/doc/slider.png)
+- ![](https://github.com/tkaneko/miniosl/raw/main/doc/mate1.png)
+- ![](https://github.com/tkaneko/miniosl/raw/main/doc/slider.png)
 
 ## pip wheel
 

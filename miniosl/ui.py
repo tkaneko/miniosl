@@ -162,9 +162,12 @@ class UI:
 
     def hint(self, show_hint: bool = True, **kwargs):
         if show_hint and not self.prefer_text:
-            self.to_img(**kwargs)
+            return self.to_img(**kwargs)
             # return self.fig
         return self.to_usi()
+
+    def history(self):
+        return self._record.moves[:self.cur]
 
     # delegation for self._record
     def to_usi_history(self) -> str:
@@ -429,7 +432,7 @@ class UI:
 
     def update_features(self):
         if self._features is None:
-            history = self._record.moves[:self.cur]
+            history = self.history()
             f = self._record.initial_state.export_features(history)
             self._features = f
 
@@ -555,7 +558,7 @@ class UI:
     def gumbel_one(self, width: int = 4, cscale: int = 1):
         if self._features is None or self._infer_result is None:
             self.eval(verbose=False)
-        history = self._record.moves[:self.cur]
+        history = self.history()
         mp = self._infer_result['mp']
         logits = self._infer_result['logits'].reshape(-1)
         values = []
