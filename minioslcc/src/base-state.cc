@@ -261,9 +261,9 @@ void osl::BaseState::setPiece(Player player, Square pos, Ptype ptype) {
       return;
     }
   }
-  std::cerr << "osl::BaseState::setPiece! maybe too many pieces " 
-	    << ptype << " " << pos << " " << player << "\n";
-  abort();
+  std::string msg = "no more " + to_csa(ptype) + " available, "
+    + to_csa(player) + " " + to_csa(pos);
+  throw std::range_error(msg);
 }
 
 void osl::BaseState::setPieceAll(Player player) {

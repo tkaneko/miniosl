@@ -1,0 +1,61 @@
+[build-system]
+requires = [
+    "setuptools>=42",
+    "wheel",
+    "ninja",
+    "cmake>=3.12",
+]
+build-backend = "setuptools.build_meta"
+
+[project]
+name="miniosl"
+version="0.1.6a1"
+dependencies = [
+  "recordclass",
+  "numpy",
+  "matplotlib",
+  "coloredlogs",
+  "tqdm",
+  "click",
+]
+requires-python = ">=3.10"
+authors = [
+  {name = "T. Kaneko", email="kaneko@graco.c.u-tokyo.ac.jp"},
+]
+description="A python interface to miniosl (shogi library)"
+readme = {file = "README.md", content-type="text/markdown"}
+classifiers = [
+  'Topic :: Games/Entertainment :: Board Games',
+  'Development Status :: 3 - Alpha',
+  'Operating System :: POSIX :: Linux',
+  'Operating System :: MacOS :: MacOS X',
+  'Intended Audience :: Developers',
+  'Intended Audience :: Education',
+  'Intended Audience :: Science/Research',
+]
+
+[project.optional-dependencies]
+infer_cpu = [
+  "torch",
+  "onnxruntime"
+]
+infer_gpu = [
+  "torch",
+  "onnxruntime-gpu"
+]
+test = [
+  "pytest",
+]
+
+[project.urls]
+Repository = "https://github.com/tkaneko/miniosl"
+
+[project.scripts]
+shogimodel = "miniosl.utility.model:main"
+selfplay = "miniosl.utility.selfplay:main"
+shogibook = "miniosl.utility.book:main"
+shogiconvert = "miniosl.utility.convert_record:main"
+shogiviewer = "miniosl.utility.curses_viewer:main"
+
+[tool.setuptools]
+packages = ["miniosl"]

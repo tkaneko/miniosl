@@ -1,3 +1,4 @@
+recordclass
 numpy
 matplotlib
 coloredlogs

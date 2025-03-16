@@ -214,3 +214,10 @@ def test_checkmate1ply():
     # assert state.turn == miniosl.black
     # assert not state.in_check()
     # assert state.try_checkmate_1ply().to_csa() == '+0012KI'
+
+
+def test_sfen_error():
+    # five knights
+    sfen = 'sfen 7nk/7pp/6B2/9/9/9/9/7+P+P/7+PK b N2rb4g4s3n4l13p 1'
+    with pytest.raises(ValueError):
+        _ = miniosl.usi_state(sfen)

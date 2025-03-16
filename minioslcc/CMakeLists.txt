@@ -16,21 +16,25 @@ set(minioslcc_sources src/basic-type.cc src/base-state.cc src/state.cc src/game.
   src/record.cc src/opening.cc src/feature.cc src/impl/effect.cc src/impl/more.cc
   src/impl/checkmate.cc src/impl/bitpack.cc src/impl/hash.cc src/impl/japanese.cc
   src/impl/rng.cc)
+add_library(minioslcc20_objs OBJECT ${minioslcc_sources})
 if(MINIOSLCC20_BUILD_SHARED_LIBS)
-  add_library(minioslcc20 SHARED ${minioslcc_sources})
+  add_library(minioslcc20 SHARED $<TARGET_OBJECTS:minioslcc20_objs>)
 else()
-  add_library(minioslcc20 STATIC ${minioslcc_sources})
+  add_library(minioslcc20 STATIC $<TARGET_OBJECTS:minioslcc20_objs>)
 endif()
-set_target_properties(minioslcc20 PROPERTIES
+set_target_properties(minioslcc20 minioslcc20_objs
+  PROPERTIES
   POSITION_INDEPENDENT_CODE ${MINIOSLCC20_BUILD_SHARED_LIBS}
-  )
+)
 
 target_include_directories(minioslcc20 PUBLIC src)
+target_include_directories(minioslcc20_objs PUBLIC src)
 if(ENABLE_RANGE_PARALLEL)
   target_compile_definitions(minioslcc20 PUBLIC "ENABLE_RANGE_PARALLEL")
+  target_compile_definitions(minioslcc20_objs PUBLIC "ENABLE_RANGE_PARALLEL")
 endif()
 add_subdirectory(cista)
-target_link_libraries(minioslcc20 cista)
+target_link_libraries(minioslcc20_objs cista)
 
 option(BUILD_PYOSL "build python library for miniosl" ON)
 if(BUILD_PYOSL)
@@ -38,7 +42,7 @@ if(BUILD_PYOSL)
   pybind11_add_module(minioslcc src/pyb/miniosl.cc src/pyb/miniosl-state.cc
     src/pyb/miniosl-game.cc)
   target_include_directories(minioslcc PRIVATE src)
-  target_link_libraries(minioslcc PRIVATE minioslcc20)
+  target_link_libraries(minioslcc PRIVATE $<TARGET_OBJECTS:minioslcc20_objs>)
 endif()
 
 option(BUILD_UTILS "build utilities" OFF)

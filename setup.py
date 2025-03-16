@@ -97,9 +97,6 @@ class CMakeBuild(build_ext):
         if "CMAKE_ARGS" in os.environ:
             cmake_args += [item for item in os.environ["CMAKE_ARGS"].split(" ") if item]
 
-        # In this example, we pass in the version to C++. You might not need to.
-        cmake_args += [f"-DEXAMPLE_VERSION_INFO={self.distribution.get_version()}"]
-
         if self.compiler.compiler_type != "msvc":
             # Using Ninja-build since it a) is available as a wheel and b)
             # multithreads automatically. MSVC would require all variables be
@@ -113,7 +110,8 @@ class CMakeBuild(build_ext):
                     ninja_executable_path = Path(ninja.BIN_DIR) / "ninja"
                     cmake_args += [
                         "-GNinja",
-                        f"-DCMAKE_MAKE_PROGRAM:FILEPATH={ninja_executable_path}",
+                        '-DCMAKE_MAKE_PROGRAM:FILEPATH='
+                        f"{ninja_executable_path}",
                     ]
                 except ImportError:
                     pass
@@ -175,48 +173,16 @@ this_directory = Path(__file__).parent
 # separation of logic and declaration, and simpler if you include
 # description/version in a file.
 setup(
-    name="miniosl",
-    packages=[
-        'miniosl',
-        'miniosl.utility',
-        'minioslcc',
-    ],
     package_data={'miniosl': [
         'pretrained/eval.onnx',
         'pretrained/eval-aozora.onnx',
         'sample/puzzle1.json',
         'sample/puzzle2.json',
     ]},
-    description="A python interface to miniosl (shogi library)",
-    classifiers=[               # https://pypi.org/classifiers/
-        'Topic :: Games/Entertainment :: Board Games',
-        'Development Status :: 3 - Alpha',
-        'Operating System :: POSIX :: Linux',
-        'Operating System :: MacOS :: MacOS X',
-        'Intended Audience :: Developers',
-        'Intended Audience :: Education',
-        'Intended Audience :: Science/Research',
-    ],
-    long_description=(this_directory / "README.md").read_text(),
-    long_description_content_type='text/markdown',
-    version="0.1.5",
-    author="T. Kaneko",
-    author_email="kaneko@graco.c.u-tokyo.ac.jp",
     ext_modules=[CMakeExtension(
         name="minioslcc",
         sourcedir="minioslcc"
     )],
-    project_urls={
-        'Source': 'https://github.com/tkaneko/miniosl',
-    },
     cmdclass={"build_ext": CMakeBuild},
     zip_safe=False,
-    python_requires=">=3.10",
-    scripts=[
-        'scripts/shogiviewer',
-        'scripts/selfplay',
-        'scripts/shogimodel',
-        'scripts/shogiconvert',
-        'scripts/shogibook',
-    ],
 )

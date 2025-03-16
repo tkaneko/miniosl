@@ -48,7 +48,7 @@ def pretrained_eval_path(variant=Hirate):
     name = 'eval'
     if variant == Aozora:
         name = 'eval-aozora'
-    return importlib.resources.files('miniosl').joinpath(f'pretrained/{name}.onnx')
+    return importlib.resources.files('miniosl') / f'pretrained/{name}.onnx'
 
 
 def has_pretrained_eval(*, variant=None):
@@ -88,7 +88,7 @@ def jupyter_tsumeshogi(name=''):
 
 def puzzle_path():
     import importlib.resources
-    return importlib.resources.files('miniosl').joinpath(f'sample')
+    return importlib.resources.files('miniosl') / f'sample'
 
 
 # flake8: noqa

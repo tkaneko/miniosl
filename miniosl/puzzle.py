@@ -112,7 +112,7 @@ def tsumeshogi_play(name=''):
     if os.path.exists(name):
         puzzle = load_json_file(name)
     else:
-        path = miniosl.puzzle_path().joinpath(name + '.json')
+        path = miniosl.puzzle_path() / (name + '.json')
         if os.path.exists(path):
             puzzle = load_json_file(path)
     if not puzzle:
