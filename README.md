@@ -45,7 +45,7 @@ typical commands
 
 ## api doc
 
-[api 0.1.4](https://game.c.u-tokyo.ac.jp/miniosl-api/0-1-4/)
+[api 0.1.6](https://game.c.u-tokyo.ac.jp/miniosl-api/0-1-6/)
 
 The location is tentative and subject to change in the future.
 

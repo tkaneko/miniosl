@@ -9,7 +9,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name="miniosl"
-version="0.1.6a1"
+version="0.1.7"
 dependencies = [
   "recordclass",
   "numpy",
@@ -59,3 +59,9 @@ shogiviewer = "miniosl.utility.curses_viewer:main"
 
 [tool.setuptools]
 packages = ["miniosl"]
+
+[tool.pytest.ini_options]
+addopts = "-ra"
+testpaths = [
+    "tests",
+]

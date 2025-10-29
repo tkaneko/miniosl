@@ -1,4 +1,3 @@
-include README.md CMakeLists.txt
-include scripts/*
-include pretrained/eval.onnx
+include README.md
+include miniosl/pretrained/eval.onnx
 recursive-include minioslcc *.cc *.h CMakeLists.txt LICENSE* MANIFEST* README* setup.* *.yaml *.cmake *.in *.py

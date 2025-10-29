@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import IPython
 
 ctl_layout = {'width': '4em', 'height': '5ex'}
-square_layout = {'width': '2em', 'height': '4ex', 'padding': '0'}
+square_layout = {'width': '3em', 'height': '5.5ex', 'padding': '0'}
 centered_layout = {
     'display': 'flex', 'justify_content': 'center',
 }
@@ -216,8 +216,8 @@ class SquareControl:
         self.parent = parent
         self.xlim = xlim
         self.ylim = ylim
-        self.black_stand, self.black_stand_box = self.make_stand('先手')
-        self.white_stand, self.white_stand_box = self.make_stand('後手')
+        self.black_stand, self.black_stand_box = self.make_stand('☗先手')
+        self.white_stand, self.white_stand_box = self.make_stand('☖後手')
         self.squares = [[
             ipywidgets.Button(
                 description=str(xlim-col)+str(1+row),
@@ -230,7 +230,7 @@ class SquareControl:
                 self.squares[row]
                 + [ipywidgets.Label(
                     miniosl.drawing.kanjirow[row+1],
-                    layout={'width': '1em'}
+                    layout={'width': '2em'}
                 )])
             for row in range(ylim)
         ]
@@ -253,7 +253,7 @@ class SquareControl:
             ipywidgets.VBox(
                 [ipywidgets.HBox([ipywidgets.Label(
                     f' {xlim-col}',
-                    layout=(centered_layout | {'width': '1.95em'})
+                    layout=(centered_layout | {'width': '2.7em'})
                 ) for col in range(xlim)])]
                 + self.rows,
                 layout={'margin': '0 0em 0 1em'}),
@@ -328,8 +328,8 @@ class SquareControl:
         ) for _ in "       "]
         layout = {'height': '3ex', 'margin': '0', 'padding': '0'}
         lbls = [
+            ipywidgets.Label(name, layout=layout),
             ipywidgets.Label('持駒', layout=layout),
-            ipywidgets.Label(name, layout=layout)
         ]
         return btns, ipywidgets.VBox(lbls+btns, layout=centered_layout)
 
@@ -434,7 +434,7 @@ class SquareControl:
     def piece_str(piece):
         if not piece.is_piece():
             return ' '
-        return ((' ' if piece.color == miniosl.black else 'v')
+        return (('☗' if piece.color == miniosl.black else '☖')
                 + piece.ptype.to_ja1())
 
     def set_state(self, state, ai_moves=None):
