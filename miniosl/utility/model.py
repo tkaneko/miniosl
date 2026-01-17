@@ -274,14 +274,46 @@ TrainingCfg = collections.namedtuple(
     'TrainingCfg', ValidationCfg._fields + (
         'trainfiles', 'savefile',
         'batch_size', 'step_limit', 'epoch_limit', 'report_interval',
-        'policy_commit', 'ablate_aux_loss',
+        'policy_focal_exponent', 'ablate_aux_loss',
         'validation_data', 'validation_interval',
      )
 )
 
 
+def squared_pt_weight(x):
+    return 1 - x**2
+
+
+def focal_loss(
+    inputs: torch.Tensor,
+    targets: torch.Tensor,
+    gamma: float = 0,
+    ce_weight=None,
+) -> torch.Tensor:
+    '''generalized cross entropy loss
+
+    c.f. for binary code in torch vision.
+    https://docs.pytorch.org/vision/stable/_modules/torchvision/ops/focal_loss.html
+    '''
+    ce_loss = torch.nn.functional.cross_entropy(
+        inputs, targets, reduction='none',
+    )
+    if gamma <= 0:
+        return ce_loss
+    num_classes = inputs.shape[-1]
+    one_hot_target = torch.nn.functional.one_hot(targets.long(), num_classes)
+    p = torch.softmax(inputs, dim=-1)
+    p_t = (p * one_hot_target).sum(dim=-1)
+    weight = ((1 - p_t) ** gamma)
+    focal_loss = ce_loss * weight
+    if ce_weight is None:
+        return focal_loss
+    a = ce_weight(p_t)
+    return a * ce_loss + (1-a) * focal_loss
+
+
 def do_train(base_model, cfg: TrainingCfg, loader_class,
-             deterministic_mode):
+             deterministic_mode, *, opening_decay_power=None):
     """do training.
 
     usage: accelerate launch --multi_gpu --dynamo_backend inductor \
@@ -326,8 +358,8 @@ def do_train(base_model, cfg: TrainingCfg, loader_class,
         if isinstance(cfg.trainfiles, tuple) else cfg.trainfiles
     logger.info(f'loading {msg}')
     dataset = miniosl.load_torch_dataset(list(cfg.trainfiles))
+    dataset.opening_decay_power = opening_decay_power
 
-    centropy = torch.nn.CrossEntropyLoss()
     mse = torch.nn.MSELoss()
     optimizer = torch.optim.AdamW(base_model.parameters(), weight_decay=1e-4)
 
@@ -379,27 +411,15 @@ def do_train(base_model, cfg: TrainingCfg, loader_class,
                 model.train(True)
                 batch = miniosl.dataset.preprocess_batch(data)
 
-                if cfg.policy_commit < 1.0:
-                    dist_moves = unpack_moves(batch.legal_move).float()
-                    n_moves = dist_moves.sum(dim=-1)
-                    small_prob = ((1 - cfg.policy_commit)
-                                  / n_moves.unsqueeze(-1))
-                    dist_moves *= small_prob
-                    # defer setting the probability for move_labels
-
                 optimizer.zero_grad()
 
                 out = BatchOutput(*model(batch.obs))
                 move_target = batch.move
 
-                if cfg.policy_commit < 1.0:
-                    dist_moves.scatter_(
-                        dim=1, index=batch.move.unsqueeze(-1),
-                        src=(cfg.policy_commit + small_prob)
-                    )
-                    move_target = dist_moves
-
-                move_loss = centropy(out.move, move_target)
+                move_loss = focal_loss(
+                    out.move, move_target,
+                    gamma=cfg.policy_focal_exponent,
+                ) .mean()       # generalized ce
                 value_loss = mse(out.value[:, 0].flatten(),
                                  batch.value)
                 aux_loss = mse(
@@ -519,31 +539,33 @@ def main(log_level):
         # random.seed(0)
 
 
-@main.command()
+@main.command(context_settings={'show_default': True})
 @click.argument('data', nargs=-1)
 @click.option("--output", help="output path", default='')
 @click.option('--device', default='cuda:0',
-              help='device to place', show_default=True)
+              help='device to place')
 @click.option("--batch-size", type=int,
               help="batch size",
-              default=1024, show_default=True)
+              default=1024)
 @click.option("--epoch-limit", help="maximum epoch",
-              type=int, default=2, show_default=True)
+              type=int, default=2)
 @click.option("--step-limit", help="maximum #update, 0 for inf",
-              type=int, default=100000, show_default=True)
-@click.option("--policy-commit", type=float,
-              help="smoothing in cross entropy loss if <1",
-              default=127/128, show_default=True)
+              type=int, default=100000)
+@click.option("--policy-focal-exponent", type=float,
+              help="smoothing cross entropy if >0",
+              default=0)
+@click.option("--opening-decay-power", type=int, default=11,
+              show_default=True)
 @click.option("--ablate-aux-loss/--no-ablate-aux-loss", default=False)
-@click.option("--report-interval", type=int, default=200, show_default=True)
+@click.option("--report-interval", type=int, default=200)
 @click.option("--validation-data", default='')
 @click.option("--validation-interval", type=int, default=1000,
               show_default=True)
-@click.option("--validation-step", type=int, default=100, show_default=True)
+@click.option("--validation-step", type=int, default=100)
 @click.option('--csv', default="validation.csv",
-              help="file to append validation result", show_default=True)
+              help="file to append validation result")
 def train(data, output, device, batch_size, epoch_limit, step_limit,
-          policy_commit, ablate_aux_loss,
+          policy_focal_exponent, opening_decay_power, ablate_aux_loss,
           report_interval,
           validation_data, validation_step, validation_interval, csv):
     """train a model (loaded or built in advance) with DATA (npz or sfen)"""
@@ -562,28 +584,30 @@ def train(data, output, device, batch_size, epoch_limit, step_limit,
         device=device, trainfiles=data, savefile=output,
         batch_size=batch_size, step_limit=step_limit, epoch_limit=epoch_limit,
         report_interval=report_interval,
-        policy_commit=policy_commit, ablate_aux_loss=ablate_aux_loss,
+        policy_focal_exponent=policy_focal_exponent, ablate_aux_loss=ablate_aux_loss,
         validation_data=validation_data, validation_size=validation_step,
         validation_csv=csv, validation_interval=validation_interval,
      )
 
-    do_train(model, cfg, loader_class, deterministic_mode)
+    do_train(model, cfg, loader_class, deterministic_mode,
+             opening_decay_power=opening_decay_power)
     miniosl.export_model(model, device=device,
                          filename=output + '.ptd',
                          quiet=True, remove_aux_head=False)
 
 
-@main.command()
+@main.command(context_settings={'show_default': True})
 @click.option("--n-block", help="#residual block",
-              type=int, default=9, show_default=True)
+              type=int, default=9)
 @click.option("--n-channel", help="#channel", type=int, default=256,
               show_default=True)
 @click.option("--broadcast-every",
               help="insert broadcast periodically",
-              type=int, default=3, show_default=True)
+              type=int, default=3)
 @click.option('--device', default='cuda:0', help='device to place',
               show_default=True)
 def build(n_block, n_channel, broadcast_every, device):
+    '''build a new network'''
     network_cfg = {'in_channels': len(miniosl.channel_id),
                    'channels': n_channel, 'out_channels': 27,
                    'auxout_channels': miniosl.aux_unit//81,
@@ -594,11 +618,11 @@ def build(n_block, n_channel, broadcast_every, device):
     global_config['network_cfg'] = model.config
 
 
-@main.command()
+@main.command(context_settings={'show_default': True})
 @click.argument('model', type=click.Path(exists=True, dir_okay=False))
 @click.option('--model', type=click.Path(exists=True, dir_okay=False))
 @click.option('--device', default='cuda:0',
-              help='device to load', show_default=True)
+              help='device to load')
 @click.option('--load-strict/--no-load-strict', default=True)
 @click.option('--remove-aux-head/--no-remove-aux-head', default=False)
 def load(model, device, load_strict, remove_aux_head):
@@ -614,7 +638,7 @@ def load(model, device, load_strict, remove_aux_head):
         global_config['torch_model'] = model.model
 
 
-@main.command()
+@main.command(context_settings={'show_default': True})
 @click.argument('output', type=click.Path(exists=False, dir_okay=False))
 @click.option('--device', default='cuda:0',
               help='not important except for tensorrt')
@@ -635,16 +659,16 @@ def export(output, device, remove_aux_head):
                          remove_aux_head=remove_aux_head)
 
 
-@main.command()
+@main.command(context_settings={'show_default': True})
 @click.argument('data', type=click.Path(exists=True, dir_okay=False))
 @click.option('--device', default='cuda:0',
-              help='device to load', show_default=True)
+              help='device to load')
 @click.option('--csv', default="validation.csv",
-              help="file to append validation result", show_default=True)
+              help="file to append validation result")
 @click.option("--batch-size", type=int, default=1024,
-              help="batch size", show_default=True)
+              help="batch size")
 @click.option('--step-limit', type=int, default=100,
-              help="validation size", show_default=True)
+              help="validation size")
 def validate(data, device, csv, batch_size, step_limit):
     """run (only) validation on DATA"""
     v_dataset = miniosl.load_torch_dataset(data)

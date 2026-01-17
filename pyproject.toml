@@ -1,15 +1,16 @@
 [build-system]
-requires = [
-    "setuptools>=42",
-    "wheel",
-    "ninja",
-    "cmake>=3.12",
-]
-build-backend = "setuptools.build_meta"
+requires = ["scikit-build-core >=0.4.3", "nanobind >=1.3.2"]
+build-backend = "scikit_build_core.build"
 
 [project]
 name="miniosl"
-version="0.1.7"
+version="0.1.8"
+description="A python interface to miniosl (shogi library)"
+readme = {file = "README.md", content-type="text/markdown"}
+requires-python = ">=3.10"
+authors = [
+  {name = "T. Kaneko", email="kaneko@graco.c.u-tokyo.ac.jp"},
+]
 dependencies = [
   "recordclass",
   "numpy",
@@ -18,12 +19,6 @@ dependencies = [
   "tqdm",
   "click",
 ]
-requires-python = ">=3.10"
-authors = [
-  {name = "T. Kaneko", email="kaneko@graco.c.u-tokyo.ac.jp"},
-]
-description="A python interface to miniosl (shogi library)"
-readme = {file = "README.md", content-type="text/markdown"}
 classifiers = [
   'Topic :: Games/Entertainment :: Board Games',
   'Development Status :: 3 - Alpha',
@@ -50,15 +45,20 @@ test = [
 [project.urls]
 Repository = "https://github.com/tkaneko/miniosl"
 
+[tool.scikit-build]
+minimum-version = "0.4"
+build-dir = "build/{wheel_tag}"
+wheel.py-api = "cp312"
+# wheel.include = ["pretrained/eval.onnx*"]
+sdist.include = ["miniosl/pretrained/eval.onnx*", "miniosl/pretrained/eval-aozora.onnx*"]
+sdist.exclude = ["*build", "doc-api", "doc"]
+
 [project.scripts]
 shogimodel = "miniosl.utility.model:main"
 selfplay = "miniosl.utility.selfplay:main"
 shogibook = "miniosl.utility.book:main"
 shogiconvert = "miniosl.utility.convert_record:main"
 shogiviewer = "miniosl.utility.curses_viewer:main"
-
-[tool.setuptools]
-packages = ["miniosl"]
 
 [tool.pytest.ini_options]
 addopts = "-ra"

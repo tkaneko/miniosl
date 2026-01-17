@@ -324,6 +324,8 @@ void pyosl::init_state_np(py::module_& m) {
   // functions
   m.def("parallel_threads", [](){ return osl::range_parallel_threads; },
         "internal concurrency");
+  m.def("hw_concurrency", [](){ return std::thread::hardware_concurrency(); },
+        "hardware concurrency");
   m.def("shogi816k",
         [](int id){ return osl::EffectState(osl::BaseState(osl::Shogi816K, id)); },
         "id"_a, "make a state");

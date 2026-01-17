@@ -72,7 +72,7 @@ class UI:
     P9+KY+KE+GI * +OU+KI * +KE+KY
     +
     """
-    default_prefer_text = False  # shared preference on board representation
+    default_prefer_text = not is_in_notebook()  # shared preference on board representation
 
     def __init__(self, init: str | BaseState | MiniRecord = '',
                  *, prefer_text=None, default_format='usi'):
@@ -538,6 +538,9 @@ class UI:
 
         need to call :py:meth:`load_eval` in advance
         """
+        if self.model is None:
+            logging.warning('please do load_eval() first')
+            return
         self.update_features()
         logits, value, aux = self.model.eval(self._features,
                                              take_softmax=False)
@@ -553,7 +556,7 @@ class UI:
             for i in range(min(len(mp), 3)):
                 print(mp[i][1], f'{mp[i][0]*100:6.1f}%',
                       mp[i][1].to_ja(self._state))
-        return value*Value_Scale, mp
+        return value[:1], mp
 
     def gumbel_one(self, width: int = 4, cscale: int = 1):
         if self._features is None or self._infer_result is None:

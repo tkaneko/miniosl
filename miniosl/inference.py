@@ -14,7 +14,7 @@ def p2elo(p, eps=1e-4):
 
 
 def sort_moves(moves, policy):
-    flatten = policy.flatten()
+    flatten = policy.flatten().tolist()
     prob = [(flatten[move.policy_move_label], move) for move in moves]
     prob.sort(key=lambda e: -e[0])
     return prob
@@ -226,7 +226,7 @@ def load(path: str, device: str = "", torch_cfg: dict = {},
             model = cmodel
         else:
             model = raw_model
-        saved_state = torch.load(path, map_location=torch.device(device))
+        saved_state = torch.load(path, map_location=torch.device(device), weights_only=False)
         strict = strict and not remove_aux_head
         model.load_state_dict(saved_state, strict=strict)
         return TorchInfer(raw_model, device)
@@ -235,7 +235,7 @@ def load(path: str, device: str = "", torch_cfg: dict = {},
         model = model.to(device)
         return TorchInfer(model, device)
     if path.endswith('.chpt'):
-        checkpoint = torch.load(path, map_location=torch.device(device))
+        checkpoint = torch.load(path, map_location=torch.device(device), weights_only=False)
         cfg = checkpoint['cfg']
         network_cfg = cfg['network_cfg']
         for obsolete_key in ['make_bottleneck']:

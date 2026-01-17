@@ -267,7 +267,9 @@ from_record_set(const RecordSet& data, int minimum_count) {
         if (e.second.count() < minimum_count)
           continue;
         found = std::max(found, e.second.count());
-        tree[{kv.first, e.first.to_uint()}] = {e.second};
+        auto &node = tree[{kv.first, e.first.to_uint()}];
+        if (node.count() == 0)
+          node = {e.second};
       }
     }
   }

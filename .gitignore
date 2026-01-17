@@ -1,9 +1,10 @@
-*.so
+*~
 *.egg-info
 *build
 *ipynb*
 *.pt
 *.gch
+*.so
 runs
 __pycache__
 .python-version

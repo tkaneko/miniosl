@@ -2,6 +2,7 @@ import curses
 import curses.panel
 import curses.textpad
 import miniosl
+import torch
 import argparse
 import os
 import os.path
@@ -20,9 +21,9 @@ parser.add_argument("--eval", help="optional evaluation function",
                     default=os.path.expanduser(miniosl.pretrained_eval_path())
                     )
 parser.add_argument("--book", help="optional opening book",
-                    default='book.bin'
+                    default=''
                     )
-parser.add_argument("--device", help="device", default='cpu')
+parser.add_argument("--device", help="device", default='auto')
 parser.add_argument("--inspect-terminal", help="terminal property",
                     action="store_true")
 args = parser.parse_args()
@@ -77,7 +78,7 @@ class TUI:
             limit = 2 if N < 40000 else 10
             self.tree = miniosl.OpeningTreeEditable.from_record_set(record_set,
                                                                     limit)
-        if os.path.exists(book):
+        if book and os.path.exists(book):
             self.tree = miniosl.load_opening_tree(book)
         self.state_shown = None
 
@@ -466,8 +467,8 @@ class TUI:
         self.policy_panel.addstr(0, 0, f'NN {os.path.basename(args.eval)}')
         self.policy_panel.addstr(
             1, 4,
-            f'評価値 {value[0]:5.0f} {value[1]:5.0f} {value[2]:5.0f}'
-            f'  {value[3]:5.0f}')
+            f'評価値 {value[0]*1000:5.0f}'
+        )
         for i in range(min(len(mp), 3)):
             mp_ja = mp[i][1].to_ja(self.UI._state)
             self.policy_panel.addstr(2+i, 4, f'{mp_ja:11s}')
@@ -537,12 +538,16 @@ def main():
             record_set = miniosl.RecordSet(miniosl.MiniRecordVector([record]))
         else:
             record_set = miniosl.RecordSet.from_usi_file(src)
+    elif not args.book:
+        args.book = 'book.bin'  # default
+    if args.device == 'auto':
+        args.device = 'cuda' if torch.cuda.is_available() else 'cpu'
     logger.debug('initializing ui')
     ui = miniosl.UI(prefer_text=True)
     if not os.path.exists(args.eval):
         args.eval = ''
     ui.load_eval(args.eval, device=args.device)
-    logger.debug('starting curses')
+    logger.debug(f'starting curses {args.book=}')
     try:
         curses.wrapper(TUI(ui, record_set, args.book))
     except Exception as e:

@@ -1,12 +1,12 @@
 [submodule "pybind11"]
-	path = minioslcc/pybind11
+	path = minioslcc/ext/pybind11
 	url = https://github.com/pybind/pybind11.git
 [submodule "acutest"]
-	path = minioslcc/acutest
+	path = minioslcc/ext/acutest
 	url = https://github.com/mity/acutest.git
 [submodule "minioslcc/plog"]
-	path = minioslcc/plog
+	path = minioslcc/ext/plog
 	url = https://github.com/SergiusTheBest/plog
 [submodule "minioslcc/cista"]
-	path = minioslcc/cista
+	path = minioslcc/ext/cista
 	url = https://github.com/felixguendling/cista.git
